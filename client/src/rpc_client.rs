@@ -631,6 +631,7 @@ impl RpcClient {
         &self,
         transaction: &Transaction,
     ) -> ClientResult<Signature> {
+        println!("greg_7_send_and_confirm_transaction_with_spinner");
         self.invoke(
             self.rpc_client
                 .send_and_confirm_transaction_with_spinner(transaction),
@@ -654,6 +655,7 @@ impl RpcClient {
         commitment: CommitmentConfig,
         config: RpcSendTransactionConfig,
     ) -> ClientResult<Signature> {
+        println!("greg_1_send_and_confirm_tx_with_spinner_and_config");
         self.invoke(
             self.rpc_client
                 .send_and_confirm_transaction_with_spinner_and_config(
@@ -962,6 +964,7 @@ impl RpcClient {
         recent_blockhash: &Hash,
         commitment_config: CommitmentConfig,
     ) -> ClientResult<()> {
+        println!("greg_solana_client::rpc_client::RpcClient::confirm_transaction_with_spinner()");
         self.invoke(self.rpc_client.confirm_transaction_with_spinner(
             signature,
             recent_blockhash,

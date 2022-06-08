@@ -699,6 +699,7 @@ impl RpcClient {
         &self,
         transaction: &Transaction,
     ) -> ClientResult<Signature> {
+        info!("greg_4_send_and_confirm_transaction_with_spinner");
         self.send_and_confirm_transaction_with_spinner_and_commitment(
             transaction,
             self.commitment(),
@@ -711,6 +712,7 @@ impl RpcClient {
         transaction: &Transaction,
         commitment: CommitmentConfig,
     ) -> ClientResult<Signature> {
+        info!("greg_3_send_and_confirm_transaction_with_spinner_and_commitment");
         self.send_and_confirm_transaction_with_spinner_and_config(
             transaction,
             commitment,
@@ -738,6 +740,7 @@ impl RpcClient {
         let signature = self
             .send_transaction_with_config(transaction, config)
             .await?;
+        info!("greg_solana_client::nonblocking::rpc_client::RpcClient::send_and_confirm_transaction_with_spinner_and_config()");
         self.confirm_transaction_with_spinner(&signature, &recent_blockhash, commitment)
             .await?;
         Ok(signature)
@@ -1132,6 +1135,7 @@ impl RpcClient {
 
         let progress_bar = spinner::new_progress_bar();
 
+        info!("greg_1_solana_client::nonblocking::rpc_client::RpcClient::confirm_transaction_with_spinner()");
         progress_bar.set_message(format!(
             "[{}/{}] Finalizing transaction {}",
             confirmations, desired_confirmations, signature,
@@ -1189,6 +1193,7 @@ impl RpcClient {
                 return Ok(());
             }
 
+            info!("greg_2_solana_client::nonblocking::rpc_client::RpcClient::confirm_transaction_with_spinner()");
             progress_bar.set_message(format!(
                 "[{}/{}] Finalizing transaction {}",
                 min(confirmations + 1, desired_confirmations),

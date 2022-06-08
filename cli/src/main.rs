@@ -243,6 +243,7 @@ fn do_main(matches: &ArgMatches<'_>) -> Result<(), Box<dyn error::Error>> {
 
         let (mut config, signers) = parse_args(matches, &mut wallet_manager)?;
         config.signers = signers.iter().map(|s| s.as_ref()).collect();
+        println!("greg_10_do_main");
         let result = process_command(&config)?;
         println!("{}", result);
     };

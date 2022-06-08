@@ -734,6 +734,7 @@ pub mod test {
                 &latest_blockhash,
             )
             .unwrap();
+        info!("greg_solana_accounts_cluster_bench::test::test_create_then_reclaim_spl_token_accounts()");
         rpc_client
             .confirm_transaction_with_spinner(
                 &signature,

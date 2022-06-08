@@ -213,6 +213,7 @@ fn send_and_confirm_message<S: Signers>(
     if no_wait {
         client.send_transaction(&transaction)
     } else {
+        println!("greg_5_send_and_confirm_message");
         client.send_and_confirm_transaction_with_spinner(&transaction)
     }
 }

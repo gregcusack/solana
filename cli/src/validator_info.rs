@@ -360,6 +360,7 @@ pub fn process_set_validator_info(
     )?;
     let mut tx = Transaction::new_unsigned(message);
     tx.try_sign(&signers, latest_blockhash)?;
+    println!("greg_6_process_set_validator_info");
     let signature_str = rpc_client.send_and_confirm_transaction_with_spinner(&tx)?;
 
     println!("Success! Validator info published at: {:?}", info_pubkey);

@@ -757,6 +757,7 @@ pub fn process_transfer(
         let result = if no_wait {
             rpc_client.send_transaction(&tx)
         } else {
+            println!("greg_8_process_transfer");
             rpc_client.send_and_confirm_transaction_with_spinner(&tx)
         };
         log_instruction_custom_error::<SystemError>(result, config)

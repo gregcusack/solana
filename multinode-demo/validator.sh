@@ -10,8 +10,9 @@ args=(
   --max-genesis-archive-unpacked-size 1073741824
   --no-poh-speed-test
   --no-os-network-limits-test
+  --no-voting # greg -> added this
 )
-airdrops_enabled=1
+airdrops_enabled=0 # greg -> change from 1 to 0
 node_sol=500 # 500 SOL: number of SOL to airdrop the node for transaction fees and vote account rent exemption (ignored if airdrops_enabled=0)
 label=
 identity=
@@ -82,7 +83,7 @@ while [[ -n $1 ]]; do
     elif [[ $1 = --authorized-withdrawer ]]; then
       authorized_withdrawer=$2
       shift 2
-    elif [[ $1 = --vote-account ]]; then
+    elif [[ $1 = --vote-account ]]; then # greg -> commented out
       vote_account=$2
       args+=("$1" "$2")
       shift 2
@@ -248,7 +249,7 @@ fi
 faucet_address="${gossip_entrypoint%:*}":9900
 
 : "${identity:=$ledger_dir/identity.json}"
-: "${vote_account:=$ledger_dir/vote-account.json}"
+: "${vote_account:=$ledger_dir/vote-account.json}" # greg -> comment
 : "${authorized_withdrawer:=$ledger_dir/authorized-withdrawer.json}"
 
 default_arg --entrypoint "$gossip_entrypoint"
@@ -257,7 +258,7 @@ if ((airdrops_enabled)); then
 fi
 
 default_arg --identity "$identity"
-default_arg --vote-account "$vote_account"
+default_arg --vote-account "$vote_account" # greg -> comment
 default_arg --ledger "$ledger_dir"
 default_arg --log -
 default_arg --full-rpc-api
@@ -305,7 +306,7 @@ wallet() {
 
 setup_validator_accounts() {
   declare node_sol=$1
-
+  SKIP_ACCOUNTS_CREATION=1 # greg -> add entire line to skip account creation
   if [[ -n "$SKIP_ACCOUNTS_CREATION" ]]; then
     return 0
   fi

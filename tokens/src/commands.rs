@@ -629,7 +629,7 @@ fn finalize_transactions(
     let mut opt_confirmations = update_finalized_transactions(client, db, exit.clone())?;
 
     let progress_bar = new_spinner_progress_bar();
-
+    println!("greg_solana_tokens::commands::finalize_transactions()");
     while opt_confirmations.is_some() {
         if let Some(confirmations) = opt_confirmations {
             progress_bar.set_message(format!(

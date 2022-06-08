@@ -819,6 +819,8 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
         // Primarily for testing
         config.rpc_client.as_ref().unwrap().clone()
     };
+    println!("greg_9_process_command");
+    println!("greg_config.command: {:?}", config.command);
 
     match &config.command {
         // Cluster Query Commands
@@ -1548,6 +1550,7 @@ pub fn request_and_confirm_airdrop(
     let recent_blockhash = rpc_client.get_latest_blockhash()?;
     let signature =
         rpc_client.request_airdrop_with_blockhash(to_pubkey, lamports, &recent_blockhash)?;
+    info!("greg_solana_cli::cli::request_and_confirm_airdrop()");
     rpc_client.confirm_transaction_with_spinner(
         &signature,
         &recent_blockhash,

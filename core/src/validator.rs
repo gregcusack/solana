@@ -34,7 +34,7 @@ use {
             DEFAULT_CONTACT_SAVE_INTERVAL_MILLIS,
         },
         contact_info::ContactInfo,
-        crds_gossip_pull::CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
+        // crds_gossip_pull::CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
         gossip_service::GossipService,
     },
     solana_ledger::{
@@ -101,7 +101,8 @@ use {
     solana_streamer::socket::SocketAddrSpace,
     solana_vote_program::vote_state::VoteState,
     std::{
-        collections::{HashMap, HashSet},
+        // collections::{HashMap, HashSet},
+        collections::HashSet,
         net::SocketAddr,
         path::{Path, PathBuf},
         sync::{
@@ -114,7 +115,7 @@ use {
 };
 
 const MAX_COMPLETED_DATA_SETS_IN_CHANNEL: usize = 100_000;
-const WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT: u64 = 80;
+// const WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT: u64 = 80;
 
 /// maximum drop bank signal queue length
 const MAX_DROP_BANK_SIGNAL_QUEUE_SIZE: usize = 10_000;
@@ -882,24 +883,24 @@ impl Validator {
             &exit,
         );
 
-        let waited_for_supermajority = if let Ok(waited) = wait_for_supermajority(
-            config,
-            Some(&mut process_blockstore),
-            &bank_forks,
-            &cluster_info,
-            rpc_override_health_check,
-            &start_progress,
-        ) {
-            waited
-        } else {
-            abort();
-        };
+        // let waited_for_supermajority = if let Ok(waited) = wait_for_supermajority(
+        //     config,
+        //     Some(&mut process_blockstore),
+        //     &bank_forks,
+        //     &cluster_info,
+        //     rpc_override_health_check,
+        //     &start_progress,
+        // ) {
+        //     waited
+        // } else {
+        //     abort();
+        // };
 
         let ledger_metric_report_service =
             LedgerMetricReportService::new(blockstore.clone(), &exit);
 
-        let wait_for_vote_to_start_leader =
-            !waited_for_supermajority && !config.no_wait_for_vote_to_start_leader;
+        // let wait_for_vote_to_start_leader =
+        //     !waited_for_supermajority && !config.no_wait_for_vote_to_start_leader;
 
         let poh_service = PohService::new(
             poh_recorder.clone(),
@@ -1836,11 +1837,11 @@ fn initialize_rpc_transaction_history_services(
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum ValidatorError {
-    BadExpectedBankHash,
-    NotEnoughLedgerData,
-}
+// #[derive(Debug, PartialEq, Eq)]
+// enum ValidatorError {
+//     BadExpectedBankHash,
+//     NotEnoughLedgerData,
+// }
 
 // Return if the validator waited on other nodes to start. In this case
 // it should not wait for one of it's votes to land to produce blocks
@@ -1848,176 +1849,176 @@ enum ValidatorError {
 //
 // Error indicates that a bad hash was encountered or another condition
 // that is unrecoverable and the validator should exit.
-fn wait_for_supermajority(
-    config: &ValidatorConfig,
-    process_blockstore: Option<&mut ProcessBlockStore>,
-    bank_forks: &RwLock<BankForks>,
-    cluster_info: &ClusterInfo,
-    rpc_override_health_check: Arc<AtomicBool>,
-    start_progress: &Arc<RwLock<ValidatorStartProgress>>,
-) -> Result<bool, ValidatorError> {
-    match config.wait_for_supermajority {
-        None => Ok(false),
-        Some(wait_for_supermajority) => {
-            if let Some(process_blockstore) = process_blockstore {
-                process_blockstore.process();
-            }
+// fn wait_for_supermajority(
+//     config: &ValidatorConfig,
+//     process_blockstore: Option<&mut ProcessBlockStore>,
+//     bank_forks: &RwLock<BankForks>,
+//     cluster_info: &ClusterInfo,
+//     rpc_override_health_check: Arc<AtomicBool>,
+//     start_progress: &Arc<RwLock<ValidatorStartProgress>>,
+// ) -> Result<bool, ValidatorError> {
+//     match config.wait_for_supermajority {
+//         None => Ok(false),
+//         Some(wait_for_supermajority) => {
+//             if let Some(process_blockstore) = process_blockstore {
+//                 process_blockstore.process();
+//             }
 
-            let bank = bank_forks.read().unwrap().working_bank();
-            match wait_for_supermajority.cmp(&bank.slot()) {
-                std::cmp::Ordering::Less => return Ok(false),
-                std::cmp::Ordering::Greater => {
-                    error!(
-                        "Ledger does not have enough data to wait for supermajority, \
-                             please enable snapshot fetch. Has {} needs {}",
-                        bank.slot(),
-                        wait_for_supermajority
-                    );
-                    return Err(ValidatorError::NotEnoughLedgerData);
-                }
-                _ => {}
-            }
+//             let bank = bank_forks.read().unwrap().working_bank();
+//             match wait_for_supermajority.cmp(&bank.slot()) {
+//                 std::cmp::Ordering::Less => return Ok(false),
+//                 std::cmp::Ordering::Greater => {
+//                     error!(
+//                         "Ledger does not have enough data to wait for supermajority, \
+//                              please enable snapshot fetch. Has {} needs {}",
+//                         bank.slot(),
+//                         wait_for_supermajority
+//                     );
+//                     return Err(ValidatorError::NotEnoughLedgerData);
+//                 }
+//                 _ => {}
+//             }
 
-            if let Some(expected_bank_hash) = config.expected_bank_hash {
-                if bank.hash() != expected_bank_hash {
-                    error!(
-                        "Bank hash({}) does not match expected value: {}",
-                        bank.hash(),
-                        expected_bank_hash
-                    );
-                    return Err(ValidatorError::BadExpectedBankHash);
-                }
-            }
+//             if let Some(expected_bank_hash) = config.expected_bank_hash {
+//                 if bank.hash() != expected_bank_hash {
+//                     error!(
+//                         "Bank hash({}) does not match expected value: {}",
+//                         bank.hash(),
+//                         expected_bank_hash
+//                     );
+//                     return Err(ValidatorError::BadExpectedBankHash);
+//                 }
+//             }
 
-            *start_progress.write().unwrap() = ValidatorStartProgress::WaitingForSupermajority;
-            for i in 1.. {
-                if i % 10 == 1 {
-                    info!(
-                        "Waiting for {}% of activated stake at slot {} to be in gossip...",
-                        WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT,
-                        bank.slot()
-                    );
-                }
+//             *start_progress.write().unwrap() = ValidatorStartProgress::WaitingForSupermajority;
+//             for i in 1.. {
+//                 if i % 10 == 1 {
+//                     info!(
+//                         "Waiting for {}% of activated stake at slot {} to be in gossip...",
+//                         WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT,
+//                         bank.slot()
+//                     );
+//                 }
 
-                let gossip_stake_percent =
-                    get_stake_percent_in_gossip(&bank, cluster_info, i % 10 == 0);
+//                 let gossip_stake_percent =
+//                     get_stake_percent_in_gossip(&bank, cluster_info, i % 10 == 0);
 
-                if gossip_stake_percent >= WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT {
-                    info!(
-                        "Supermajority reached, {}% active stake detected, starting up now.",
-                        gossip_stake_percent,
-                    );
-                    break;
-                }
-                // The normal RPC health checks don't apply as the node is waiting, so feign health to
-                // prevent load balancers from removing the node from their list of candidates during a
-                // manual restart.
-                rpc_override_health_check.store(true, Ordering::Relaxed);
-                sleep(Duration::new(1, 0));
-            }
-            rpc_override_health_check.store(false, Ordering::Relaxed);
-            Ok(true)
-        }
-    }
-}
+//                 if gossip_stake_percent >= WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT {
+//                     info!(
+//                         "Supermajority reached, {}% active stake detected, starting up now.",
+//                         gossip_stake_percent,
+//                     );
+//                     break;
+//                 }
+//                 // The normal RPC health checks don't apply as the node is waiting, so feign health to
+//                 // prevent load balancers from removing the node from their list of candidates during a
+//                 // manual restart.
+//                 rpc_override_health_check.store(true, Ordering::Relaxed);
+//                 sleep(Duration::new(1, 0));
+//             }
+//             rpc_override_health_check.store(false, Ordering::Relaxed);
+//             Ok(true)
+//         }
+//     }
+// }
 
-// Get the activated stake percentage (based on the provided bank) that is visible in gossip
-fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: bool) -> u64 {
-    let mut online_stake = 0;
-    let mut wrong_shred_stake = 0;
-    let mut wrong_shred_nodes = vec![];
-    let mut offline_stake = 0;
-    let mut offline_nodes = vec![];
+// // Get the activated stake percentage (based on the provided bank) that is visible in gossip
+// fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: bool) -> u64 {
+//     let mut online_stake = 0;
+//     let mut wrong_shred_stake = 0;
+//     let mut wrong_shred_nodes = vec![];
+//     let mut offline_stake = 0;
+//     let mut offline_nodes = vec![];
 
-    let mut total_activated_stake = 0;
-    let now = timestamp();
-    // Nodes contact infos are saved to disk and restored on validator startup.
-    // Staked nodes entries will not expire until an epoch after. So it
-    // is necessary here to filter for recent entries to establish liveness.
-    let peers: HashMap<_, _> = cluster_info
-        .all_tvu_peers()
-        .into_iter()
-        .filter(|node| {
-            let age = now.saturating_sub(node.wallclock);
-            // Contact infos are refreshed twice during this period.
-            age < CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
-        })
-        .map(|node| (node.id, node))
-        .collect();
-    let my_shred_version = cluster_info.my_shred_version();
-    let my_id = cluster_info.id();
+//     let mut total_activated_stake = 0;
+//     let now = timestamp();
+//     // Nodes contact infos are saved to disk and restored on validator startup.
+//     // Staked nodes entries will not expire until an epoch after. So it
+//     // is necessary here to filter for recent entries to establish liveness.
+//     let peers: HashMap<_, _> = cluster_info
+//         .all_tvu_peers()
+//         .into_iter()
+//         .filter(|node| {
+//             let age = now.saturating_sub(node.wallclock);
+//             // Contact infos are refreshed twice during this period.
+//             age < CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+//         })
+//         .map(|node| (node.id, node))
+//         .collect();
+//     let my_shred_version = cluster_info.my_shred_version();
+//     let my_id = cluster_info.id();
 
-    for (activated_stake, vote_account) in bank.vote_accounts().values() {
-        let activated_stake = *activated_stake;
-        total_activated_stake += activated_stake;
+//     for (activated_stake, vote_account) in bank.vote_accounts().values() {
+//         let activated_stake = *activated_stake;
+//         total_activated_stake += activated_stake;
 
-        if activated_stake == 0 {
-            continue;
-        }
-        let vote_state_node_pubkey = vote_account
-            .vote_state()
-            .as_ref()
-            .map(|vote_state| vote_state.node_pubkey)
-            .unwrap_or_default();
+//         if activated_stake == 0 {
+//             continue;
+//         }
+//         let vote_state_node_pubkey = vote_account
+//             .vote_state()
+//             .as_ref()
+//             .map(|vote_state| vote_state.node_pubkey)
+//             .unwrap_or_default();
 
-        if let Some(peer) = peers.get(&vote_state_node_pubkey) {
-            if peer.shred_version == my_shred_version {
-                trace!(
-                    "observed {} in gossip, (activated_stake={})",
-                    vote_state_node_pubkey,
-                    activated_stake
-                );
-                online_stake += activated_stake;
-            } else {
-                wrong_shred_stake += activated_stake;
-                wrong_shred_nodes.push((activated_stake, vote_state_node_pubkey));
-            }
-        } else if vote_state_node_pubkey == my_id {
-            online_stake += activated_stake; // This node is online
-        } else {
-            offline_stake += activated_stake;
-            offline_nodes.push((activated_stake, vote_state_node_pubkey));
-        }
-    }
+//         if let Some(peer) = peers.get(&vote_state_node_pubkey) {
+//             if peer.shred_version == my_shred_version {
+//                 trace!(
+//                     "observed {} in gossip, (activated_stake={})",
+//                     vote_state_node_pubkey,
+//                     activated_stake
+//                 );
+//                 online_stake += activated_stake;
+//             } else {
+//                 wrong_shred_stake += activated_stake;
+//                 wrong_shred_nodes.push((activated_stake, vote_state_node_pubkey));
+//             }
+//         } else if vote_state_node_pubkey == my_id {
+//             online_stake += activated_stake; // This node is online
+//         } else {
+//             offline_stake += activated_stake;
+//             offline_nodes.push((activated_stake, vote_state_node_pubkey));
+//         }
+//     }
 
-    let online_stake_percentage = (online_stake as f64 / total_activated_stake as f64) * 100.;
-    if log {
-        info!(
-            "{:.3}% of active stake visible in gossip",
-            online_stake_percentage
-        );
+//     let online_stake_percentage = (online_stake as f64 / total_activated_stake as f64) * 100.;
+//     if log {
+//         info!(
+//             "{:.3}% of active stake visible in gossip",
+//             online_stake_percentage
+//         );
 
-        if !wrong_shred_nodes.is_empty() {
-            info!(
-                "{:.3}% of active stake has the wrong shred version in gossip",
-                (wrong_shred_stake as f64 / total_activated_stake as f64) * 100.,
-            );
-            for (stake, identity) in wrong_shred_nodes {
-                info!(
-                    "    {:.3}% - {}",
-                    (stake as f64 / total_activated_stake as f64) * 100.,
-                    identity
-                );
-            }
-        }
+//         if !wrong_shred_nodes.is_empty() {
+//             info!(
+//                 "{:.3}% of active stake has the wrong shred version in gossip",
+//                 (wrong_shred_stake as f64 / total_activated_stake as f64) * 100.,
+//             );
+//             for (stake, identity) in wrong_shred_nodes {
+//                 info!(
+//                     "    {:.3}% - {}",
+//                     (stake as f64 / total_activated_stake as f64) * 100.,
+//                     identity
+//                 );
+//             }
+//         }
 
-        if !offline_nodes.is_empty() {
-            info!(
-                "{:.3}% of active stake is not visible in gossip",
-                (offline_stake as f64 / total_activated_stake as f64) * 100.
-            );
-            for (stake, identity) in offline_nodes {
-                info!(
-                    "    {:.3}% - {}",
-                    (stake as f64 / total_activated_stake as f64) * 100.,
-                    identity
-                );
-            }
-        }
-    }
+//         if !offline_nodes.is_empty() {
+//             info!(
+//                 "{:.3}% of active stake is not visible in gossip",
+//                 (offline_stake as f64 / total_activated_stake as f64) * 100.
+//             );
+//             for (stake, identity) in offline_nodes {
+//                 info!(
+//                     "    {:.3}% - {}",
+//                     (stake as f64 / total_activated_stake as f64) * 100.,
+//                     identity
+//                 );
+//             }
+//         }
+//     }
 
-    online_stake_percentage as u64
-}
+//     online_stake_percentage as u64
+// }
 
 // Cleanup anything that looks like an accounts append-vec
 fn cleanup_accounts_path(account_path: &std::path::Path) {
@@ -2215,79 +2216,79 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_wait_for_supermajority() {
-        solana_logger::setup();
-        use solana_sdk::hash::hash;
-        let node_keypair = Arc::new(Keypair::new());
-        let cluster_info = ClusterInfo::new(
-            ContactInfo::new_localhost(&node_keypair.pubkey(), timestamp()),
-            node_keypair,
-            SocketAddrSpace::Unspecified,
-        );
+    // #[test]
+    // fn test_wait_for_supermajority() {
+    //     solana_logger::setup();
+    //     use solana_sdk::hash::hash;
+    //     let node_keypair = Arc::new(Keypair::new());
+    //     let cluster_info = ClusterInfo::new(
+    //         ContactInfo::new_localhost(&node_keypair.pubkey(), timestamp()),
+    //         node_keypair,
+    //         SocketAddrSpace::Unspecified,
+    //     );
 
-        let (genesis_config, _mint_keypair) = create_genesis_config(1);
-        let bank_forks = RwLock::new(BankForks::new(Bank::new_for_tests(&genesis_config)));
-        let mut config = ValidatorConfig::default_for_test();
-        let rpc_override_health_check = Arc::new(AtomicBool::new(false));
-        let start_progress = Arc::new(RwLock::new(ValidatorStartProgress::default()));
+    //     let (genesis_config, _mint_keypair) = create_genesis_config(1);
+    //     let bank_forks = RwLock::new(BankForks::new(Bank::new_for_tests(&genesis_config)));
+    //     let mut config = ValidatorConfig::default_for_test();
+    //     let rpc_override_health_check = Arc::new(AtomicBool::new(false));
+    //     let start_progress = Arc::new(RwLock::new(ValidatorStartProgress::default()));
 
-        assert!(!wait_for_supermajority(
-            &config,
-            None,
-            &bank_forks,
-            &cluster_info,
-            rpc_override_health_check.clone(),
-            &start_progress,
-        )
-        .unwrap());
+    //     assert!(!wait_for_supermajority(
+    //         &config,
+    //         None,
+    //         &bank_forks,
+    //         &cluster_info,
+    //         rpc_override_health_check.clone(),
+    //         &start_progress,
+    //     )
+    //     .unwrap());
 
-        // bank=0, wait=1, should fail
-        config.wait_for_supermajority = Some(1);
-        assert_eq!(
-            wait_for_supermajority(
-                &config,
-                None,
-                &bank_forks,
-                &cluster_info,
-                rpc_override_health_check.clone(),
-                &start_progress,
-            ),
-            Err(ValidatorError::NotEnoughLedgerData)
-        );
+    //     // bank=0, wait=1, should fail
+    //     config.wait_for_supermajority = Some(1);
+    //     assert_eq!(
+    //         wait_for_supermajority(
+    //             &config,
+    //             None,
+    //             &bank_forks,
+    //             &cluster_info,
+    //             rpc_override_health_check.clone(),
+    //             &start_progress,
+    //         ),
+    //         Err(ValidatorError::NotEnoughLedgerData)
+    //     );
 
-        // bank=1, wait=0, should pass, bank is past the wait slot
-        let bank_forks = RwLock::new(BankForks::new(Bank::new_from_parent(
-            &bank_forks.read().unwrap().root_bank(),
-            &Pubkey::default(),
-            1,
-        )));
-        config.wait_for_supermajority = Some(0);
-        assert!(!wait_for_supermajority(
-            &config,
-            None,
-            &bank_forks,
-            &cluster_info,
-            rpc_override_health_check.clone(),
-            &start_progress,
-        )
-        .unwrap());
+    //     // bank=1, wait=0, should pass, bank is past the wait slot
+    //     let bank_forks = RwLock::new(BankForks::new(Bank::new_from_parent(
+    //         &bank_forks.read().unwrap().root_bank(),
+    //         &Pubkey::default(),
+    //         1,
+    //     )));
+    //     config.wait_for_supermajority = Some(0);
+    //     assert!(!wait_for_supermajority(
+    //         &config,
+    //         None,
+    //         &bank_forks,
+    //         &cluster_info,
+    //         rpc_override_health_check.clone(),
+    //         &start_progress,
+    //     )
+    //     .unwrap());
 
-        // bank=1, wait=1, equal, but bad hash provided
-        config.wait_for_supermajority = Some(1);
-        config.expected_bank_hash = Some(hash(&[1]));
-        assert_eq!(
-            wait_for_supermajority(
-                &config,
-                None,
-                &bank_forks,
-                &cluster_info,
-                rpc_override_health_check,
-                &start_progress,
-            ),
-            Err(ValidatorError::BadExpectedBankHash)
-        );
-    }
+    //     // bank=1, wait=1, equal, but bad hash provided
+    //     config.wait_for_supermajority = Some(1);
+    //     config.expected_bank_hash = Some(hash(&[1]));
+    //     assert_eq!(
+    //         wait_for_supermajority(
+    //             &config,
+    //             None,
+    //             &bank_forks,
+    //             &cluster_info,
+    //             rpc_override_health_check,
+    //             &start_progress,
+    //         ),
+    //         Err(ValidatorError::BadExpectedBankHash)
+    //     );
+    // }
 
     #[test]
     fn test_interval_check() {

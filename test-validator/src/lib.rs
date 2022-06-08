@@ -766,6 +766,7 @@ impl TestValidator {
             validator,
             vote_account_address,
         };
+        info!("greg_just created test_validator");
         Ok(test_validator)
     }
 
