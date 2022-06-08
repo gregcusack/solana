@@ -11,7 +11,8 @@ use {
         consensus::{reconcile_blockstore_roots_with_tower, Tower},
         ledger_metric_report_service::LedgerMetricReportService,
         poh_timing_report_service::PohTimingReportService,
-        rewards_recorder_service::{RewardsRecorderSender, RewardsRecorderService},
+        // rewards_recorder_service::{RewardsRecorderSender, RewardsRecorderService},
+        rewards_recorder_service::{RewardsRecorderService},
         sample_performance_service::SamplePerformanceService,
         serve_repair::ServeRepair,
         serve_repair_service::ServeRepairService,
@@ -21,9 +22,9 @@ use {
         system_monitor_service::{verify_udp_stats_access, SystemMonitorService},
         tower_storage::TowerStorage,
         tpu::{Tpu, TpuSockets, DEFAULT_TPU_COALESCE_MS},
-        tvu::{Tvu, TvuConfig, TvuSockets},
+        // tvu::{Tvu, TvuConfig, TvuSockets},
     },
-    crossbeam_channel::{bounded, unbounded, Receiver},
+    crossbeam_channel::{bounded, unbounded},//, Receiver},
     rand::{thread_rng, Rng},
     solana_entry::poh::compute_hash_time_ns,
     solana_geyser_plugin_manager::geyser_plugin_service::GeyserPluginService,
@@ -315,7 +316,7 @@ struct TransactionHistoryServices {
     transaction_status_sender: Option<TransactionStatusSender>,
     transaction_status_service: Option<TransactionStatusService>,
     max_complete_transaction_status_slot: Arc<AtomicU64>,
-    rewards_recorder_sender: Option<RewardsRecorderSender>,
+    // rewards_recorder_sender: Option<RewardsRecorderSender>,
     rewards_recorder_service: Option<RewardsRecorderService>,
     cache_block_meta_sender: Option<CacheBlockMetaSender>,
     cache_block_meta_service: Option<CacheBlockMetaService>,
@@ -341,7 +342,7 @@ pub struct Validator {
     poh_recorder: Arc<Mutex<PohRecorder>>,
     poh_service: PohService,
     tpu: Tpu,
-    tvu: Tvu,
+    // tvu: Tvu,
     ip_echo_server: Option<solana_net_utils::IpEchoServer>,
     pub cluster_info: Arc<ClusterInfo>,
     pub bank_forks: Arc<RwLock<BankForks>>,
@@ -379,7 +380,7 @@ impl Validator {
         should_check_duplicate_instance: bool,
         start_progress: Arc<RwLock<ValidatorStartProgress>>,
         socket_addr_space: SocketAddrSpace,
-        use_quic: bool,
+        // use_quic: bool,
     ) -> Self {
         let id = identity_keypair.pubkey();
         assert_eq!(id, node.info.id);
@@ -492,9 +493,9 @@ impl Validator {
             .as_ref()
             .and_then(|geyser_plugin_service| geyser_plugin_service.get_transaction_notifier());
 
-        let block_metadata_notifier = geyser_plugin_service
-            .as_ref()
-            .and_then(|geyser_plugin_service| geyser_plugin_service.get_block_metadata_notifier());
+        // let block_metadata_notifier = geyser_plugin_service
+        //     .as_ref()
+        //     .and_then(|geyser_plugin_service| geyser_plugin_service.get_block_metadata_notifier());
 
         info!(
             "Geyser plugin: accounts_update_notifier: {} transaction_notifier: {}",
@@ -517,7 +518,7 @@ impl Validator {
             genesis_config,
             bank_forks,
             blockstore,
-            ledger_signal_receiver,
+            // ledger_signal_receiver,
             completed_slots_receiver,
             leader_schedule_cache,
             starting_snapshot_hashes,
@@ -525,7 +526,7 @@ impl Validator {
                 transaction_status_sender,
                 transaction_status_service,
                 max_complete_transaction_status_slot,
-                rewards_recorder_sender,
+                // rewards_recorder_sender,
                 rewards_recorder_service,
                 cache_block_meta_sender,
                 cache_block_meta_service,
@@ -724,7 +725,7 @@ impl Validator {
         ));
 
         let max_slots = Arc::new(MaxSlots::default());
-        let (completed_data_sets_sender, completed_data_sets_receiver) =
+        let (_, completed_data_sets_receiver) =
             bounded(MAX_COMPLETED_DATA_SETS_IN_CHANNEL);
         let completed_data_sets_service = CompletedDataSetsService::new(
             completed_data_sets_receiver,
@@ -921,10 +922,10 @@ impl Validator {
         cost_model.initialize_cost_table(&[]);
         let cost_model = Arc::new(RwLock::new(cost_model));
 
-        let (retransmit_slots_sender, retransmit_slots_receiver) = unbounded();
-        let (verified_vote_sender, verified_vote_receiver) = unbounded();
-        let (gossip_verified_vote_hash_sender, gossip_verified_vote_hash_receiver) = unbounded();
-        let (cluster_confirmed_slot_sender, cluster_confirmed_slot_receiver) = unbounded();
+        let (_, retransmit_slots_receiver) = unbounded();
+        let (verified_vote_sender, _) = unbounded();
+        let (gossip_verified_vote_hash_sender, _) = unbounded();
+        let (cluster_confirmed_slot_sender, _) = unbounded();
 
         let rpc_completed_slots_service = RpcCompletedSlotsService::spawn(
             completed_slots_receiver,
@@ -933,54 +934,54 @@ impl Validator {
         );
 
         let (replay_vote_sender, replay_vote_receiver) = unbounded();
-        let tvu = Tvu::new(
-            vote_account,
-            authorized_voter_keypairs,
-            &bank_forks,
-            &cluster_info,
-            TvuSockets {
-                repair: node.sockets.repair,
-                retransmit: node.sockets.retransmit_sockets,
-                fetch: node.sockets.tvu,
-                forwards: node.sockets.tvu_forwards,
-                ancestor_hashes_requests: node.sockets.ancestor_hashes_requests,
-            },
-            blockstore.clone(),
-            ledger_signal_receiver,
-            &rpc_subscriptions,
-            &poh_recorder,
-            process_blockstore,
-            config.tower_storage.clone(),
-            &leader_schedule_cache,
-            &exit,
-            block_commitment_cache,
-            config.turbine_disabled.clone(),
-            transaction_status_sender.clone(),
-            rewards_recorder_sender,
-            cache_block_meta_sender,
-            vote_tracker.clone(),
-            retransmit_slots_sender,
-            gossip_verified_vote_hash_receiver,
-            verified_vote_receiver,
-            replay_vote_sender.clone(),
-            completed_data_sets_sender,
-            bank_notification_sender.clone(),
-            cluster_confirmed_slot_receiver,
-            TvuConfig {
-                max_ledger_shreds: config.max_ledger_shreds,
-                shred_version: node.info.shred_version,
-                repair_validators: config.repair_validators.clone(),
-                rocksdb_compaction_interval: config.rocksdb_compaction_interval,
-                rocksdb_max_compaction_jitter: config.rocksdb_compaction_interval,
-                wait_for_vote_to_start_leader,
-            },
-            &max_slots,
-            &cost_model,
-            block_metadata_notifier,
-            config.wait_to_vote_slot,
-            accounts_background_request_sender,
-            use_quic,
-        );
+        // let tvu = Tvu::new(
+        //     vote_account,
+        //     authorized_voter_keypairs,
+        //     &bank_forks,
+        //     &cluster_info,
+        //     TvuSockets {
+        //         repair: node.sockets.repair,
+        //         retransmit: node.sockets.retransmit_sockets,
+        //         fetch: node.sockets.tvu,
+        //         forwards: node.sockets.tvu_forwards,
+        //         ancestor_hashes_requests: node.sockets.ancestor_hashes_requests,
+        //     },
+        //     blockstore.clone(),
+        //     ledger_signal_receiver,
+        //     &rpc_subscriptions,
+        //     &poh_recorder,
+        //     process_blockstore,
+        //     config.tower_storage.clone(),
+        //     &leader_schedule_cache,
+        //     &exit,
+        //     block_commitment_cache,
+        //     config.turbine_disabled.clone(),
+        //     transaction_status_sender.clone(),
+        //     rewards_recorder_sender,
+        //     cache_block_meta_sender,
+        //     vote_tracker.clone(),
+        //     retransmit_slots_sender,
+        //     gossip_verified_vote_hash_receiver,
+        //     verified_vote_receiver,
+        //     replay_vote_sender.clone(),
+        //     completed_data_sets_sender,
+        //     bank_notification_sender.clone(),
+        //     cluster_confirmed_slot_receiver,
+        //     TvuConfig {
+        //         max_ledger_shreds: config.max_ledger_shreds,
+        //         shred_version: node.info.shred_version,
+        //         repair_validators: config.repair_validators.clone(),
+        //         rocksdb_compaction_interval: config.rocksdb_compaction_interval,
+        //         rocksdb_max_compaction_jitter: config.rocksdb_compaction_interval,
+        //         wait_for_vote_to_start_leader,
+        //     },
+        //     &max_slots,
+        //     &cost_model,
+        //     block_metadata_notifier,
+        //     config.wait_to_vote_slot,
+        //     accounts_background_request_sender,
+        //     use_quic,
+        // );
 
         let tpu = Tpu::new(
             &cluster_info,
@@ -1038,7 +1039,7 @@ impl Validator {
             snapshot_packager_service,
             completed_data_sets_service,
             tpu,
-            tvu,
+            // tvu,
             poh_service,
             poh_recorder,
             ip_echo_server,
@@ -1169,7 +1170,7 @@ impl Validator {
             .join()
             .expect("accounts_hash_verifier");
         self.tpu.join().expect("tpu");
-        self.tvu.join().expect("tvu");
+        // self.tvu.join().expect("tvu");
         self.completed_data_sets_service
             .join()
             .expect("completed_data_sets_service");
@@ -1327,7 +1328,7 @@ fn load_blockstore(
     GenesisConfig,
     Arc<RwLock<BankForks>>,
     Arc<Blockstore>,
-    Receiver<bool>,
+    // Receiver<bool>,
     CompletedSlotsReceiver,
     LeaderScheduleCache,
     Option<StartingSnapshotHashes>,
@@ -1364,7 +1365,7 @@ fn load_blockstore(
 
     let BlockstoreSignals {
         mut blockstore,
-        ledger_signal_receiver,
+        // ledger_signal_receiver,
         completed_slots_receiver,
         ..
     } = Blockstore::open_with_signal(
@@ -1483,7 +1484,7 @@ fn load_blockstore(
         genesis_config,
         bank_forks,
         blockstore,
-        ledger_signal_receiver,
+        // ledger_signal_receiver,
         completed_slots_receiver,
         leader_schedule_cache,
         starting_snapshot_hashes,
@@ -1809,8 +1810,8 @@ fn initialize_rpc_transaction_history_services(
         exit,
     ));
 
-    let (rewards_recorder_sender, rewards_receiver) = unbounded();
-    let rewards_recorder_sender = Some(rewards_recorder_sender);
+    let (_, rewards_receiver) = unbounded();
+    // let rewards_recorder_sender = Some(rewards_recorder_sender);
     let rewards_recorder_service = Some(RewardsRecorderService::new(
         rewards_receiver,
         blockstore.clone(),
@@ -1828,7 +1829,7 @@ fn initialize_rpc_transaction_history_services(
         transaction_status_sender,
         transaction_status_service,
         max_complete_transaction_status_slot,
-        rewards_recorder_sender,
+        // rewards_recorder_sender,
         rewards_recorder_service,
         cache_block_meta_sender,
         cache_block_meta_service,
@@ -2091,7 +2092,7 @@ mod tests {
             true, // should_check_duplicate_instance
             start_progress.clone(),
             SocketAddrSpace::Unspecified,
-            false, // use_quic
+            // false, // use_quic
         );
         assert_eq!(
             *start_progress.read().unwrap(),
@@ -2186,7 +2187,7 @@ mod tests {
                     true, // should_check_duplicate_instance
                     Arc::new(RwLock::new(ValidatorStartProgress::default())),
                     SocketAddrSpace::Unspecified,
-                    false, // use_quic
+                    // false, // use_quic
                 )
             })
             .collect();

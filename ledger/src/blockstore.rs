@@ -142,7 +142,7 @@ pub struct CompletedDataSetInfo {
 
 pub struct BlockstoreSignals {
     pub blockstore: Blockstore,
-    pub ledger_signal_receiver: Receiver<bool>,
+    // pub ledger_signal_receiver: Receiver<bool>,
     pub completed_slots_receiver: CompletedSlotsReceiver,
 }
 
@@ -353,7 +353,7 @@ impl Blockstore {
         options: BlockstoreOptions,
     ) -> Result<BlockstoreSignals> {
         let blockstore = Self::open_with_options(ledger_path, options)?;
-        let (ledger_signal_sender, ledger_signal_receiver) = bounded(MAX_REPLAY_WAKE_UP_SIGNALS);
+        let (ledger_signal_sender, _) = bounded(MAX_REPLAY_WAKE_UP_SIGNALS);
         let (completed_slots_sender, completed_slots_receiver) =
             bounded(MAX_COMPLETED_SLOTS_IN_CHANNEL);
 
@@ -362,7 +362,7 @@ impl Blockstore {
 
         Ok(BlockstoreSignals {
             blockstore,
-            ledger_signal_receiver,
+            // ledger_signal_receiver,
             completed_slots_receiver,
         })
     }
@@ -4891,7 +4891,7 @@ pub mod tests {
         let ledger_path = get_tmp_ledger_path_auto_delete!();
         let BlockstoreSignals {
             blockstore,
-            ledger_signal_receiver: recvr,
+            // ledger_signal_receiver: recvr,
             ..
         } = Blockstore::open_with_signal(ledger_path.path(), BlockstoreOptions::default()).unwrap();
 

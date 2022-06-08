@@ -2425,6 +2425,7 @@ pub fn main() {
     }
     let full_api = matches.is_present("full_rpc_api");
 
+    //GREG_KEEP
     let mut validator_config = ValidatorConfig {
         require_tower: matches.is_present("require_tower"),
         tower_storage,
@@ -2976,7 +2977,7 @@ pub fn main() {
         should_check_duplicate_instance,
         start_progress,
         socket_addr_space,
-        tpu_use_quic,
+        // tpu_use_quic,
     );
     *admin_service_post_init.write().unwrap() =
         Some(admin_rpc_service::AdminRpcRequestMetadataPostInit {

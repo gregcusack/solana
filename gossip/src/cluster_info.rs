@@ -1699,6 +1699,7 @@ impl ClusterInfo {
                 }
                 let mut generate_pull_requests = true;
                 loop {
+                    info!("greg_cluster_info::ClusterInfo::gossip - loop()");
                     let start = timestamp();
                     if self.contact_debug_interval != 0
                         && start - last_contact_info_trace > self.contact_debug_interval
