@@ -386,6 +386,9 @@ impl Validator {
 
         warn!("identity: {}", id);
         warn!("vote account: {}", vote_account);
+        info!("greg_Validator::new()");
+        info!("greg_ledger_path: {}", ledger_path.display());
+
 
         if !config.no_os_network_stats_reporting {
             verify_udp_stats_access().unwrap_or_else(|err| {
@@ -412,6 +415,10 @@ impl Validator {
             } else {
                 None
             };
+
+        // let geyser_plugin_service = None;
+        // let geyser_plugin_config_files = None;
+
 
         if config.voting_disabled {
             warn!("voting disabled");

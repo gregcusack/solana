@@ -262,6 +262,7 @@ impl CrdsGossipPush {
         crds: &RwLock<Crds>,
         now: u64,
     ) -> HashMap<Pubkey, Vec<CrdsValue>> {
+        info!("greg_crds_gossip_push::CrdsGossipPush::new_push_messages()");
         let active_set = self.active_set.read().unwrap();
         let active_set_len = active_set.len();
         let push_fanout = self.push_fanout.min(active_set_len);

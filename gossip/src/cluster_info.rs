@@ -1478,6 +1478,7 @@ impl ClusterInfo {
         }
     }
     fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
+        info!("greg_ClusterInfo::new_push_requests()");
         let self_id = self.id();
         let mut push_messages = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
@@ -1522,6 +1523,7 @@ impl ClusterInfo {
         stakes: &HashMap<Pubkey, u64>,
         generate_pull_requests: bool,
     ) -> Vec<(SocketAddr, Protocol)> {
+        info!("greg_ClusterInfo::generate_new_gossip_requests()");
         self.trim_crds_table(CRDS_UNIQUE_PUBKEY_CAPACITY, stakes);
         // This will flush local pending push messages before generating
         // pull-request bloom filters, preventing pull responses to return the
@@ -1556,6 +1558,7 @@ impl ClusterInfo {
         sender: &PacketBatchSender,
         generate_pull_requests: bool,
     ) -> Result<(), GossipError> {
+        info!("greg_ClusterInfo::run_gossip()");
         let reqs = self.generate_new_gossip_requests(
             thread_pool,
             gossip_validators,
@@ -1670,6 +1673,7 @@ impl ClusterInfo {
         gossip_validators: Option<HashSet<Pubkey>>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        info!("greg_ClusterInfo::gossip()");
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(std::cmp::min(get_thread_count(), 8))
             .thread_name(|i| format!("ClusterInfo::gossip-{}", i))

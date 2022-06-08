@@ -87,6 +87,7 @@ impl CrdsGossip {
         pending_push_messages: Vec<CrdsValue>,
         now: u64,
     ) -> HashMap<Pubkey, Vec<CrdsValue>> {
+        info!("greg_crds_gossip::CrdsGossip::new_push_messages()");
         {
             let mut crds = self.crds.write().unwrap();
             for entry in pending_push_messages {

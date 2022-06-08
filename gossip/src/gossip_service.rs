@@ -41,6 +41,7 @@ impl GossipService {
         stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
         exit: &Arc<AtomicBool>,
     ) -> Self {
+        info!("greg_GossipService::new()");
         let (request_sender, request_receiver) = unbounded();
         let gossip_socket = Arc::new(gossip_socket);
         trace!(
