@@ -500,7 +500,7 @@ impl TestValidator {
     /// Faucet optional.
     ///
     /// This function panics on initialization failure.
-    pub fn with_custom_fees(
+    pub fn with_custom_fees( 
         mint_address: Pubkey,
         target_lamports_per_signature: u64,
         faucet_addr: Option<SocketAddr>,
