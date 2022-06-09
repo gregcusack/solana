@@ -64,7 +64,7 @@ impl OptimisticallyConfirmedBankTracker {
         bank_forks: Arc<RwLock<BankForks>>,
         optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
         subscriptions: Arc<RpcSubscriptions>,
-        bank_notification_subscribers: Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
+        // bank_notification_subscribers: Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
     ) -> Self {
         let exit_ = exit.clone();
         let mut pending_optimistically_confirmed_banks = HashSet::new();
@@ -85,7 +85,7 @@ impl OptimisticallyConfirmedBankTracker {
                     &mut pending_optimistically_confirmed_banks,
                     &mut last_notified_confirmed_slot,
                     &mut highest_confirmed_slot,
-                    &bank_notification_subscribers,
+                    // &bank_notification_subscribers,
                 ) {
                     break;
                 }
@@ -102,7 +102,7 @@ impl OptimisticallyConfirmedBankTracker {
         pending_optimistically_confirmed_banks: &mut HashSet<Slot>,
         last_notified_confirmed_slot: &mut Slot,
         highest_confirmed_slot: &mut Slot,
-        bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
+        // bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
     ) -> Result<(), RecvTimeoutError> {
         let notification = receiver.recv_timeout(Duration::from_secs(1))?;
         Self::process_notification(
@@ -113,28 +113,29 @@ impl OptimisticallyConfirmedBankTracker {
             pending_optimistically_confirmed_banks,
             last_notified_confirmed_slot,
             highest_confirmed_slot,
-            bank_notification_subscribers,
+            // bank_notification_subscribers,
         );
         Ok(())
     }
 
     fn notify_slot_status(
-        bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
+        // bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
         notification: BankNotification,
     ) {
-        if let Some(bank_notification_subscribers) = bank_notification_subscribers {
-            for sender in bank_notification_subscribers.read().unwrap().iter() {
-                match sender.send(notification.clone()) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        info!(
-                            "Failed to send notification {:?}, error: {:?}",
-                            notification, err
-                        );
-                    }
-                }
-            }
-        }
+        info!("greg_OptimisticallyConfirmedBankTracker::notify_slot_status().notification: {:?}", notification);
+        // if let Some(bank_notification_subscribers) = bank_notification_subscribers {
+        //     for sender in bank_notification_subscribers.read().unwrap().iter() {
+        //         match sender.send(notification.clone()) {
+        //             Ok(_) => {}
+        //             Err(err) => {
+        //                 info!(
+        //                     "Failed to send notification {:?}, error: {:?}",
+        //                     notification, err
+        //                 );
+        //             }
+        //         }
+        //     }
+        // }
     }
 
     fn notify_or_defer(
@@ -143,7 +144,7 @@ impl OptimisticallyConfirmedBankTracker {
         bank: &Arc<Bank>,
         last_notified_confirmed_slot: &mut Slot,
         pending_optimistically_confirmed_banks: &mut HashSet<Slot>,
-        bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
+        // bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
     ) {
         if bank.is_frozen() {
             if bank.slot() > *last_notified_confirmed_slot {
@@ -154,7 +155,7 @@ impl OptimisticallyConfirmedBankTracker {
                 subscriptions.notify_gossip_subscribers(bank.slot());
                 *last_notified_confirmed_slot = bank.slot();
                 Self::notify_slot_status(
-                    bank_notification_subscribers,
+                    // bank_notification_subscribers,
                     BankNotification::OptimisticallyConfirmed(bank.slot()),
                 );
             }
@@ -171,7 +172,7 @@ impl OptimisticallyConfirmedBankTracker {
         slot_threshold: Slot,
         last_notified_confirmed_slot: &mut Slot,
         pending_optimistically_confirmed_banks: &mut HashSet<Slot>,
-        bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
+        // bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
     ) {
         for confirmed_bank in bank.clone().parents_inclusive().iter().rev() {
             if confirmed_bank.slot() > slot_threshold {
@@ -185,7 +186,7 @@ impl OptimisticallyConfirmedBankTracker {
                     confirmed_bank,
                     last_notified_confirmed_slot,
                     pending_optimistically_confirmed_banks,
-                    bank_notification_subscribers,
+                    // bank_notification_subscribers,
                 );
             }
         }
@@ -199,7 +200,7 @@ impl OptimisticallyConfirmedBankTracker {
         pending_optimistically_confirmed_banks: &mut HashSet<Slot>,
         last_notified_confirmed_slot: &mut Slot,
         highest_confirmed_slot: &mut Slot,
-        bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
+        // bank_notification_subscribers: &Option<Arc<RwLock<Vec<BankNotificationSender>>>>,
     ) {
         debug!("received bank notification: {:?}", notification);
         match notification {
@@ -222,7 +223,7 @@ impl OptimisticallyConfirmedBankTracker {
                             *highest_confirmed_slot,
                             last_notified_confirmed_slot,
                             pending_optimistically_confirmed_banks,
-                            bank_notification_subscribers,
+                            // bank_notification_subscribers,
                         );
 
                         *highest_confirmed_slot = slot;
@@ -258,7 +259,7 @@ impl OptimisticallyConfirmedBankTracker {
                     });
 
                     Self::notify_slot_status(
-                        bank_notification_subscribers,
+                        // bank_notification_subscribers,
                         BankNotification::Frozen(bank.clone()),
                     );
                 }
@@ -276,7 +277,7 @@ impl OptimisticallyConfirmedBankTracker {
                         *last_notified_confirmed_slot,
                         last_notified_confirmed_slot,
                         pending_optimistically_confirmed_banks,
-                        bank_notification_subscribers,
+                        // bank_notification_subscribers,
                     );
 
                     let mut w_optimistically_confirmed_bank =
@@ -289,7 +290,7 @@ impl OptimisticallyConfirmedBankTracker {
             }
             BankNotification::Root(bank) => {
                 Self::notify_slot_status(
-                    bank_notification_subscribers,
+                    // bank_notification_subscribers,
                     BankNotification::Root(bank.clone()),
                 );
                 let root_slot = bank.slot();
@@ -367,7 +368,7 @@ mod tests {
             &mut pending_optimistically_confirmed_banks,
             &mut last_notified_confirmed_slot,
             &mut highest_confirmed_slot,
-            &None,
+            // &None,
         );
         assert_eq!(optimistically_confirmed_bank.read().unwrap().bank.slot(), 2);
         assert_eq!(highest_confirmed_slot, 2);
@@ -381,7 +382,7 @@ mod tests {
             &mut pending_optimistically_confirmed_banks,
             &mut last_notified_confirmed_slot,
             &mut highest_confirmed_slot,
-            &None,
+            // &None,
         );
         assert_eq!(optimistically_confirmed_bank.read().unwrap().bank.slot(), 2);
         assert_eq!(highest_confirmed_slot, 2);
@@ -395,7 +396,7 @@ mod tests {
             &mut pending_optimistically_confirmed_banks,
             &mut last_notified_confirmed_slot,
             &mut highest_confirmed_slot,
-            &None,
+            // &None,
         );
         assert_eq!(optimistically_confirmed_bank.read().unwrap().bank.slot(), 2);
         assert_eq!(pending_optimistically_confirmed_banks.len(), 1);
@@ -414,7 +415,7 @@ mod tests {
             &mut pending_optimistically_confirmed_banks,
             &mut last_notified_confirmed_slot,
             &mut highest_confirmed_slot,
-            &None,
+            // &None,
         );
         assert_eq!(optimistically_confirmed_bank.read().unwrap().bank.slot(), 3);
         assert_eq!(highest_confirmed_slot, 3);
@@ -432,7 +433,7 @@ mod tests {
             &mut pending_optimistically_confirmed_banks,
             &mut last_notified_confirmed_slot,
             &mut highest_confirmed_slot,
-            &None,
+            // &None,
         );
         assert_eq!(optimistically_confirmed_bank.read().unwrap().bank.slot(), 3);
         assert_eq!(pending_optimistically_confirmed_banks.len(), 1);
@@ -451,7 +452,7 @@ mod tests {
             &mut pending_optimistically_confirmed_banks,
             &mut last_notified_confirmed_slot,
             &mut highest_confirmed_slot,
-            &None,
+            // &None,
         );
         assert_eq!(optimistically_confirmed_bank.read().unwrap().bank.slot(), 5);
         assert_eq!(pending_optimistically_confirmed_banks.len(), 0);
@@ -477,7 +478,7 @@ mod tests {
             &mut pending_optimistically_confirmed_banks,
             &mut last_notified_confirmed_slot,
             &mut highest_confirmed_slot,
-            &None,
+            // &None,
         );
         assert_eq!(optimistically_confirmed_bank.read().unwrap().bank.slot(), 5);
         assert_eq!(pending_optimistically_confirmed_banks.len(), 0);

@@ -6,7 +6,7 @@ use {
         accounts_hash_verifier::AccountsHashVerifier,
         broadcast_stage::BroadcastStageType,
         cache_block_meta_service::{CacheBlockMetaSender, CacheBlockMetaService},
-        cluster_info_vote_listener::VoteTracker,
+        // cluster_info_vote_listener::VoteTracker,
         completed_data_sets_service::CompletedDataSetsService,
         consensus::{reconcile_blockstore_roots_with_tower, Tower},
         ledger_metric_report_service::LedgerMetricReportService,
@@ -21,7 +21,7 @@ use {
         stats_reporter_service::StatsReporterService,
         system_monitor_service::{verify_udp_stats_access, SystemMonitorService},
         tower_storage::TowerStorage,
-        tpu::{Tpu, TpuSockets, DEFAULT_TPU_COALESCE_MS},
+        // tpu::{Tpu, TpuSockets, DEFAULT_TPU_COALESCE_MS},
         // tvu::{Tvu, TvuConfig, TvuSockets},
     },
     crossbeam_channel::{bounded, unbounded},//, Receiver},
@@ -77,7 +77,7 @@ use {
         bank::Bank,
         bank_forks::BankForks,
         commitment::BlockCommitmentCache,
-        cost_model::CostModel,
+        // cost_model::CostModel,
         hardened_unpack::{open_genesis_config, MAX_GENESIS_ARCHIVE_UNPACKED_SIZE},
         runtime_config::RuntimeConfig,
         snapshot_archive_info::SnapshotArchiveInfoGetter,
@@ -170,7 +170,7 @@ pub struct ValidatorConfig {
     pub warp_slot: Option<Slot>,
     pub accounts_db_test_hash_calculation: bool,
     pub accounts_db_skip_shrink: bool,
-    pub tpu_coalesce_ms: u64,
+    // pub tpu_coalesce_ms: u64,
     pub validator_exit: Arc<RwLock<Exit>>,
     pub no_wait_for_vote_to_start_leader: bool,
     pub accounts_shrink_ratio: AccountShrinkThreshold,
@@ -230,7 +230,7 @@ impl Default for ValidatorConfig {
             warp_slot: None,
             accounts_db_test_hash_calculation: false,
             accounts_db_skip_shrink: false,
-            tpu_coalesce_ms: DEFAULT_TPU_COALESCE_MS,
+            // tpu_coalesce_ms: DEFAULT_TPU_COALESCE_MS,
             validator_exit: Arc::new(RwLock::new(Exit::default())),
             no_wait_for_vote_to_start_leader: true,
             accounts_shrink_ratio: AccountShrinkThreshold::default(),
@@ -342,7 +342,7 @@ pub struct Validator {
     snapshot_packager_service: Option<SnapshotPackagerService>,
     poh_recorder: Arc<Mutex<PohRecorder>>,
     poh_service: PohService,
-    tpu: Tpu,
+    // tpu: Tpu,
     // tvu: Tvu,
     ip_echo_server: Option<solana_net_utils::IpEchoServer>,
     pub cluster_info: Arc<ClusterInfo>,
@@ -399,12 +399,12 @@ impl Validator {
             });
         }
 
-        let mut bank_notification_senders = Vec::new();
+        // let mut bank_notification_senders = Vec::new();
 
         let geyser_plugin_service =
             if let Some(geyser_plugin_config_files) = &config.geyser_plugin_config_files {
-                let (confirmed_bank_sender, confirmed_bank_receiver) = unbounded();
-                bank_notification_senders.push(confirmed_bank_sender);
+                let (_, confirmed_bank_receiver) = unbounded();
+                // bank_notification_senders.push(confirmed_bank_sender);
                 let result =
                     GeyserPluginService::new(confirmed_bank_receiver, geyser_plugin_config_files);
                 match result {
@@ -737,7 +737,7 @@ impl Validator {
         );
 
         let poh_config = Arc::new(genesis_config.poh_config.clone());
-        let (poh_recorder, entry_receiver, record_receiver) = {
+        let (poh_recorder, _, record_receiver) = {
             let bank = &bank_forks.read().unwrap().working_bank();
             PohRecorder::new_with_clear_signal(
                 bank.tick_height(),
@@ -761,7 +761,7 @@ impl Validator {
             json_rpc_service,
             pubsub_service,
             optimistically_confirmed_bank_tracker,
-            bank_notification_sender,
+            // bank_notification_sender,
         ) = if let Some((rpc_addr, rpc_pubsub_addr)) = config.rpc_addrs {
             if ContactInfo::is_valid_address(&node.info.rpc, &socket_addr_space) {
                 assert!(ContactInfo::is_valid_address(
@@ -775,12 +775,12 @@ impl Validator {
                 ));
             }
 
-            let (bank_notification_sender, bank_notification_receiver) = unbounded();
-            let confirmed_bank_subscribers = if !bank_notification_senders.is_empty() {
-                Some(Arc::new(RwLock::new(bank_notification_senders)))
-            } else {
-                None
-            };
+            let (_, bank_notification_receiver) = unbounded();
+            // let confirmed_bank_subscribers = if !bank_notification_senders.is_empty() {
+            //     Some(Arc::new(RwLock::new(bank_notification_senders)))
+            // } else {
+            //     None
+            // };
 
             let json_rpc_service = JsonRpcService::new(
                 rpc_addr,
@@ -831,12 +831,14 @@ impl Validator {
                     bank_forks.clone(),
                     optimistically_confirmed_bank,
                     rpc_subscriptions.clone(),
-                    confirmed_bank_subscribers,
+                    // confirmed_bank_subscribers,
                 )),
-                Some(bank_notification_sender),
+                // Some(bank_notification_sender),
             )
         } else {
-            (None, None, None, None)
+            // (None, None, None, None)
+            (None, None, None)
+
         };
 
         if config.halt_at_slot.is_some() {
@@ -917,16 +919,16 @@ impl Validator {
             "New shred signal for the TVU should be the same as the clear bank signal."
         );
 
-        let vote_tracker = Arc::<VoteTracker>::default();
-        let mut cost_model = CostModel::default();
+        // let vote_tracker = Arc::<VoteTracker>::default();
+        // let mut cost_model = CostModel::default();
         // initialize cost model with built-in instruction costs only
-        cost_model.initialize_cost_table(&[]);
-        let cost_model = Arc::new(RwLock::new(cost_model));
+        // cost_model.initialize_cost_table(&[]);
+        // let cost_model = Arc::new(RwLock::new(cost_model));
 
-        let (_, retransmit_slots_receiver) = unbounded();
-        let (verified_vote_sender, _) = unbounded();
-        let (gossip_verified_vote_hash_sender, _) = unbounded();
-        let (cluster_confirmed_slot_sender, _) = unbounded();
+        // let (_, retransmit_slots_receiver) = unbounded();
+        // let (verified_vote_sender, _) = unbounded();
+        // let (gossip_verified_vote_hash_sender, _) = unbounded();
+        // let (cluster_confirmed_slot_sender, _) = unbounded();
 
         let rpc_completed_slots_service = RpcCompletedSlotsService::spawn(
             completed_slots_receiver,
@@ -934,7 +936,7 @@ impl Validator {
             exit.clone(),
         );
 
-        let (replay_vote_sender, replay_vote_receiver) = unbounded();
+        // let (replay_vote_sender, replay_vote_receiver) = unbounded();
         // let tvu = Tvu::new(
         //     vote_account,
         //     authorized_voter_keypairs,
@@ -984,37 +986,37 @@ impl Validator {
         //     use_quic,
         // );
 
-        let tpu = Tpu::new(
-            &cluster_info,
-            &poh_recorder,
-            entry_receiver,
-            retransmit_slots_receiver,
-            TpuSockets {
-                transactions: node.sockets.tpu,
-                transaction_forwards: node.sockets.tpu_forwards,
-                vote: node.sockets.tpu_vote,
-                broadcast: node.sockets.broadcast,
-                transactions_quic: node.sockets.tpu_quic,
-                transactions_forwards_quic: node.sockets.tpu_forwards_quic,
-            },
-            &rpc_subscriptions,
-            transaction_status_sender,
-            &blockstore,
-            &config.broadcast_stage_type,
-            &exit,
-            node.info.shred_version,
-            vote_tracker,
-            bank_forks.clone(),
-            verified_vote_sender,
-            gossip_verified_vote_hash_sender,
-            replay_vote_receiver,
-            replay_vote_sender,
-            bank_notification_sender,
-            config.tpu_coalesce_ms,
-            cluster_confirmed_slot_sender,
-            &cost_model,
-            &identity_keypair,
-        );
+        // let tpu = Tpu::new(
+        //     &cluster_info,
+        //     &poh_recorder,
+        //     entry_receiver,
+        //     retransmit_slots_receiver,
+        //     TpuSockets {
+        //         transactions: node.sockets.tpu,
+        //         transaction_forwards: node.sockets.tpu_forwards,
+        //         vote: node.sockets.tpu_vote,
+        //         broadcast: node.sockets.broadcast,
+        //         transactions_quic: node.sockets.tpu_quic,
+        //         transactions_forwards_quic: node.sockets.tpu_forwards_quic,
+        //     },
+        //     &rpc_subscriptions,
+        //     transaction_status_sender,
+        //     &blockstore,
+        //     &config.broadcast_stage_type,
+        //     &exit,
+        //     node.info.shred_version,
+        //     vote_tracker,
+        //     bank_forks.clone(),
+        //     verified_vote_sender,
+        //     gossip_verified_vote_hash_sender,
+        //     replay_vote_receiver,
+        //     replay_vote_sender,
+        //     bank_notification_sender,
+        //     config.tpu_coalesce_ms,
+        //     cluster_confirmed_slot_sender,
+        //     &cost_model,
+        //     &identity_keypair,
+        // );
 
         datapoint_info!(
             "validator-new",
@@ -1039,7 +1041,7 @@ impl Validator {
             poh_timing_report_service,
             snapshot_packager_service,
             completed_data_sets_service,
-            tpu,
+            // tpu,
             // tvu,
             poh_service,
             poh_recorder,
@@ -1170,7 +1172,7 @@ impl Validator {
         self.accounts_hash_verifier
             .join()
             .expect("accounts_hash_verifier");
-        self.tpu.join().expect("tpu");
+        // self.tpu.join().expect("tpu");
         // self.tvu.join().expect("tvu");
         self.completed_data_sets_service
             .join()
