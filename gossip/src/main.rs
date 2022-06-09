@@ -9,7 +9,8 @@ use {
         input_parsers::keypair_of,
         input_validators::{is_keypair_or_ask_keyword, is_port, is_pubkey},
     },
-    solana_gossip::{contact_info::ContactInfo, gossip_service::discover},
+    // solana_gossip::{contact_info::ContactInfo, gossip_service::discover},
+    solana_gossip::gossip_service::discover,
     solana_sdk::pubkey::Pubkey,
     solana_streamer::socket::SocketAddrSpace,
     std::{
@@ -177,45 +178,45 @@ fn parse_gossip_host(matches: &ArgMatches, entrypoint_addr: Option<SocketAddr>) 
         })
 }
 
-fn process_spy_results(
-    timeout: Option<u64>,
-    validators: Vec<ContactInfo>,
-    num_nodes: Option<usize>,
-    num_nodes_exactly: Option<usize>,
-    pubkey: Option<Pubkey>,
-) {
-    if timeout.is_some() {
-        if let Some(num) = num_nodes {
-            if validators.len() < num {
-                let add = if num_nodes_exactly.is_some() {
-                    ""
-                } else {
-                    " or more"
-                };
-                eprintln!(
-                    "Error: Insufficient validators discovered.  Expecting {}{}",
-                    num, add,
-                );
-                exit(1);
-            }
-        }
-        if let Some(node) = pubkey {
-            if !validators.iter().any(|x| x.id == node) {
-                eprintln!("Error: Could not find node {:?}", node);
-                exit(1);
-            }
-        }
-    }
-    if let Some(num_nodes_exactly) = num_nodes_exactly {
-        if validators.len() > num_nodes_exactly {
-            eprintln!(
-                "Error: Extra nodes discovered.  Expecting exactly {}",
-                num_nodes_exactly
-            );
-            exit(1);
-        }
-    }
-}
+// fn process_spy_results(
+//     timeout: Option<u64>,
+//     validators: Vec<ContactInfo>,
+//     num_nodes: Option<usize>,
+//     num_nodes_exactly: Option<usize>,
+//     pubkey: Option<Pubkey>,
+// ) {
+//     if timeout.is_some() {
+//         if let Some(num) = num_nodes {
+//             if validators.len() < num {
+//                 let add = if num_nodes_exactly.is_some() {
+//                     ""
+//                 } else {
+//                     " or more"
+//                 };
+//                 eprintln!(
+//                     "Error: Insufficient validators discovered.  Expecting {}{}",
+//                     num, add,
+//                 );
+//                 exit(1);
+//             }
+//         }
+//         if let Some(node) = pubkey {
+//             if !validators.iter().any(|x| x.id == node) {
+//                 eprintln!("Error: Could not find node {:?}", node);
+//                 exit(1);
+//             }
+//         }
+//     }
+//     if let Some(num_nodes_exactly) = num_nodes_exactly {
+//         if validators.len() > num_nodes_exactly {
+//             eprintln!(
+//                 "Error: Extra nodes discovered.  Expecting exactly {}",
+//                 num_nodes_exactly
+//             );
+//             exit(1);
+//         }
+//     }
+// }
 
 fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std::io::Result<()> {
     let num_nodes_exactly = matches
@@ -249,7 +250,7 @@ fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std:
         }),
     );
     let discover_timeout = Duration::from_secs(timeout.unwrap_or(u64::MAX));
-    let (_all_peers, validators) = discover(
+    let _all_peers = discover(
         identity_keypair,
         entrypoint_addr.as_ref(),
         num_nodes,
@@ -259,9 +260,9 @@ fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std:
         Some(&gossip_addr), // my_gossip_addr
         shred_version,
         socket_addr_space,
-    )?;
+    );//?;
 
-    process_spy_results(timeout, validators, num_nodes, num_nodes_exactly, pubkey);
+    // process_spy_results(timeout, validators, num_nodes, num_nodes_exactly, pubkey);
 
     Ok(())
 }
@@ -275,53 +276,53 @@ fn parse_entrypoint(matches: &ArgMatches) -> Option<SocketAddr> {
     })
 }
 
-fn process_rpc_url(
-    matches: &ArgMatches,
-    socket_addr_space: SocketAddrSpace,
-) -> std::io::Result<()> {
-    let any = matches.is_present("any");
-    let all = matches.is_present("all");
-    let entrypoint_addr = parse_entrypoint(matches);
-    let timeout = value_t_or_exit!(matches, "timeout", u64);
-    let shred_version = value_t_or_exit!(matches, "shred_version", u16);
-    let (_all_peers, validators) = discover(
-        None, // keypair
-        entrypoint_addr.as_ref(),
-        Some(1), // num_nodes
-        Duration::from_secs(timeout),
-        None,                     // find_node_by_pubkey
-        entrypoint_addr.as_ref(), // find_node_by_gossip_addr
-        None,                     // my_gossip_addr
-        shred_version,
-        socket_addr_space,
-    )?;
+// fn process_rpc_url(
+//     matches: &ArgMatches,
+//     socket_addr_space: SocketAddrSpace,
+// ) -> std::io::Result<()> {
+//     let any = matches.is_present("any");
+//     let all = matches.is_present("all");
+//     let entrypoint_addr = parse_entrypoint(matches);
+//     let timeout = value_t_or_exit!(matches, "timeout", u64);
+//     let shred_version = value_t_or_exit!(matches, "shred_version", u16);
+//     let _all_peers = discover(
+//         None, // keypair
+//         entrypoint_addr.as_ref(),
+//         Some(1), // num_nodes
+//         Duration::from_secs(timeout),
+//         None,                     // find_node_by_pubkey
+//         entrypoint_addr.as_ref(), // find_node_by_gossip_addr
+//         None,                     // my_gossip_addr
+//         shred_version,
+//         socket_addr_space,
+//     );//?;
 
-    let rpc_addrs: Vec<_> = validators
-        .iter()
-        .filter_map(|contact_info| {
-            if (any || all || Some(contact_info.gossip) == entrypoint_addr)
-                && ContactInfo::is_valid_address(&contact_info.rpc, &socket_addr_space)
-            {
-                return Some(contact_info.rpc);
-            }
-            None
-        })
-        .collect();
+//     let rpc_addrs: Vec<_> = validators
+//         .iter()
+//         .filter_map(|contact_info| {
+//             if (any || all || Some(contact_info.gossip) == entrypoint_addr)
+//                 && ContactInfo::is_valid_address(&contact_info.rpc, &socket_addr_space)
+//             {
+//                 return Some(contact_info.rpc);
+//             }
+//             None
+//         })
+//         .collect();
 
-    if rpc_addrs.is_empty() {
-        eprintln!("No RPC URL found");
-        exit(1);
-    }
+//     if rpc_addrs.is_empty() {
+//         eprintln!("No RPC URL found");
+//         exit(1);
+//     }
 
-    for rpc_addr in rpc_addrs {
-        println!("http://{}", rpc_addr);
-        if any {
-            break;
-        }
-    }
+//     for rpc_addr in rpc_addrs {
+//         println!("http://{}", rpc_addr);
+//         if any {
+//             break;
+//         }
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     solana_logger::setup_with_default("solana=info");
@@ -332,9 +333,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         ("spy", Some(matches)) => {
             process_spy(matches, socket_addr_space)?;
         }
-        ("rpc-url", Some(matches)) => {
-            process_rpc_url(matches, socket_addr_space)?;
-        }
+        // ("rpc-url", Some(matches)) => {
+        //     process_rpc_url(matches, socket_addr_space)?;
+        // }
         _ => unreachable!(),
     }
 

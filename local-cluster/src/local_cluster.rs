@@ -6,7 +6,8 @@ use {
     },
     itertools::izip,
     log::*,
-    solana_client::thin_client::{create_client, ThinClient},
+    // solana_client::thin_client::{create_client, ThinClient},
+    solana_client::thin_client::create_client,
     solana_core::{
         tower_storage::FileTowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress},
@@ -248,7 +249,7 @@ impl LocalCluster {
             true, // should_check_duplicate_instance
             Arc::new(RwLock::new(ValidatorStartProgress::default())),
             socket_addr_space,
-            // false, // use_quic
+            false, // use_quic
         );
 
         let mut validators = HashMap::new();
@@ -442,7 +443,7 @@ impl LocalCluster {
             true, // should_check_duplicate_instance
             Arc::new(RwLock::new(ValidatorStartProgress::default())),
             socket_addr_space,
-            // false, // use_quic
+            false, // use_quic
         );
 
         let validator_pubkey = validator_keypair.pubkey();
@@ -530,166 +531,166 @@ impl LocalCluster {
         info!("{} done waiting for roots", test_name);
     }
 
-    fn transfer_with_client(
-        client: &ThinClient,
-        source_keypair: &Keypair,
-        dest_pubkey: &Pubkey,
-        lamports: u64,
-    ) -> u64 {
-        trace!("getting leader blockhash");
-        let (blockhash, _) = client
-            .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
-            .unwrap();
-        let mut tx = system_transaction::transfer(source_keypair, dest_pubkey, lamports, blockhash);
-        info!(
-            "executing transfer of {} from {} to {}",
-            lamports,
-            source_keypair.pubkey(),
-            *dest_pubkey
-        );
-        client
-            .retry_transfer(source_keypair, &mut tx, 10)
-            .expect("client transfer");
-        client
-            .wait_for_balance_with_commitment(
-                dest_pubkey,
-                Some(lamports),
-                CommitmentConfig::processed(),
-            )
-            .expect("get balance")
-    }
+    // fn transfer_with_client(
+    //     client: &ThinClient,
+    //     source_keypair: &Keypair,
+    //     dest_pubkey: &Pubkey,
+    //     lamports: u64,
+    // ) -> u64 {
+    //     trace!("getting leader blockhash");
+    //     let (blockhash, _) = client
+    //         .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
+    //         .unwrap();
+    //     let mut tx = system_transaction::transfer(source_keypair, dest_pubkey, lamports, blockhash);
+    //     info!(
+    //         "executing transfer of {} from {} to {}",
+    //         lamports,
+    //         source_keypair.pubkey(),
+    //         *dest_pubkey
+    //     );
+    //     client
+    //         .retry_transfer(source_keypair, &mut tx, 10)
+    //         .expect("client transfer");
+    //     client
+    //         .wait_for_balance_with_commitment(
+    //             dest_pubkey,
+    //             Some(lamports),
+    //             CommitmentConfig::processed(),
+    //         )
+    //         .expect("get balance")
+    // }
 
-    fn setup_vote_and_stake_accounts(
-        client: &ThinClient,
-        vote_account: &Keypair,
-        from_account: &Arc<Keypair>,
-        amount: u64,
-    ) -> Result<()> {
-        let vote_account_pubkey = vote_account.pubkey();
-        let node_pubkey = from_account.pubkey();
-        info!(
-            "setup_vote_and_stake_accounts: {}, {}, amount: {}",
-            node_pubkey, vote_account_pubkey, amount,
-        );
-        let stake_account_keypair = Keypair::new();
-        let stake_account_pubkey = stake_account_keypair.pubkey();
+    // fn setup_vote_and_stake_accounts(
+    //     client: &ThinClient,
+    //     vote_account: &Keypair,
+    //     from_account: &Arc<Keypair>,
+    //     amount: u64,
+    // ) -> Result<()> {
+    //     let vote_account_pubkey = vote_account.pubkey();
+    //     let node_pubkey = from_account.pubkey();
+    //     info!(
+    //         "setup_vote_and_stake_accounts: {}, {}, amount: {}",
+    //         node_pubkey, vote_account_pubkey, amount,
+    //     );
+    //     let stake_account_keypair = Keypair::new();
+    //     let stake_account_pubkey = stake_account_keypair.pubkey();
 
-        // Create the vote account if necessary
-        if client
-            .poll_get_balance_with_commitment(&vote_account_pubkey, CommitmentConfig::processed())
-            .unwrap_or(0)
-            == 0
-        {
-            // 1) Create vote account
+    //     // Create the vote account if necessary
+    //     if client
+    //         .poll_get_balance_with_commitment(&vote_account_pubkey, CommitmentConfig::processed())
+    //         .unwrap_or(0)
+    //         == 0
+    //     {
+    //         // 1) Create vote account
 
-            let instructions = vote_instruction::create_account(
-                &from_account.pubkey(),
-                &vote_account_pubkey,
-                &VoteInit {
-                    node_pubkey,
-                    authorized_voter: vote_account_pubkey,
-                    authorized_withdrawer: vote_account_pubkey,
-                    commission: 0,
-                },
-                amount,
-            );
-            let message = Message::new(&instructions, Some(&from_account.pubkey()));
-            let mut transaction = Transaction::new(
-                &[from_account.as_ref(), vote_account],
-                message,
-                client
-                    .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
-                    .unwrap()
-                    .0,
-            );
-            client
-                .retry_transfer(from_account, &mut transaction, 10)
-                .expect("fund vote");
-            client
-                .wait_for_balance_with_commitment(
-                    &vote_account_pubkey,
-                    Some(amount),
-                    CommitmentConfig::processed(),
-                )
-                .expect("get balance");
+    //         let instructions = vote_instruction::create_account(
+    //             &from_account.pubkey(),
+    //             &vote_account_pubkey,
+    //             &VoteInit {
+    //                 node_pubkey,
+    //                 authorized_voter: vote_account_pubkey,
+    //                 authorized_withdrawer: vote_account_pubkey,
+    //                 commission: 0,
+    //             },
+    //             amount,
+    //         );
+    //         let message = Message::new(&instructions, Some(&from_account.pubkey()));
+    //         let mut transaction = Transaction::new(
+    //             &[from_account.as_ref(), vote_account],
+    //             message,
+    //             client
+    //                 .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
+    //                 .unwrap()
+    //                 .0,
+    //         );
+    //         client
+    //             .retry_transfer(from_account, &mut transaction, 10)
+    //             .expect("fund vote");
+    //         client
+    //             .wait_for_balance_with_commitment(
+    //                 &vote_account_pubkey,
+    //                 Some(amount),
+    //                 CommitmentConfig::processed(),
+    //             )
+    //             .expect("get balance");
 
-            let instructions = stake_instruction::create_account_and_delegate_stake(
-                &from_account.pubkey(),
-                &stake_account_pubkey,
-                &vote_account_pubkey,
-                &Authorized::auto(&stake_account_pubkey),
-                &Lockup::default(),
-                amount,
-            );
-            let message = Message::new(&instructions, Some(&from_account.pubkey()));
-            let mut transaction = Transaction::new(
-                &[from_account.as_ref(), &stake_account_keypair],
-                message,
-                client
-                    .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
-                    .unwrap()
-                    .0,
-            );
+    //         let instructions = stake_instruction::create_account_and_delegate_stake(
+    //             &from_account.pubkey(),
+    //             &stake_account_pubkey,
+    //             &vote_account_pubkey,
+    //             &Authorized::auto(&stake_account_pubkey),
+    //             &Lockup::default(),
+    //             amount,
+    //         );
+    //         let message = Message::new(&instructions, Some(&from_account.pubkey()));
+    //         let mut transaction = Transaction::new(
+    //             &[from_account.as_ref(), &stake_account_keypair],
+    //             message,
+    //             client
+    //                 .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
+    //                 .unwrap()
+    //                 .0,
+    //         );
 
-            client
-                .send_and_confirm_transaction(
-                    &[from_account.as_ref(), &stake_account_keypair],
-                    &mut transaction,
-                    5,
-                    0,
-                )
-                .expect("delegate stake");
-            client
-                .wait_for_balance_with_commitment(
-                    &stake_account_pubkey,
-                    Some(amount),
-                    CommitmentConfig::processed(),
-                )
-                .expect("get balance");
-        } else {
-            warn!(
-                "{} vote_account already has a balance?!?",
-                vote_account_pubkey
-            );
-        }
-        info!("Checking for vote account registration of {}", node_pubkey);
-        match (
-            client
-                .get_account_with_commitment(&stake_account_pubkey, CommitmentConfig::processed()),
-            client.get_account_with_commitment(&vote_account_pubkey, CommitmentConfig::processed()),
-        ) {
-            (Ok(Some(stake_account)), Ok(Some(vote_account))) => {
-                match (
-                    stake_state::stake_from(&stake_account),
-                    VoteState::from(&vote_account),
-                ) {
-                    (Some(stake_state), Some(vote_state)) => {
-                        if stake_state.delegation.voter_pubkey != vote_account_pubkey
-                            || stake_state.delegation.stake != amount
-                        {
-                            Err(Error::new(ErrorKind::Other, "invalid stake account state"))
-                        } else if vote_state.node_pubkey != node_pubkey {
-                            Err(Error::new(ErrorKind::Other, "invalid vote account state"))
-                        } else {
-                            info!("node {} {:?} {:?}", node_pubkey, stake_state, vote_state);
+    //         client
+    //             .send_and_confirm_transaction(
+    //                 &[from_account.as_ref(), &stake_account_keypair],
+    //                 &mut transaction,
+    //                 5,
+    //                 0,
+    //             )
+    //             .expect("delegate stake");
+    //         client
+    //             .wait_for_balance_with_commitment(
+    //                 &stake_account_pubkey,
+    //                 Some(amount),
+    //                 CommitmentConfig::processed(),
+    //             )
+    //             .expect("get balance");
+    //     } else {
+    //         warn!(
+    //             "{} vote_account already has a balance?!?",
+    //             vote_account_pubkey
+    //         );
+    //     }
+    //     info!("Checking for vote account registration of {}", node_pubkey);
+    //     match (
+    //         client
+    //             .get_account_with_commitment(&stake_account_pubkey, CommitmentConfig::processed()),
+    //         client.get_account_with_commitment(&vote_account_pubkey, CommitmentConfig::processed()),
+    //     ) {
+    //         (Ok(Some(stake_account)), Ok(Some(vote_account))) => {
+    //             match (
+    //                 stake_state::stake_from(&stake_account),
+    //                 VoteState::from(&vote_account),
+    //             ) {
+    //                 (Some(stake_state), Some(vote_state)) => {
+    //                     if stake_state.delegation.voter_pubkey != vote_account_pubkey
+    //                         || stake_state.delegation.stake != amount
+    //                     {
+    //                         Err(Error::new(ErrorKind::Other, "invalid stake account state"))
+    //                     } else if vote_state.node_pubkey != node_pubkey {
+    //                         Err(Error::new(ErrorKind::Other, "invalid vote account state"))
+    //                     } else {
+    //                         info!("node {} {:?} {:?}", node_pubkey, stake_state, vote_state);
 
-                            Ok(())
-                        }
-                    }
-                    (None, _) => Err(Error::new(ErrorKind::Other, "invalid stake account data")),
-                    (_, None) => Err(Error::new(ErrorKind::Other, "invalid vote account data")),
-                }
-            }
-            (Ok(None), _) | (Err(_), _) => Err(Error::new(
-                ErrorKind::Other,
-                "unable to retrieve stake account data",
-            )),
-            (_, Ok(None)) | (_, Err(_)) => Err(Error::new(
-                ErrorKind::Other,
-                "unable to retrieve vote account data",
-            )),
-        }
-    }
+    //                         Ok(())
+    //                     }
+    //                 }
+    //                 (None, _) => Err(Error::new(ErrorKind::Other, "invalid stake account data")),
+    //                 (_, None) => Err(Error::new(ErrorKind::Other, "invalid vote account data")),
+    //             }
+    //         }
+    //         (Ok(None), _) | (Err(_), _) => Err(Error::new(
+    //             ErrorKind::Other,
+    //             "unable to retrieve stake account data",
+    //         )),
+    //         (_, Ok(None)) | (_, Err(_)) => Err(Error::new(
+    //             ErrorKind::Other,
+    //             "unable to retrieve vote account data",
+    //         )),
+    //     }
+    // }
 }
 
 impl Cluster for LocalCluster {
@@ -697,12 +698,12 @@ impl Cluster for LocalCluster {
         self.validators.keys().cloned().collect()
     }
 
-    fn get_validator_client(&self, pubkey: &Pubkey) -> Option<ThinClient> {
-        self.validators.get(pubkey).map(|f| {
-            let (rpc, tpu) = f.info.contact_info.client_facing_addr();
-            create_client(rpc, tpu)
-        })
-    }
+    // fn get_validator_client(&self, pubkey: &Pubkey) -> Option<ThinClient> {
+    //     self.validators.get(pubkey).map(|f| {
+    //         let (rpc, tpu) = f.info.contact_info.client_facing_addr();
+    //         create_client(rpc, tpu)
+    //     })
+    // }
 
     fn exit_node(&mut self, pubkey: &Pubkey) -> ClusterValidatorInfo {
         let mut node = self.validators.remove(pubkey).unwrap();

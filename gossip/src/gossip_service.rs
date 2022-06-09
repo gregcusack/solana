@@ -3,8 +3,8 @@
 use {
     crate::{cluster_info::ClusterInfo, contact_info::ContactInfo},
     crossbeam_channel::{unbounded, Sender},
-    rand::{thread_rng, Rng},
-    solana_client::thin_client::{create_client, ThinClient},
+    // rand::{thread_rng, Rng},
+    // solana_client::thin_client::{create_client},//, ThinClient},
     solana_perf::recycler::Recycler,
     solana_runtime::bank_forks::BankForks,
     solana_sdk::{
@@ -110,9 +110,11 @@ pub fn discover_cluster(
     entrypoint: &SocketAddr,
     num_nodes: usize,
     socket_addr_space: SocketAddrSpace,
-) -> std::io::Result<Vec<ContactInfo>> {
+) {
+// -> std::io::Result<Vec<ContactInfo>> {
     const DISCOVER_CLUSTER_TIMEOUT: Duration = Duration::from_secs(120);
-    let (_all_peers, validators) = discover(
+    // let (_all_peers, validators) = discover(
+    let _all_peers = discover(
         None, // keypair
         Some(entrypoint),
         Some(num_nodes),
@@ -122,8 +124,8 @@ pub fn discover_cluster(
         None, // my_gossip_addr
         0,    // my_shred_version
         socket_addr_space,
-    )?;
-    Ok(validators)
+    );//?;
+    // Ok(validators)
 }
 
 pub fn discover(
@@ -136,10 +138,10 @@ pub fn discover(
     my_gossip_addr: Option<&SocketAddr>,
     my_shred_version: u16,
     socket_addr_space: SocketAddrSpace,
-) -> std::io::Result<(
-    Vec<ContactInfo>, // all gossip peers
-    Vec<ContactInfo>, // tvu peers (validators)
-)> {
+) -> std::io::Result<
+    Vec<ContactInfo> // all gossip peers
+    // Vec<ContactInfo>, // tvu peers (validators)
+> {
     let keypair = keypair.unwrap_or_else(Keypair::new);
     let exit = Arc::new(AtomicBool::new(false));
     let (gossip_service, ip_echo, spy_ref) = make_gossip_node(
@@ -160,7 +162,9 @@ pub fn discover(
     }
     let _ip_echo_server = ip_echo
         .map(|tcp_listener| solana_net_utils::ip_echo_server(tcp_listener, Some(my_shred_version)));
-    let (met_criteria, elapsed, all_peers, tvu_peers) = spy(
+    
+    // let (met_criteria, elapsed, all_peers, tvu_peers) = spy(
+    let (met_criteria, elapsed, all_peers) = spy(
         spy_ref.clone(),
         num_nodes,
         timeout,
@@ -177,16 +181,17 @@ pub fn discover(
             elapsed.as_secs(),
             spy_ref.contact_info_trace()
         );
-        return Ok((all_peers, tvu_peers));
+        return Ok(all_peers);
     }
 
-    if !tvu_peers.is_empty() {
-        info!(
-            "discover failed to match criteria by timeout...\n{}",
-            spy_ref.contact_info_trace()
-        );
-        return Ok((all_peers, tvu_peers));
-    }
+    // greg commented this out. because we don't have tvu stuff.
+    // if !tvu_peers.is_empty() {
+    //     info!(
+    //         "discover failed to match criteria by timeout...\n{}",
+    //         spy_ref.contact_info_trace()
+    //     );
+    //     return Ok((all_peers, tvu_peers));
+    // }
 
     info!("discover failed...\n{}", spy_ref.contact_info_trace());
     Err(std::io::Error::new(
@@ -196,43 +201,44 @@ pub fn discover(
 }
 
 /// Creates a ThinClient per valid node
-pub fn get_clients(nodes: &[ContactInfo], socket_addr_space: &SocketAddrSpace) -> Vec<ThinClient> {
-    nodes
-        .iter()
-        .filter_map(|node| ContactInfo::valid_client_facing_addr(node, socket_addr_space))
-        .map(|(rpc, tpu)| create_client(rpc, tpu))
-        .collect()
-}
+// pub fn get_clients(nodes: &[ContactInfo], socket_addr_space: &SocketAddrSpace) -> Vec<ThinClient> {
+//     nodes
+//         .iter()
+//         .filter_map(|node| ContactInfo::valid_client_facing_addr(node, socket_addr_space))
+//         .map(|(rpc)| create_client(rpc))
+//         .collect()
+// }
 
 /// Creates a ThinClient by selecting a valid node at random
-pub fn get_client(nodes: &[ContactInfo], socket_addr_space: &SocketAddrSpace) -> ThinClient {
-    let nodes: Vec<_> = nodes
-        .iter()
-        .filter_map(|node| ContactInfo::valid_client_facing_addr(node, socket_addr_space))
-        .collect();
-    let select = thread_rng().gen_range(0, nodes.len());
-    let (rpc, tpu) = nodes[select];
-    create_client(rpc, tpu)
-}
+// pub fn get_client(nodes: &[ContactInfo], socket_addr_space: &SocketAddrSpace) -> ThinClient {
+//     let nodes: Vec<_> = nodes
+//         .iter()
+//         .filter_map(|node| ContactInfo::valid_client_facing_addr(node, socket_addr_space))
+//         .collect();
+//     let select = thread_rng().gen_range(0, nodes.len());
+//     let (rpc, tpu) = nodes[select];
+//     create_client(rpc, tpu)
+// }
 
-pub fn get_multi_client(
-    nodes: &[ContactInfo],
-    socket_addr_space: &SocketAddrSpace,
-) -> (ThinClient, usize) {
-    let addrs: Vec<_> = nodes
-        .iter()
-        .filter_map(|node| ContactInfo::valid_client_facing_addr(node, socket_addr_space))
-        .collect();
-    let rpc_addrs: Vec<_> = addrs.iter().map(|addr| addr.0).collect();
-    let tpu_addrs: Vec<_> = addrs.iter().map(|addr| addr.1).collect();
+// pub fn get_multi_client(
+//     nodes: &[ContactInfo],
+//     socket_addr_space: &SocketAddrSpace,
+// ) -> (ThinClient, usize) {
+//     let addrs: Vec<_> = nodes
+//         .iter()
+//         .filter_map(|node| ContactInfo::valid_client_facing_addr(node, socket_addr_space))
+//         .collect();
+//     let rpc_addrs: Vec<_> = addrs.iter().map(|addr| addr.0).collect();
+//     let tpu_addrs: Vec<_> = addrs.iter().map(|addr| addr.1).collect();
 
-    let num_nodes = tpu_addrs.len();
-    (ThinClient::new_from_addrs(rpc_addrs, tpu_addrs), num_nodes)
-}
+//     let num_nodes = tpu_addrs.len();
+//     (ThinClient::new_from_addrs(rpc_addrs, tpu_addrs), num_nodes)
+// }
 
 fn spy(
     spy_ref: Arc<ClusterInfo>,
-    num_nodes: Option<usize>,
+    // num_nodes: Option<usize>,
+    _num_nodes: Option<usize>, //greg -> just says may be unused
     timeout: Duration,
     find_node_by_pubkey: Option<Pubkey>,
     find_node_by_gossip_addr: Option<&SocketAddr>,
@@ -240,12 +246,12 @@ fn spy(
     bool,             // if found the specified nodes
     Duration,         // elapsed time until found the nodes or timed-out
     Vec<ContactInfo>, // all gossip peers
-    Vec<ContactInfo>, // tvu peers (validators)
+    // Vec<ContactInfo>, // tvu peers (validators)
 ) {
     let now = Instant::now();
     let mut met_criteria = false;
     let mut all_peers: Vec<ContactInfo> = Vec::new();
-    let mut tvu_peers: Vec<ContactInfo> = Vec::new();
+    // let mut tvu_peers: Vec<ContactInfo> = Vec::new();
     let mut i = 1;
     while !met_criteria && now.elapsed() < timeout {
         all_peers = spy_ref
@@ -253,7 +259,7 @@ fn spy(
             .into_iter()
             .map(|x| x.0)
             .collect::<Vec<_>>();
-        tvu_peers = spy_ref.all_tvu_peers();
+        // tvu_peers = spy_ref.all_tvu_peers();
 
         let found_node_by_pubkey = if let Some(pubkey) = find_node_by_pubkey {
             all_peers.iter().any(|x| x.id == pubkey)
@@ -267,22 +273,25 @@ fn spy(
             false
         };
 
-        if let Some(num) = num_nodes {
-            // Only consider validators and archives for `num_nodes`
-            let mut nodes: Vec<_> = tvu_peers.iter().collect();
-            nodes.sort();
-            nodes.dedup();
+        // if let Some(num) = num_nodes {
+        //     // Only consider validators and archives for `num_nodes`
+        //     let mut nodes: Vec<_> = tvu_peers.iter().collect();
+        //     nodes.sort();
+        //     nodes.dedup();
 
-            if nodes.len() >= num {
-                if found_node_by_pubkey || found_node_by_gossip_addr {
-                    met_criteria = true;
-                }
+        //     if nodes.len() >= num {
+        //         if found_node_by_pubkey || found_node_by_gossip_addr {
+        //             met_criteria = true;
+        //         }
 
-                if find_node_by_pubkey.is_none() && find_node_by_gossip_addr.is_none() {
-                    met_criteria = true;
-                }
-            }
-        } else if found_node_by_pubkey || found_node_by_gossip_addr {
+        //         if find_node_by_pubkey.is_none() && find_node_by_gossip_addr.is_none() {
+        //             met_criteria = true;
+        //         }
+        //     }
+        // } else if found_node_by_pubkey || found_node_by_gossip_addr {
+        //     met_criteria = true;
+        // }
+        if found_node_by_pubkey || found_node_by_gossip_addr {
             met_criteria = true;
         }
         if i % 20 == 0 {
@@ -293,7 +302,9 @@ fn spy(
         ));
         i += 1;
     }
-    (met_criteria, now.elapsed(), all_peers, tvu_peers)
+    // (met_criteria, now.elapsed(), all_peers, tvu_peers)
+    (met_criteria, now.elapsed(), all_peers)
+
 }
 
 /// Makes a spy or gossip node based on whether or not a gossip_addr was passed in

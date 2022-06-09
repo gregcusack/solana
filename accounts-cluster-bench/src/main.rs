@@ -613,7 +613,7 @@ fn main() {
 
     let rpc_addr = if !skip_gossip {
         info!("Finding cluster entry: {:?}", entrypoint_addr);
-        let (gossip_nodes, _validators) = discover(
+        let gossip_nodes = discover(
             None, // keypair
             Some(&entrypoint_addr),
             None,                    // num_nodes

@@ -11,7 +11,8 @@ use {
         rpc_client::RpcClient,
         rpc_config::{RpcProgramAccountsConfig, RpcSignatureSubscribeConfig},
         rpc_response::RpcSignatureResult,
-        thin_client::{create_client, ThinClient},
+        // thin_client::{create_client, ThinClient},
+        thin_client::create_client,
     },
     solana_core::{
         broadcast_stage::BroadcastStageType,
@@ -2357,119 +2358,119 @@ fn test_votes_land_in_fork_during_long_partition() {
     );
 }
 
-fn setup_transfer_scan_threads(
-    num_starting_accounts: usize,
-    exit: Arc<AtomicBool>,
-    scan_commitment: CommitmentConfig,
-    update_client_receiver: Receiver<ThinClient>,
-    scan_client_receiver: Receiver<ThinClient>,
-) -> (
-    JoinHandle<()>,
-    JoinHandle<()>,
-    Vec<(Pubkey, AccountSharedData)>,
-) {
-    let exit_ = exit.clone();
-    let starting_keypairs: Arc<Vec<Keypair>> = Arc::new(
-        iter::repeat_with(Keypair::new)
-            .take(num_starting_accounts)
-            .collect(),
-    );
-    let target_keypairs: Arc<Vec<Keypair>> = Arc::new(
-        iter::repeat_with(Keypair::new)
-            .take(num_starting_accounts)
-            .collect(),
-    );
-    let starting_accounts: Vec<(Pubkey, AccountSharedData)> = starting_keypairs
-        .iter()
-        .map(|k| {
-            (
-                k.pubkey(),
-                AccountSharedData::new(1, 0, &system_program::id()),
-            )
-        })
-        .collect();
+// fn setup_transfer_scan_threads(
+//     num_starting_accounts: usize,
+//     exit: Arc<AtomicBool>,
+//     scan_commitment: CommitmentConfig,
+//     update_client_receiver: Receiver<ThinClient>,
+//     scan_client_receiver: Receiver<ThinClient>,
+// ) -> (
+//     JoinHandle<()>,
+//     JoinHandle<()>,
+//     Vec<(Pubkey, AccountSharedData)>,
+// ) {
+//     let exit_ = exit.clone();
+//     let starting_keypairs: Arc<Vec<Keypair>> = Arc::new(
+//         iter::repeat_with(Keypair::new)
+//             .take(num_starting_accounts)
+//             .collect(),
+//     );
+//     let target_keypairs: Arc<Vec<Keypair>> = Arc::new(
+//         iter::repeat_with(Keypair::new)
+//             .take(num_starting_accounts)
+//             .collect(),
+//     );
+//     let starting_accounts: Vec<(Pubkey, AccountSharedData)> = starting_keypairs
+//         .iter()
+//         .map(|k| {
+//             (
+//                 k.pubkey(),
+//                 AccountSharedData::new(1, 0, &system_program::id()),
+//             )
+//         })
+//         .collect();
 
-    let starting_keypairs_ = starting_keypairs.clone();
-    let target_keypairs_ = target_keypairs.clone();
-    let t_update = Builder::new()
-        .name("update".to_string())
-        .spawn(move || {
-            let client = update_client_receiver.recv().unwrap();
-            loop {
-                if exit_.load(Ordering::Relaxed) {
-                    return;
-                }
-                let (blockhash, _) = client
-                    .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
-                    .unwrap();
-                for i in 0..starting_keypairs_.len() {
-                    client
-                        .async_transfer(
-                            1,
-                            &starting_keypairs_[i],
-                            &target_keypairs_[i].pubkey(),
-                            blockhash,
-                        )
-                        .unwrap();
-                }
-                for i in 0..starting_keypairs_.len() {
-                    client
-                        .async_transfer(
-                            1,
-                            &target_keypairs_[i],
-                            &starting_keypairs_[i].pubkey(),
-                            blockhash,
-                        )
-                        .unwrap();
-                }
-            }
-        })
-        .unwrap();
+//     let starting_keypairs_ = starting_keypairs.clone();
+//     let target_keypairs_ = target_keypairs.clone();
+//     let t_update = Builder::new()
+//         .name("update".to_string())
+//         .spawn(move || {
+//             let client = update_client_receiver.recv().unwrap();
+//             loop {
+//                 if exit_.load(Ordering::Relaxed) {
+//                     return;
+//                 }
+//                 let (blockhash, _) = client
+//                     .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
+//                     .unwrap();
+//                 for i in 0..starting_keypairs_.len() {
+//                     client
+//                         .async_transfer(
+//                             1,
+//                             &starting_keypairs_[i],
+//                             &target_keypairs_[i].pubkey(),
+//                             blockhash,
+//                         )
+//                         .unwrap();
+//                 }
+//                 for i in 0..starting_keypairs_.len() {
+//                     client
+//                         .async_transfer(
+//                             1,
+//                             &target_keypairs_[i],
+//                             &starting_keypairs_[i].pubkey(),
+//                             blockhash,
+//                         )
+//                         .unwrap();
+//                 }
+//             }
+//         })
+//         .unwrap();
 
-    // Scan, the total funds should add up to the original
-    let mut scan_commitment_config = RpcProgramAccountsConfig::default();
-    scan_commitment_config.account_config.commitment = Some(scan_commitment);
-    let tracked_pubkeys: HashSet<Pubkey> = starting_keypairs
-        .iter()
-        .chain(target_keypairs.iter())
-        .map(|k| k.pubkey())
-        .collect();
-    let expected_total_balance = num_starting_accounts as u64;
-    let t_scan = Builder::new()
-        .name("scan".to_string())
-        .spawn(move || {
-            let client = scan_client_receiver.recv().unwrap();
-            loop {
-                if exit.load(Ordering::Relaxed) {
-                    return;
-                }
-                if let Some(total_scan_balance) = client
-                    .get_program_accounts_with_config(
-                        &system_program::id(),
-                        scan_commitment_config.clone(),
-                    )
-                    .ok()
-                    .map(|result| {
-                        result
-                            .into_iter()
-                            .map(|(key, account)| {
-                                if tracked_pubkeys.contains(&key) {
-                                    account.lamports
-                                } else {
-                                    0
-                                }
-                            })
-                            .sum::<u64>()
-                    })
-                {
-                    assert_eq!(total_scan_balance, expected_total_balance);
-                }
-            }
-        })
-        .unwrap();
+//     // Scan, the total funds should add up to the original
+//     let mut scan_commitment_config = RpcProgramAccountsConfig::default();
+//     scan_commitment_config.account_config.commitment = Some(scan_commitment);
+//     let tracked_pubkeys: HashSet<Pubkey> = starting_keypairs
+//         .iter()
+//         .chain(target_keypairs.iter())
+//         .map(|k| k.pubkey())
+//         .collect();
+//     let expected_total_balance = num_starting_accounts as u64;
+//     let t_scan = Builder::new()
+//         .name("scan".to_string())
+//         .spawn(move || {
+//             let client = scan_client_receiver.recv().unwrap();
+//             loop {
+//                 if exit.load(Ordering::Relaxed) {
+//                     return;
+//                 }
+//                 if let Some(total_scan_balance) = client
+//                     .get_program_accounts_with_config(
+//                         &system_program::id(),
+//                         scan_commitment_config.clone(),
+//                     )
+//                     .ok()
+//                     .map(|result| {
+//                         result
+//                             .into_iter()
+//                             .map(|(key, account)| {
+//                                 if tracked_pubkeys.contains(&key) {
+//                                     account.lamports
+//                                 } else {
+//                                     0
+//                                 }
+//                             })
+//                             .sum::<u64>()
+//                     })
+//                 {
+//                     assert_eq!(total_scan_balance, expected_total_balance);
+//                 }
+//             }
+//         })
+//         .unwrap();
 
-    (t_update, t_scan, starting_accounts)
-}
+//     (t_update, t_scan, starting_accounts)
+// }
 
 fn run_test_load_program_accounts(scan_commitment: CommitmentConfig) {
     solana_logger::setup_with_default(RUST_LOG_FILTER);

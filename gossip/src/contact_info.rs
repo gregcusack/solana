@@ -20,17 +20,17 @@ pub struct ContactInfo {
     /// gossip address
     pub gossip: SocketAddr,
     /// address to connect to for replication
-    pub tvu: SocketAddr,
+    // pub tvu: SocketAddr,
     /// address to forward shreds to
-    pub tvu_forwards: SocketAddr,
+    // pub tvu_forwards: SocketAddr,
     /// address to send repair responses to
     pub repair: SocketAddr,
     /// transactions address
-    pub tpu: SocketAddr,
+    // pub tpu: SocketAddr,
     /// address to forward unprocessed transactions to
-    pub tpu_forwards: SocketAddr,
+    // pub tpu_forwards: SocketAddr,
     /// address to which to send bank state requests
-    pub tpu_vote: SocketAddr,
+    // pub tpu_vote: SocketAddr,
     /// address to which to send JSON-RPC requests
     pub rpc: SocketAddr,
     /// websocket for JSON-RPC push notifications
@@ -73,12 +73,12 @@ impl Default for ContactInfo {
         ContactInfo {
             id: Pubkey::default(),
             gossip: socketaddr_any!(),
-            tvu: socketaddr_any!(),
-            tvu_forwards: socketaddr_any!(),
+            // tvu: socketaddr_any!(),
+            // tvu_forwards: socketaddr_any!(),
             repair: socketaddr_any!(),
-            tpu: socketaddr_any!(),
-            tpu_forwards: socketaddr_any!(),
-            tpu_vote: socketaddr_any!(),
+            // tpu: socketaddr_any!(),
+            // tpu_forwards: socketaddr_any!(),
+            // tpu_vote: socketaddr_any!(),
             rpc: socketaddr_any!(),
             rpc_pubsub: socketaddr_any!(),
             serve_repair: socketaddr_any!(),
@@ -93,12 +93,12 @@ impl ContactInfo {
         Self {
             id: *id,
             gossip: socketaddr!("127.0.0.1:1234"),
-            tvu: socketaddr!("127.0.0.1:1235"),
-            tvu_forwards: socketaddr!("127.0.0.1:1236"),
+            // tvu: socketaddr!("127.0.0.1:1235"),
+            // tvu_forwards: socketaddr!("127.0.0.1:1236"),
             repair: socketaddr!("127.0.0.1:1237"),
-            tpu: socketaddr!("127.0.0.1:1238"),
-            tpu_forwards: socketaddr!("127.0.0.1:1239"),
-            tpu_vote: socketaddr!("127.0.0.1:1240"),
+            // tpu: socketaddr!("127.0.0.1:1238"),
+            // tpu_forwards: socketaddr!("127.0.0.1:1239"),
+            // tpu_vote: socketaddr!("127.0.0.1:1240"),
             rpc: socketaddr!("127.0.0.1:1241"),
             rpc_pubsub: socketaddr!("127.0.0.1:1242"),
             serve_repair: socketaddr!("127.0.0.1:1243"),
@@ -123,12 +123,12 @@ impl ContactInfo {
         Self {
             id: solana_sdk::pubkey::new_rand(),
             gossip: addr,
-            tvu: addr,
-            tvu_forwards: addr,
+            // tvu: addr,
+            // tvu_forwards: addr,
             repair: addr,
-            tpu: addr,
-            tpu_forwards: addr,
-            tpu_vote: addr,
+            // tpu: addr,
+            // tpu_forwards: addr,
+            // tpu_vote: addr,
             rpc: addr,
             rpc_pubsub: addr,
             serve_repair: addr,
@@ -145,25 +145,25 @@ impl ContactInfo {
             nxt_addr
         }
 
-        let tpu = *bind_addr;
+        // let tpu = *bind_addr;
         let gossip = next_port(bind_addr, 1);
-        let tvu = next_port(bind_addr, 2);
-        let tpu_forwards = next_port(bind_addr, 3);
-        let tvu_forwards = next_port(bind_addr, 4);
+        // let tvu = next_port(bind_addr, 2);
+        // let tpu_forwards = next_port(bind_addr, 3);
+        // let tvu_forwards = next_port(bind_addr, 4);
         let repair = next_port(bind_addr, 5);
         let rpc = SocketAddr::new(bind_addr.ip(), rpc_port::DEFAULT_RPC_PORT);
         let rpc_pubsub = SocketAddr::new(bind_addr.ip(), rpc_port::DEFAULT_RPC_PUBSUB_PORT);
         let serve_repair = next_port(bind_addr, 6);
-        let tpu_vote = next_port(bind_addr, 7);
+        // let tpu_vote = next_port(bind_addr, 7);
         Self {
             id: *pubkey,
             gossip,
-            tvu,
-            tvu_forwards,
+            // tvu,
+            // tvu_forwards,
             repair,
-            tpu,
-            tpu_forwards,
-            tpu_vote,
+            // tpu,
+            // tpu_forwards,
+            // tpu_vote,
             rpc,
             rpc_pubsub,
             serve_repair,
@@ -209,18 +209,20 @@ impl ContactInfo {
         Self::is_valid_tvu_address(addr) && socket_addr_space.check(addr)
     }
 
-    pub fn client_facing_addr(&self) -> (SocketAddr, SocketAddr) {
-        (self.rpc, self.tpu)
+    // pub fn client_facing_addr(&self) -> (SocketAddr, SocketAddr) {
+    //     (self.rpc, self.tpu)
+    // }
+    pub fn client_facing_addr(&self) -> SocketAddr {
+        self.rpc
     }
 
     pub fn valid_client_facing_addr(
         &self,
         socket_addr_space: &SocketAddrSpace,
-    ) -> Option<(SocketAddr, SocketAddr)> {
+    ) -> Option<SocketAddr> {
         if ContactInfo::is_valid_address(&self.rpc, socket_addr_space)
-            && ContactInfo::is_valid_address(&self.tpu, socket_addr_space)
         {
-            Some((self.rpc, self.tpu))
+            Some(self.rpc)
         } else {
             None
         }

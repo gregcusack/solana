@@ -6,7 +6,7 @@ use {
         accounts_hash_verifier::AccountsHashVerifier,
         broadcast_stage::BroadcastStageType,
         cache_block_meta_service::{CacheBlockMetaSender, CacheBlockMetaService},
-        // cluster_info_vote_listener::VoteTracker,
+        cluster_info_vote_listener::VoteTracker,
         completed_data_sets_service::CompletedDataSetsService,
         consensus::{reconcile_blockstore_roots_with_tower, Tower},
         ledger_metric_report_service::LedgerMetricReportService,
@@ -77,7 +77,7 @@ use {
         bank::Bank,
         bank_forks::BankForks,
         commitment::BlockCommitmentCache,
-        // cost_model::CostModel,
+        cost_model::CostModel,
         hardened_unpack::{open_genesis_config, MAX_GENESIS_ARCHIVE_UNPACKED_SIZE},
         runtime_config::RuntimeConfig,
         snapshot_archive_info::SnapshotArchiveInfoGetter,
@@ -399,12 +399,12 @@ impl Validator {
             });
         }
 
-        // let mut bank_notification_senders = Vec::new();
+        let mut bank_notification_senders = Vec::new();
 
         let geyser_plugin_service =
             if let Some(geyser_plugin_config_files) = &config.geyser_plugin_config_files {
-                let (_, confirmed_bank_receiver) = unbounded();
-                // bank_notification_senders.push(confirmed_bank_sender);
+                let (confirmed_bank_sender, confirmed_bank_receiver) = unbounded();
+                bank_notification_senders.push(confirmed_bank_sender);
                 let result =
                     GeyserPluginService::new(confirmed_bank_receiver, geyser_plugin_config_files);
                 match result {
@@ -737,7 +737,7 @@ impl Validator {
         );
 
         let poh_config = Arc::new(genesis_config.poh_config.clone());
-        let (poh_recorder, _, record_receiver) = {
+        let (poh_recorder, entry_receiver, record_receiver) = {
             let bank = &bank_forks.read().unwrap().working_bank();
             PohRecorder::new_with_clear_signal(
                 bank.tick_height(),
@@ -758,10 +758,10 @@ impl Validator {
 
         let rpc_override_health_check = Arc::new(AtomicBool::new(false));
         let (
-            json_rpc_service,
+            // json_rpc_service,
             pubsub_service,
             optimistically_confirmed_bank_tracker,
-            // bank_notification_sender,
+            bank_notification_sender,
         ) = if let Some((rpc_addr, rpc_pubsub_addr)) = config.rpc_addrs {
             if ContactInfo::is_valid_address(&node.info.rpc, &socket_addr_space) {
                 assert!(ContactInfo::is_valid_address(
@@ -775,40 +775,40 @@ impl Validator {
                 ));
             }
 
-            let (_, bank_notification_receiver) = unbounded();
-            // let confirmed_bank_subscribers = if !bank_notification_senders.is_empty() {
-            //     Some(Arc::new(RwLock::new(bank_notification_senders)))
-            // } else {
-            //     None
-            // };
+            let (bank_notification_sender, bank_notification_receiver) = unbounded();
+            let confirmed_bank_subscribers = if !bank_notification_senders.is_empty() {
+                Some(Arc::new(RwLock::new(bank_notification_senders)))
+            } else {
+                None
+            };
 
-            let json_rpc_service = JsonRpcService::new(
-                rpc_addr,
-                config.rpc_config.clone(),
-                config.snapshot_config.clone(),
-                bank_forks.clone(),
-                block_commitment_cache.clone(),
-                blockstore.clone(),
-                cluster_info.clone(),
-                Some(poh_recorder.clone()),
-                genesis_config.hash(),
-                ledger_path,
-                config.validator_exit.clone(),
-                config.known_validators.clone(),
-                rpc_override_health_check.clone(),
-                optimistically_confirmed_bank.clone(),
-                config.send_transaction_service_config.clone(),
-                max_slots.clone(),
-                leader_schedule_cache.clone(),
-                max_complete_transaction_status_slot,
-            )
-            .unwrap_or_else(|s| {
-                error!("Failed to create JSON RPC Service: {}", s);
-                abort();
-            });
+            // let json_rpc_service = JsonRpcService::new(
+            //     rpc_addr,
+            //     config.rpc_config.clone(),
+            //     config.snapshot_config.clone(),
+            //     bank_forks.clone(),
+            //     block_commitment_cache.clone(),
+            //     blockstore.clone(),
+            //     cluster_info.clone(),
+            //     Some(poh_recorder.clone()),
+            //     genesis_config.hash(),
+            //     ledger_path,
+            //     config.validator_exit.clone(),
+            //     config.known_validators.clone(),
+            //     rpc_override_health_check.clone(),
+            //     optimistically_confirmed_bank.clone(),
+            //     config.send_transaction_service_config.clone(),
+            //     max_slots.clone(),
+            //     leader_schedule_cache.clone(),
+            //     max_complete_transaction_status_slot,
+            // )
+            // .unwrap_or_else(|s| {
+            //     error!("Failed to create JSON RPC Service: {}", s);
+            //     abort();
+            // });
 
             (
-                Some(json_rpc_service),
+                // Some(json_rpc_service),
                 if !config.rpc_config.full_api {
                     None
                 } else {
@@ -831,14 +831,12 @@ impl Validator {
                     bank_forks.clone(),
                     optimistically_confirmed_bank,
                     rpc_subscriptions.clone(),
-                    // confirmed_bank_subscribers,
+                    confirmed_bank_subscribers,
                 )),
-                // Some(bank_notification_sender),
+                Some(bank_notification_sender),
             )
         } else {
-            // (None, None, None, None)
-            (None, None, None)
-
+            (None, None, None, None)
         };
 
         if config.halt_at_slot.is_some() {
@@ -919,16 +917,16 @@ impl Validator {
             "New shred signal for the TVU should be the same as the clear bank signal."
         );
 
-        // let vote_tracker = Arc::<VoteTracker>::default();
-        // let mut cost_model = CostModel::default();
+        let vote_tracker = Arc::<VoteTracker>::default();
+        let mut cost_model = CostModel::default();
         // initialize cost model with built-in instruction costs only
-        // cost_model.initialize_cost_table(&[]);
-        // let cost_model = Arc::new(RwLock::new(cost_model));
+        cost_model.initialize_cost_table(&[]);
+        let cost_model = Arc::new(RwLock::new(cost_model));
 
-        // let (_, retransmit_slots_receiver) = unbounded();
-        // let (verified_vote_sender, _) = unbounded();
-        // let (gossip_verified_vote_hash_sender, _) = unbounded();
-        // let (cluster_confirmed_slot_sender, _) = unbounded();
+        let (_, retransmit_slots_receiver) = unbounded();
+        let (verified_vote_sender, _) = unbounded();
+        let (gossip_verified_vote_hash_sender, _) = unbounded();
+        let (cluster_confirmed_slot_sender, _) = unbounded();
 
         let rpc_completed_slots_service = RpcCompletedSlotsService::spawn(
             completed_slots_receiver,
@@ -936,7 +934,7 @@ impl Validator {
             exit.clone(),
         );
 
-        // let (replay_vote_sender, replay_vote_receiver) = unbounded();
+        let (replay_vote_sender, replay_vote_receiver) = unbounded();
         // let tvu = Tvu::new(
         //     vote_account,
         //     authorized_voter_keypairs,

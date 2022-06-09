@@ -2,12 +2,12 @@
 
 use {
     crate::{
-        cluster_tpu_info::ClusterTpuInfo,
+        // cluster_tpu_info::ClusterTpuInfo,
         max_slots::MaxSlots,
         optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
         rpc::{
             rpc_accounts::*, rpc_bank::*, rpc_deprecated_v1_7::*, rpc_deprecated_v1_9::*,
-            rpc_full::*, rpc_minimal::*, rpc_obsolete_v1_7::*, *,
+            /*rpc_full::*,*/ rpc_minimal::*, rpc_obsolete_v1_7::*, *,
         },
         rpc_health::*,
     },
@@ -37,7 +37,8 @@ use {
         exit::Exit, genesis_config::DEFAULT_GENESIS_DOWNLOAD_PATH, hash::Hash,
         native_token::lamports_to_sol, pubkey::Pubkey,
     },
-    solana_send_transaction_service::send_transaction_service::{self, SendTransactionService},
+    // solana_send_transaction_service::send_transaction_service::{self, SendTransactionService},
+    solana_send_transaction_service::send_transaction_service,
     solana_storage_bigtable::CredentialType,
     std::{
         collections::HashSet,
@@ -342,14 +343,14 @@ impl JsonRpcService {
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         blockstore: Arc<Blockstore>,
         cluster_info: Arc<ClusterInfo>,
-        poh_recorder: Option<Arc<Mutex<PohRecorder>>>,
+        _poh_recorder: Option<Arc<Mutex<PohRecorder>>>,
         genesis_hash: Hash,
         ledger_path: &Path,
         validator_exit: Arc<RwLock<Exit>>,
         known_validators: Option<HashSet<Pubkey>>,
         override_health_check: Arc<AtomicBool>,
         optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
-        send_transaction_service_config: send_transaction_service::Config,
+        _send_transaction_service_config: send_transaction_service::Config,
         max_slots: Arc<MaxSlots>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         current_transaction_status_slot: Arc<AtomicU64>,
@@ -370,7 +371,7 @@ impl JsonRpcService {
             LARGEST_ACCOUNTS_CACHE_DURATION,
         )));
 
-        let tpu_address = cluster_info.my_contact_info().tpu;
+        // let tpu_address = cluster_info.my_contact_info().tpu;
 
         // sadly, some parts of our current rpc implemention block the jsonrpc's
         // _socket-listening_ event loop for too long, due to (blocking) long IO or intesive CPU,
@@ -439,7 +440,7 @@ impl JsonRpcService {
 
         let full_api = config.full_api;
         let obsolete_v1_7_api = config.obsolete_v1_7_api;
-        let (request_processor, receiver) = JsonRpcRequestProcessor::new(
+        let (_request_processor, receiver) = JsonRpcRequestProcessor::new(
             config,
             snapshot_config.clone(),
             bank_forks.clone(),
@@ -457,18 +458,18 @@ impl JsonRpcService {
             current_transaction_status_slot,
         );
 
-        let leader_info =
-            poh_recorder.map(|recorder| ClusterTpuInfo::new(cluster_info.clone(), recorder));
-        let _send_transaction_service = Arc::new(SendTransactionService::new_with_config(
-            tpu_address,
-            &bank_forks,
-            leader_info,
-            receiver,
-            send_transaction_service_config,
-        ));
+        // let leader_info =
+        //     poh_recorder.map(|recorder| ClusterTpuInfo::new(cluster_info.clone(), recorder));
+        // let _send_transaction_service = Arc::new(SendTransactionService::new_with_config(
+        //     tpu_address,
+        //     &bank_forks,
+        //     leader_info,
+        //     receiver,
+        //     send_transaction_service_config,
+        // ));
 
         #[cfg(test)]
-        let test_request_processor = request_processor.clone();
+        let test_request_processor = _request_processor.clone();
 
         let ledger_path = ledger_path.to_path_buf();
 
@@ -484,7 +485,7 @@ impl JsonRpcService {
                 if full_api {
                     io.extend_with(rpc_bank::BankDataImpl.to_delegate());
                     io.extend_with(rpc_accounts::AccountsDataImpl.to_delegate());
-                    io.extend_with(rpc_full::FullImpl.to_delegate());
+                    // io.extend_with(rpc_full::FullImpl.to_delegate());
                     io.extend_with(rpc_deprecated_v1_7::DeprecatedV1_7Impl.to_delegate());
                     io.extend_with(rpc_deprecated_v1_9::DeprecatedV1_9Impl.to_delegate());
                 }
@@ -500,7 +501,7 @@ impl JsonRpcService {
                 );
                 let server = ServerBuilder::with_meta_extractor(
                     io,
-                    move |_req: &hyper::Request<hyper::Body>| request_processor.clone(),
+                    move |_req: &hyper::Request<hyper::Body>| _request_processor.clone(),
                 )
                 .event_loop_executor(runtime.handle().clone())
                 .threads(1)

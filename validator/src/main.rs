@@ -2897,7 +2897,7 @@ pub fn main() {
         &gossip_addr,
         dynamic_port_range,
         bind_address,
-        overwrite_tpu_addr,
+        // overwrite_tpu_addr,
     );
 
     if restricted_repair_only_mode {

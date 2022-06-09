@@ -48,7 +48,7 @@ use {
     solana_ledger::shred::Shred,
     solana_measure::measure::Measure,
     solana_net_utils::{
-        bind_common, bind_common_in_range, bind_in_range, bind_two_consecutive_in_range,
+        bind_common, bind_common_in_range, bind_in_range, /*bind_two_consecutive_in_range,*/
         find_available_port_in_range, multi_bind_in_range, PortRange,
     },
     solana_perf::{
@@ -62,7 +62,7 @@ use {
         feature_set::FeatureSet,
         hash::Hash,
         pubkey::Pubkey,
-        quic::QUIC_PORT_OFFSET,
+        // quic::QUIC_PORT_OFFSET,
         sanitize::{Sanitize, SanitizeError},
         signature::{Keypair, Signable, Signature, Signer},
         timing::timestamp,
@@ -158,7 +158,7 @@ pub struct ClusterInfo {
     my_contact_info: RwLock<ContactInfo>,
     ping_cache: Mutex<PingCache>,
     stats: GossipStats,
-    socket: UdpSocket,
+    // socket: UdpSocket, //greg -> this is weird. i feel like this is baddddd. i assume gossip runs on UDP
     local_message_pending_push_queue: Mutex<Vec<CrdsValue>>,
     contact_debug_interval: u64, // milliseconds, 0 = disabled
     contact_save_interval: u64,  // milliseconds, 0 = disabled
@@ -409,7 +409,7 @@ impl ClusterInfo {
                 GOSSIP_PING_CACHE_CAPACITY,
             )),
             stats: GossipStats::default(),
-            socket: UdpSocket::bind("0.0.0.0:0").unwrap(),
+            // socket: UdpSocket::bind("0.0.0.0:0").unwrap(),
             local_message_pending_push_queue: Mutex::default(),
             contact_debug_interval: DEFAULT_CONTACT_DEBUG_INTERVAL_MILLIS,
             instance: RwLock::new(NodeInstance::new(&mut thread_rng(), id, timestamp())),
@@ -434,7 +434,7 @@ impl ClusterInfo {
             my_contact_info: RwLock::new(my_contact_info),
             ping_cache: Mutex::new(self.ping_cache.lock().unwrap().mock_clone()),
             stats: GossipStats::default(),
-            socket: UdpSocket::bind("0.0.0.0:0").unwrap(),
+            // socket: UdpSocket::bind("0.0.0.0:0").unwrap(),
             local_message_pending_push_queue: Mutex::new(
                 self.local_message_pending_push_queue
                     .lock()
@@ -774,7 +774,8 @@ impl ClusterInfo {
                     };
                     let ip_addr = node.gossip.ip();
                     Some(format!(
-                        "{:15} {:2}| {:5} | {:44} |{:^9}| {:5}|  {:5}| {:5}| {:5}| {:5}| {:5}| {:5}| {:5}| {}\n",
+                        // "{:15} {:2}| {:5} | {:44} |{:^9}| {:5}|  {:5}| {:5}| {:5}| {:5}| {:5}| {:5}| {:5}| {}\n",
+                        "{:15} {:2}| {:5} | {:44} |{:^9}| {:5}| {:5}| {:5}| {}\n",
                         if ContactInfo::is_valid_address(&node.gossip, &self.socket_addr_space) {
                             ip_addr.to_string()
                         } else {
@@ -789,11 +790,11 @@ impl ClusterInfo {
                             "-".to_string()
                         },
                         addr_to_string(&ip_addr, &node.gossip),
-                        addr_to_string(&ip_addr, &node.tpu_vote),
-                        addr_to_string(&ip_addr, &node.tpu),
-                        addr_to_string(&ip_addr, &node.tpu_forwards),
-                        addr_to_string(&ip_addr, &node.tvu),
-                        addr_to_string(&ip_addr, &node.tvu_forwards),
+                        // addr_to_string(&ip_addr, &node.tpu_vote),
+                        // addr_to_string(&ip_addr, &node.tpu),
+                        // addr_to_string(&ip_addr, &node.tpu_forwards),
+                        // addr_to_string(&ip_addr, &node.tvu),
+                        // addr_to_string(&ip_addr, &node.tvu_forwards),
                         addr_to_string(&ip_addr, &node.repair),
                         addr_to_string(&ip_addr, &node.serve_repair),
                         node.shred_version,
@@ -1084,16 +1085,16 @@ impl ClusterInfo {
         }
     }
 
-    pub fn send_transaction(
-        &self,
-        transaction: &Transaction,
-        tpu: Option<SocketAddr>,
-    ) -> Result<(), GossipError> {
-        let tpu = tpu.unwrap_or_else(|| self.my_contact_info().tpu);
-        let buf = serialize(transaction)?;
-        self.socket.send_to(&buf, &tpu)?;
-        Ok(())
-    }
+    // pub fn send_transaction(
+    //     &self,
+    //     transaction: &Transaction,
+    //     tpu: Option<SocketAddr>,
+    // ) -> Result<(), GossipError> {
+    //     // let tpu = tpu.unwrap_or_else(|| self.my_contact_info().tpu);
+    //     let buf = serialize(transaction)?;
+    //     // self.socket.send_to(&buf, &tpu)?;
+    //     Ok(())
+    // }
 
     /// Returns votes inserted since the given cursor.
     pub fn get_votes(&self, cursor: &mut Cursor) -> Vec<Transaction> {
@@ -1242,32 +1243,32 @@ impl ClusterInfo {
     }
 
     /// all validators that have a valid tvu port regardless of `shred_version`.
-    pub fn all_tvu_peers(&self) -> Vec<ContactInfo> {
-        let self_pubkey = self.id();
-        self.time_gossip_read_lock("all_tvu_peers", &self.stats.all_tvu_peers)
-            .get_nodes_contact_info()
-            .filter(|x| {
-                ContactInfo::is_valid_address(&x.tvu, &self.socket_addr_space)
-                    && x.id != self_pubkey
-            })
-            .cloned()
-            .collect()
-    }
+    // pub fn all_tvu_peers(&self) -> Vec<ContactInfo> {
+    //     let self_pubkey = self.id();
+    //     self.time_gossip_read_lock("all_tvu_peers", &self.stats.all_tvu_peers)
+    //         .get_nodes_contact_info()
+    //         .filter(|x| {
+    //             ContactInfo::is_valid_address(&x.tvu, &self.socket_addr_space)
+    //                 && x.id != self_pubkey
+    //         })
+    //         .cloned()
+    //         .collect()
+    // }
 
     /// all validators that have a valid tvu port and are on the same `shred_version`.
-    pub fn tvu_peers(&self) -> Vec<ContactInfo> {
-        let self_pubkey = self.id();
-        let self_shred_version = self.my_shred_version();
-        self.time_gossip_read_lock("tvu_peers", &self.stats.tvu_peers)
-            .get_nodes_contact_info()
-            .filter(|node| {
-                node.id != self_pubkey
-                    && node.shred_version == self_shred_version
-                    && ContactInfo::is_valid_tvu_address(&node.tvu)
-            })
-            .cloned()
-            .collect()
-    }
+    // pub fn tvu_peers(&self) -> Vec<ContactInfo> {
+    //     let self_pubkey = self.id();
+    //     let self_shred_version = self.my_shred_version();
+    //     self.time_gossip_read_lock("tvu_peers", &self.stats.tvu_peers)
+    //         .get_nodes_contact_info()
+    //         .filter(|node| {
+    //             node.id != self_pubkey
+    //                 && node.shred_version == self_shred_version
+    //                 && ContactInfo::is_valid_tvu_address(&node.tvu)
+    //         })
+    //         .cloned()
+    //         .collect()
+    // }
 
     /// all tvu peers with valid gossip addrs that likely have the slot being requested
     pub fn repair_peers(&self, slot: Slot) -> Vec<ContactInfo> {
@@ -1280,7 +1281,7 @@ impl ClusterInfo {
             .filter(|node| {
                 node.id != self_pubkey
                     && node.shred_version == self_shred_version
-                    && ContactInfo::is_valid_tvu_address(&node.tvu)
+                    // && ContactInfo::is_valid_tvu_address(&node.tvu)
                     && ContactInfo::is_valid_address(&node.serve_repair, &self.socket_addr_space)
                     && match gossip_crds.get::<&LowestSlot>(node.id) {
                         None => true, // fallback to legacy behavior
@@ -1292,24 +1293,25 @@ impl ClusterInfo {
     }
 
     fn is_spy_node(contact_info: &ContactInfo, socket_addr_space: &SocketAddrSpace) -> bool {
-        !ContactInfo::is_valid_address(&contact_info.tpu, socket_addr_space)
-            || !ContactInfo::is_valid_address(&contact_info.gossip, socket_addr_space)
-            || !ContactInfo::is_valid_address(&contact_info.tvu, socket_addr_space)
+        !ContactInfo::is_valid_address(&contact_info.gossip, socket_addr_space)
+        // !ContactInfo::is_valid_address(&contact_info.tpu, socket_addr_space)
+            // || !ContactInfo::is_valid_address(&contact_info.gossip, socket_addr_space)
+            // || !ContactInfo::is_valid_address(&contact_info.tvu, socket_addr_space)
     }
 
     /// compute broadcast table
-    pub fn tpu_peers(&self) -> Vec<ContactInfo> {
-        let self_pubkey = self.id();
-        let gossip_crds = self.gossip.crds.read().unwrap();
-        gossip_crds
-            .get_nodes_contact_info()
-            .filter(|x| {
-                x.id != self_pubkey
-                    && ContactInfo::is_valid_address(&x.tpu, &self.socket_addr_space)
-            })
-            .cloned()
-            .collect()
-    }
+    // pub fn tpu_peers(&self) -> Vec<ContactInfo> {
+    //     let self_pubkey = self.id();
+    //     let gossip_crds = self.gossip.crds.read().unwrap();
+    //     gossip_crds
+    //         .get_nodes_contact_info()
+    //         .filter(|x| {
+    //             x.id != self_pubkey
+    //                 && ContactInfo::is_valid_address(&x.tpu, &self.socket_addr_space)
+    //         })
+    //         .cloned()
+    //         .collect()
+    // }
 
     fn insert_self(&self) {
         let value = CrdsValue::new_signed(
@@ -2713,18 +2715,18 @@ pub fn compute_retransmit_peers<T: Copy>(
 pub struct Sockets {
     pub gossip: UdpSocket,
     pub ip_echo: Option<TcpListener>,
-    pub tvu: Vec<UdpSocket>,
-    pub tvu_forwards: Vec<UdpSocket>,
-    pub tpu: Vec<UdpSocket>,
-    pub tpu_forwards: Vec<UdpSocket>,
-    pub tpu_vote: Vec<UdpSocket>,
+    // pub tvu: Vec<UdpSocket>,
+    // pub tvu_forwards: Vec<UdpSocket>,
+    // pub tpu: Vec<UdpSocket>,
+    // pub tpu_forwards: Vec<UdpSocket>,
+    // pub tpu_vote: Vec<UdpSocket>,
     pub broadcast: Vec<UdpSocket>,
     pub repair: UdpSocket,
     pub retransmit_sockets: Vec<UdpSocket>,
     pub serve_repair: UdpSocket,
     pub ancestor_hashes_requests: UdpSocket,
-    pub tpu_quic: UdpSocket,
-    pub tpu_forwards_quic: UdpSocket,
+    // pub tpu_quic: UdpSocket,
+    // pub tpu_forwards_quic: UdpSocket,
 }
 
 #[derive(Debug)]
@@ -2740,16 +2742,16 @@ impl Node {
     }
     pub fn new_localhost_with_pubkey(pubkey: &Pubkey) -> Self {
         let bind_ip_addr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
-        let ((_tpu_port, tpu), (_tpu_quic_port, tpu_quic)) =
-            bind_two_consecutive_in_range(bind_ip_addr, (1024, 65535)).unwrap();
+        // let ((_tpu_port, tpu), (_tpu_quic_port, tpu_quic)) =
+            // bind_two_consecutive_in_range(bind_ip_addr, (1024, 65535)).unwrap();
         let (gossip_port, (gossip, ip_echo)) =
             bind_common_in_range(bind_ip_addr, (1024, 65535)).unwrap();
         let gossip_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), gossip_port);
-        let tvu = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let tvu_forwards = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let ((_tpu_forwards_port, tpu_forwards), (_tpu_forwards_quic_port, tpu_forwards_quic)) =
-            bind_two_consecutive_in_range(bind_ip_addr, (1024, 65535)).unwrap();
-        let tpu_vote = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // let tvu = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // let tvu_forwards = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // let ((_tpu_forwards_port, tpu_forwards), (_tpu_forwards_quic_port, tpu_forwards_quic)) =
+        //     bind_two_consecutive_in_range(bind_ip_addr, (1024, 65535)).unwrap();
+        // let tpu_vote = UdpSocket::bind("127.0.0.1:0").unwrap();
         let repair = UdpSocket::bind("127.0.0.1:0").unwrap();
         let rpc_port = find_available_port_in_range(bind_ip_addr, (1024, 65535)).unwrap();
         let rpc_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), rpc_port);
@@ -2765,12 +2767,12 @@ impl Node {
         let info = ContactInfo {
             id: *pubkey,
             gossip: gossip_addr,
-            tvu: tvu.local_addr().unwrap(),
-            tvu_forwards: tvu_forwards.local_addr().unwrap(),
+            // tvu: tvu.local_addr().unwrap(),
+            // tvu_forwards: tvu_forwards.local_addr().unwrap(),
             repair: repair.local_addr().unwrap(),
-            tpu: tpu.local_addr().unwrap(),
-            tpu_forwards: tpu_forwards.local_addr().unwrap(),
-            tpu_vote: tpu_vote.local_addr().unwrap(),
+            // tpu: tpu.local_addr().unwrap(),
+            // tpu_forwards: tpu_forwards.local_addr().unwrap(),
+            // tpu_vote: tpu_vote.local_addr().unwrap(),
             rpc: rpc_addr,
             rpc_pubsub: rpc_pubsub_addr,
             serve_repair: serve_repair.local_addr().unwrap(),
@@ -2782,18 +2784,18 @@ impl Node {
             sockets: Sockets {
                 gossip,
                 ip_echo: Some(ip_echo),
-                tvu: vec![tvu],
-                tvu_forwards: vec![tvu_forwards],
-                tpu: vec![tpu],
-                tpu_forwards: vec![tpu_forwards],
-                tpu_vote: vec![tpu_vote],
+                // tvu: vec![tvu],
+                // tvu_forwards: vec![tvu_forwards],
+                // tpu: vec![tpu],
+                // tpu_forwards: vec![tpu_forwards],
+                // tpu_vote: vec![tpu_vote],
                 broadcast,
                 repair,
                 retransmit_sockets: vec![retransmit_socket],
                 serve_repair,
                 ancestor_hashes_requests,
-                tpu_quic,
-                tpu_forwards_quic,
+                // tpu_quic,
+                // tpu_forwards_quic,
             },
         }
     }
@@ -2826,13 +2828,13 @@ impl Node {
     ) -> Self {
         let (gossip_port, (gossip, ip_echo)) =
             Self::get_gossip_port(gossip_addr, port_range, bind_ip_addr);
-        let (tvu_port, tvu) = Self::bind(bind_ip_addr, port_range);
-        let (tvu_forwards_port, tvu_forwards) = Self::bind(bind_ip_addr, port_range);
-        let ((tpu_port, tpu), (_tpu_quic_port, tpu_quic)) =
-            bind_two_consecutive_in_range(bind_ip_addr, port_range).unwrap();
-        let ((tpu_forwards_port, tpu_forwards), (_tpu_forwards_quic_port, tpu_forwards_quic)) =
-            bind_two_consecutive_in_range(bind_ip_addr, port_range).unwrap();
-        let (tpu_vote_port, tpu_vote) = Self::bind(bind_ip_addr, port_range);
+        // let (tvu_port, tvu) = Self::bind(bind_ip_addr, port_range);
+        // let (tvu_forwards_port, tvu_forwards) = Self::bind(bind_ip_addr, port_range);
+        // let ((tpu_port, tpu), (_tpu_quic_port, tpu_quic)) =
+            // bind_two_consecutive_in_range(bind_ip_addr, port_range).unwrap();
+        // let ((tpu_forwards_port, tpu_forwards), (_tpu_forwards_quic_port, tpu_forwards_quic)) =
+            // bind_two_consecutive_in_range(bind_ip_addr, port_range).unwrap();
+        // let (tpu_vote_port, tpu_vote) = Self::bind(bind_ip_addr, port_range);
         let (_, retransmit_socket) = Self::bind(bind_ip_addr, port_range);
         let (repair_port, repair) = Self::bind(bind_ip_addr, port_range);
         let (serve_repair_port, serve_repair) = Self::bind(bind_ip_addr, port_range);
@@ -2845,12 +2847,12 @@ impl Node {
         let info = ContactInfo {
             id: *pubkey,
             gossip: SocketAddr::new(gossip_addr.ip(), gossip_port),
-            tvu: SocketAddr::new(gossip_addr.ip(), tvu_port),
-            tvu_forwards: SocketAddr::new(gossip_addr.ip(), tvu_forwards_port),
+            // tvu: SocketAddr::new(gossip_addr.ip(), tvu_port),
+            // tvu_forwards: SocketAddr::new(gossip_addr.ip(), tvu_forwards_port),
             repair: SocketAddr::new(gossip_addr.ip(), repair_port),
-            tpu: SocketAddr::new(gossip_addr.ip(), tpu_port),
-            tpu_forwards: SocketAddr::new(gossip_addr.ip(), tpu_forwards_port),
-            tpu_vote: SocketAddr::new(gossip_addr.ip(), tpu_vote_port),
+            // tpu: SocketAddr::new(gossip_addr.ip(), tpu_port),
+            // tpu_forwards: SocketAddr::new(gossip_addr.ip(), tpu_forwards_port),
+            // tpu_vote: SocketAddr::new(gossip_addr.ip(), tpu_vote_port),
             rpc: SocketAddr::new(gossip_addr.ip(), rpc_port),
             rpc_pubsub: SocketAddr::new(gossip_addr.ip(), rpc_pubsub_port),
             serve_repair: SocketAddr::new(gossip_addr.ip(), serve_repair_port),
@@ -2864,18 +2866,18 @@ impl Node {
             sockets: Sockets {
                 gossip,
                 ip_echo: Some(ip_echo),
-                tvu: vec![tvu],
-                tvu_forwards: vec![tvu_forwards],
-                tpu: vec![tpu],
-                tpu_forwards: vec![tpu_forwards],
-                tpu_vote: vec![tpu_vote],
+                // tvu: vec![tvu],
+                // tvu_forwards: vec![tvu_forwards],
+                // tpu: vec![tpu],
+                // tpu_forwards: vec![tpu_forwards],
+                // tpu_vote: vec![tpu_vote],
                 broadcast: vec![broadcast],
                 repair,
                 retransmit_sockets: vec![retransmit_socket],
                 serve_repair,
                 ancestor_hashes_requests,
-                tpu_quic,
-                tpu_forwards_quic,
+                // tpu_quic,
+                // tpu_forwards_quic,
             },
         }
     }
@@ -2885,38 +2887,38 @@ impl Node {
         gossip_addr: &SocketAddr,
         port_range: PortRange,
         bind_ip_addr: IpAddr,
-        overwrite_tpu_addr: Option<SocketAddr>,
+        // overwrite_tpu_addr: Option<SocketAddr>,
     ) -> Node {
         let (gossip_port, (gossip, ip_echo)) =
             Self::get_gossip_port(gossip_addr, port_range, bind_ip_addr);
 
-        let (tvu_port, tvu_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu multi_bind");
+        // let (tvu_port, tvu_sockets) =
+        //     multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu multi_bind");
 
-        let (tvu_forwards_port, tvu_forwards_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu_forwards multi_bind");
+        // let (tvu_forwards_port, tvu_forwards_sockets) =
+        //     multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu_forwards multi_bind");
 
-        let (tpu_port, tpu_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, 32).expect("tpu multi_bind");
+        // let (tpu_port, tpu_sockets) =
+        //     multi_bind_in_range(bind_ip_addr, port_range, 32).expect("tpu multi_bind");
 
-        let (_tpu_port_quic, tpu_quic) = Self::bind(
-            bind_ip_addr,
-            (tpu_port + QUIC_PORT_OFFSET, tpu_port + QUIC_PORT_OFFSET + 1),
-        );
+        // let (_tpu_port_quic, tpu_quic) = Self::bind(
+        //     bind_ip_addr,
+        //     (tpu_port + QUIC_PORT_OFFSET, tpu_port + QUIC_PORT_OFFSET + 1),
+        // );
 
-        let (tpu_forwards_port, tpu_forwards_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tpu_forwards multi_bind");
+        // let (tpu_forwards_port, tpu_forwards_sockets) =
+        //     multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tpu_forwards multi_bind");
 
-        let (_tpu_forwards_port_quic, tpu_forwards_quic) = Self::bind(
-            bind_ip_addr,
-            (
-                tpu_forwards_port + QUIC_PORT_OFFSET,
-                tpu_forwards_port + QUIC_PORT_OFFSET + 1,
-            ),
-        );
+        // let (_tpu_forwards_port_quic, tpu_forwards_quic) = Self::bind(
+        //     bind_ip_addr,
+        //     (
+        //         tpu_forwards_port + QUIC_PORT_OFFSET,
+        //         tpu_forwards_port + QUIC_PORT_OFFSET + 1,
+        //     ),
+        // );
 
-        let (tpu_vote_port, tpu_vote_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, 1).expect("tpu_vote multi_bind");
+        // let (tpu_vote_port, tpu_vote_sockets) =
+        //     multi_bind_in_range(bind_ip_addr, port_range, 1).expect("tpu_vote multi_bind");
 
         let (_, retransmit_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 8).expect("retransmit multi_bind");
@@ -2932,12 +2934,12 @@ impl Node {
         let info = ContactInfo {
             id: *pubkey,
             gossip: SocketAddr::new(gossip_addr.ip(), gossip_port),
-            tvu: SocketAddr::new(gossip_addr.ip(), tvu_port),
-            tvu_forwards: SocketAddr::new(gossip_addr.ip(), tvu_forwards_port),
+            // tvu: SocketAddr::new(gossip_addr.ip(), tvu_port),
+            // tvu_forwards: SocketAddr::new(gossip_addr.ip(), tvu_forwards_port),
             repair: SocketAddr::new(gossip_addr.ip(), repair_port),
-            tpu: overwrite_tpu_addr.unwrap_or_else(|| SocketAddr::new(gossip_addr.ip(), tpu_port)),
-            tpu_forwards: SocketAddr::new(gossip_addr.ip(), tpu_forwards_port),
-            tpu_vote: SocketAddr::new(gossip_addr.ip(), tpu_vote_port),
+            // tpu: overwrite_tpu_addr.unwrap_or_else(|| SocketAddr::new(gossip_addr.ip(), tpu_port)),
+            // tpu_forwards: SocketAddr::new(gossip_addr.ip(), tpu_forwards_port),
+            // tpu_vote: SocketAddr::new(gossip_addr.ip(), tpu_vote_port),
             rpc: socketaddr_any!(),
             rpc_pubsub: socketaddr_any!(),
             serve_repair: SocketAddr::new(gossip_addr.ip(), serve_repair_port),
@@ -2950,19 +2952,19 @@ impl Node {
             info,
             sockets: Sockets {
                 gossip,
-                tvu: tvu_sockets,
-                tvu_forwards: tvu_forwards_sockets,
-                tpu: tpu_sockets,
-                tpu_forwards: tpu_forwards_sockets,
-                tpu_vote: tpu_vote_sockets,
+                // tvu: tvu_sockets,
+                // tvu_forwards: tvu_forwards_sockets,
+                // tpu: tpu_sockets,
+                // tpu_forwards: tpu_forwards_sockets,
+                // tpu_vote: tpu_vote_sockets,
                 broadcast,
                 repair,
                 retransmit_sockets,
                 serve_repair,
                 ip_echo: Some(ip_echo),
                 ancestor_hashes_requests,
-                tpu_quic,
-                tpu_forwards_quic,
+                // tpu_quic,
+                // tpu_forwards_quic,
             },
         }
     }
@@ -3124,12 +3126,12 @@ mod tests {
             let info = ContactInfo {
                 id: keypair.pubkey(),
                 gossip,
-                tvu,
-                tvu_forwards,
+                // tvu,
+                // tvu_forwards,
                 repair,
-                tpu,
-                tpu_forwards,
-                tpu_vote,
+                // tpu,
+                // tpu_forwards,
+                // tpu_vote,
                 rpc,
                 rpc_pubsub,
                 serve_repair,
@@ -3141,18 +3143,18 @@ mod tests {
                 sockets: Sockets {
                     gossip: UdpSocket::bind("0.0.0.0:0").unwrap(),
                     ip_echo: None,
-                    tvu: vec![],
-                    tvu_forwards: vec![],
-                    tpu: vec![],
-                    tpu_forwards: vec![],
-                    tpu_vote: vec![],
+                    // tvu: vec![],
+                    // tvu_forwards: vec![],
+                    // tpu: vec![],
+                    // tpu_forwards: vec![],
+                    // tpu_vote: vec![],
                     broadcast: vec![],
                     repair: UdpSocket::bind("0.0.0.0:0").unwrap(),
                     retransmit_sockets: vec![],
                     serve_repair: UdpSocket::bind("0.0.0.0:0").unwrap(),
                     ancestor_hashes_requests: UdpSocket::bind("0.0.0.0:0").unwrap(),
-                    tpu_quic: UdpSocket::bind("0.0.0.0:0").unwrap(),
-                    tpu_forwards_quic: UdpSocket::bind("0.0.0.0:0").unwrap(),
+                    // tpu_quic: UdpSocket::bind("0.0.0.0:0").unwrap(),
+                    // tpu_forwards_quic: UdpSocket::bind("0.0.0.0:0").unwrap(),
                 },
             }
         };
@@ -3589,7 +3591,7 @@ RPC Enabled Nodes: 1"#;
             &socketaddr!(ip, 0),
             VALIDATOR_PORT_RANGE,
             IpAddr::V4(ip),
-            None,
+            // None,
         );
 
         check_node_sockets(&node, IpAddr::V4(ip), VALIDATOR_PORT_RANGE);
@@ -3611,7 +3613,7 @@ RPC Enabled Nodes: 1"#;
             &socketaddr!(0, port),
             port_range,
             ip,
-            None,
+            // None,
         );
 
         check_node_sockets(&node, ip, port_range);
