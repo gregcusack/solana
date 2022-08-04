@@ -36,7 +36,6 @@ EOF
 }
 
 writeKeys=false
-
 positional_args=()
 while [[ -n $1 ]]; do
   if [[ ${1:0:1} = - ]]; then
@@ -91,3 +90,4 @@ else
   pid=$!
   echo "pid: $pid"
 fi
+
