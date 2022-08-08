@@ -57,6 +57,7 @@ colo_load_availability() {
       HOST_NAME="${COLO_RES_HOSTNAME[${I}]}"
       ZONE="${COLO_RES_ZONE[${I}]}"
       COLO_RES_AVAILABILITY+=( "$(echo -e "${HOST_NAME}\x1f${IP}\x1f${PRIV_IP}\x1f${STATUS}\x1f${ZONE}\x1f${LOCK_USER}\x1f${INSTNAME}\x1f${PREEMPTIBLE}")" )
+      echo "greg - colo res availability status (hostname, instance name, status): (${HOST_NAME}, ${INSTNAME}, ${STATUS})"
     done < <(colo_node_status_all | sort -t $'\x1f' -k1)
     COLO_RES_AVAILABILITY_CACHED=true
   fi

@@ -702,6 +702,7 @@ create)
   [[ -n $additionalValidatorCount ]] || usage "Need number of nodes"
 
   delete
+  echo "greg 1"
 
   $metricsWriteDatapoint "testnet-deploy net-create-begin=1"
 

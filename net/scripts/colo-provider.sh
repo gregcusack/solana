@@ -46,6 +46,10 @@ __cloud_FindInstances() {
   declare onlyPreemptible=${2}
   instances=()
 
+  echo "greg 2"
+
+  echo "colo res avail: $COLO_RES_AVAILABILITY[@]"
+
   if ! ${COLO_PARALLELIZE}; then
     colo_load_resources
     colo_load_availability false
