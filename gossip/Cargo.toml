@@ -10,6 +10,8 @@ homepage = "https://solana.com/"
 documentation = "https://docs.rs/solana-gossip"
 
 [dependencies]
+curl = "0.4.44"
+chrono = "0.4"
 bincode = "1.3.3"
 bv = { version = "0.11.1", features = ["serde"] }
 clap = "2.33.1"

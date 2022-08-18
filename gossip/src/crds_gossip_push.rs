@@ -11,6 +11,8 @@
 //!    the local nodes wallclock window they are dropped silently.
 //! 2. The prune set is stored in a Bloom filter.
 
+use std::alloc::System;
+
 use {
     crate::{
         cluster_info::CRDS_UNIQUE_PUBKEY_CAPACITY,
@@ -38,7 +40,13 @@ use {
             atomic::{AtomicUsize, Ordering},
             Mutex, RwLock,
         },
+        time::{Instant, SystemTime, UNIX_EPOCH},
+        
     },
+    chrono::{Utc, DateTime},
+    curl::easy::Easy,
+    
+    
 };
 
 pub const CRDS_GOSSIP_NUM_ACTIVE: usize = 30;
@@ -52,6 +60,42 @@ pub const CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT: f64 = 0.15;
 pub const CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES: usize = 3;
 // Do not push to peers which have not been updated for this long.
 const PUSH_ACTIVE_TIMEOUT_MS: u64 = 60_000;
+pub const ACTIVE_PEER_REPORT_PERIOD: usize = 1000;
+
+pub struct ReportGossipActiveGossipPeers {
+    // last_report_time: Instant,
+    last_report_time: AtomicUsize,
+}
+
+impl Default for ReportGossipActiveGossipPeers {
+    fn default() -> Self {
+        Self { last_report_time:  AtomicUsize::new(usize::try_from(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap()) }        
+    }
+}
+
+pub struct ReportActiveGossipPeersToInflux {
+    last_report_time: SystemTime,
+    host: Pubkey,
+    // peers: String,
+    peers: HashSet<Pubkey>,
+}
+
+impl ReportActiveGossipPeersToInflux {
+    pub fn send(
+        host: Pubkey,
+        peers: HashSet<Pubkey>,
+        // peers: String,
+
+    ) {
+        println!("greg - peerString.len: {:?}, pubkey: {:?}", peers.len(), host);
+        for key in peers.iter() {
+            print!("k: {:?}, ", key);
+        }
+        println!("");
+        // let fmtString = "curl -X"
+        // println!("greg - what is gooooood");
+    }
+}
 
 pub struct CrdsGossipPush {
     /// Max bytes per message
@@ -80,7 +124,12 @@ pub struct CrdsGossipPush {
     pub num_total: AtomicUsize,
     pub num_old: AtomicUsize,
     pub num_pushes: AtomicUsize,
+    pub report_active_peers_timer: ReportGossipActiveGossipPeers,
+    // pub report_active_peers_timer: Instant,
+    // pub report_active_peers_timer: AtomicUsize,
 }
+
+
 
 impl Default for CrdsGossipPush {
     fn default() -> Self {
@@ -98,6 +147,7 @@ impl Default for CrdsGossipPush {
             num_total: AtomicUsize::default(),
             num_old: AtomicUsize::default(),
             num_pushes: AtomicUsize::default(),
+            report_active_peers_timer: ReportGossipActiveGossipPeers::default(),
         }
     }
 }
@@ -134,6 +184,23 @@ impl CrdsGossipPush {
                 peers.into_iter().zip(repeat(origin))
             })
             .into_group_map()
+    }
+
+    pub fn process_report_active_peers(&self) -> bool {
+        // let k = usize::try_from(Instant::now()).unwrap();
+        let now = usize::try_from(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap();
+        // let out = self.report_active_peers_timer.last_report_time.fetch_sub(k, Ordering::SeqCst);
+
+        let old_time = self.report_active_peers_timer.last_report_time.load(Ordering::Relaxed);
+        let diff = now - old_time;
+        // println!("greg - elapsed: {:?}", diff);
+        if diff >= ACTIVE_PEER_REPORT_PERIOD {
+            println!("greg - elapsed: {:?}", diff);
+            self.report_active_peers_timer.last_report_time.fetch_add(diff, Ordering::SeqCst);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     fn prune_received_cache(
@@ -261,9 +328,11 @@ impl CrdsGossipPush {
         &self,
         crds: &RwLock<Crds>,
         now: u64,
+        self_id: Option<Pubkey>,
     ) -> HashMap<Pubkey, Vec<CrdsValue>> {
         let active_set = self.active_set.read().unwrap();
         let active_set_len = active_set.len();
+
         let push_fanout = self.push_fanout.min(active_set_len);
         if push_fanout == 0 {
             return HashMap::default();
@@ -280,7 +349,10 @@ impl CrdsGossipPush {
             .get_entries(crds_cursor.deref_mut())
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
+
+        let mut peerPubKeyHashSet = HashSet::new();
         for value in entries {
+            // println!("greg - entries: {:?}", value.pubkey());
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
             if total_bytes > self.max_bytes {
@@ -288,19 +360,22 @@ impl CrdsGossipPush {
             }
             num_values += 1;
             let origin = value.pubkey();
-            // Use a consistent index for the same origin so the active set
-            // learns the MST for that origin.
             let offset = origin.as_ref()[0] as usize;
             for i in offset..offset + push_fanout {
                 let index = i % active_set_len;
                 let (peer, filter) = active_set.get_index(index).unwrap();
                 if !filter.contains(&origin) || value.should_force_push(peer) {
+                    peerPubKeyHashSet.insert(peer.clone());
                     trace!("new_push_messages insert {} {:?}", *peer, value);
                     push_messages.entry(*peer).or_default().push(value.clone());
                     num_pushes += 1;
                 }
             }
         }
+        if peerPubKeyHashSet.len() != 0 && self.process_report_active_peers() {
+            ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peerPubKeyHashSet.clone());
+        }
+
         drop(crds);
         drop(crds_cursor);
         drop(active_set);
@@ -483,6 +558,8 @@ impl CrdsGossipPush {
             num_total: AtomicUsize::new(self.num_total.load(Ordering::Relaxed)),
             num_old: AtomicUsize::new(self.num_old.load(Ordering::Relaxed)),
             num_pushes: AtomicUsize::new(self.num_pushes.load(Ordering::Relaxed)),
+            report_active_peers_timer: ReportGossipActiveGossipPeers::default(),
+            // report_active_peers_timer: AtomicUsize::new(self.report_active_peers_timer.load(Ordering::Relaxed)),
             ..*self
         }
     }
@@ -946,7 +1023,7 @@ mod test {
             [Ok(origin)]
         );
         assert_eq!(push.active_set.read().unwrap().len(), 1);
-        assert_eq!(push.new_push_messages(&crds, 0), expected);
+        assert_eq!(push.new_push_messages(&crds, 0, None), expected);
     }
     #[test]
     fn test_personalized_push_messages() {
@@ -995,7 +1072,7 @@ mod test {
         .into_iter()
         .collect();
         assert_eq!(push.active_set.read().unwrap().len(), 3);
-        assert_eq!(push.new_push_messages(&crds, now), expected);
+        assert_eq!(push.new_push_messages(&crds, now, None), expected);
     }
     #[test]
     fn test_process_prune() {
@@ -1037,7 +1114,7 @@ mod test {
             &peer.label().pubkey(),
             &[new_msg.label().pubkey()],
         );
-        assert_eq!(push.new_push_messages(&crds, 0), expected);
+        assert_eq!(push.new_push_messages(&crds, 0, None), expected);
     }
     #[test]
     fn test_purge_old_pending_push_messages() {
@@ -1069,7 +1146,7 @@ mod test {
             push.process_push_message(&crds, &Pubkey::default(), vec![new_msg], 1),
             [Ok(origin)],
         );
-        assert_eq!(push.new_push_messages(&crds, 0), expected);
+        assert_eq!(push.new_push_messages(&crds, 0, None), expected);
     }
 
     #[test]
