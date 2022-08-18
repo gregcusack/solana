@@ -41,7 +41,8 @@ use {
         time::{SystemTime, UNIX_EPOCH},
         
     },
-    curl::easy::Easy,
+    reqwest,
+    tokio,
     
     
 };
@@ -78,24 +79,61 @@ pub struct ReportActiveGossipPeersToInflux {
 }
 
 impl ReportActiveGossipPeersToInflux {
-    pub fn send(
+
+    #[tokio::main]
+    pub async fn send(
         host: Pubkey,
         peers: HashSet<Pubkey>,
         // peers: String,
 
     ) {
-        let mut peerString = "".to_owned();
+        let mut peer_string = "".to_owned();
         // println!("greg - peerString.len: {:?}, pubkey: {:?}", peers.len(), host);
         for key in peers.iter() {
             print!("k: {:?}, ", key);
-            peerString.push_str(&key.to_string());
-            peerString.push_str(" ");
+            peer_string.push_str(&key.to_string());
+            peer_string.push_str(" ");
         }
         println!("");
-        println!("peerString out: {:?}", peerString);
+        println!("peerString out: {:?}", peer_string);
+
+        let client = reqwest::Client::new();
+        let body = reqwest::get("https://www.rust-lang.org")
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+
+        println!("body = {:?}", body);
+        // return body;
+
+        // let body_to_send = "--data-binary \"gossip-peers host=\"hostM\",peers=\"hostC hostY hostQ hostJ\"\"";
+        // let res = client.post("http://localhost:8087/write?db=gossipDb")
+        //     .body(body_to_send)
+        //     .send()
+        //     .await?;
+        //     // ;
+        // let res = client.get("http://google.com")
+        //     .await?.text().await?;
+
+        // println!("greg - got back: {:?}", res);
+        // // return res;
+
 
 
         // let mut curl_client = Easy::new();
+
+        // let mut data = "--data-binary \"gossip-peers host=\"hostK\",peers=\"hostC hostY hostQ\"\"".as_bytes();
+        // curl_client.url("http://localhost:8086/write?db=gossipDb").unwrap();
+        // curl_client.post(true).unwrap();
+        // curl_client.post_field_size(data.len() as u64).unwrap();
+
+        // let mut transfer = curl_client.transfer();
+        // transfer.read_function(|buf| {
+        //     Ok(0)
+        // }).unwrap();
+        // transfer.perform().unwrap();
 
 
     }

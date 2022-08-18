@@ -1093,36 +1093,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "curl"
-version = "0.4.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "509bd11746c7ac09ebd19f0b17782eae80aadee26237658a6b4808afb5c11a22"
-dependencies = [
- "curl-sys",
- "libc",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "socket2",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "curl-sys"
-version = "0.4.56+curl-7.83.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6093e169dd4de29e468fa649fbae11cdcd5551c81fe5bf1b0677adad7ef3d26f"
-dependencies = [
- "cc",
- "libc",
- "libz-sys",
- "openssl-sys",
- "pkg-config",
- "vcpkg",
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "curve25519-dalek"
 version = "3.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2579,7 +2549,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de5435b8549c16d423ed0c03dbaafe57cf6c3344744f1242520d59c9d8ecec66"
 dependencies = [
  "cc",
- "libc",
  "pkg-config",
  "vcpkg",
 ]
@@ -5465,7 +5434,6 @@ dependencies = [
  "chrono",
  "clap 2.33.3",
  "crossbeam-channel",
- "curl",
  "flate2",
  "indexmap",
  "itertools",
@@ -5478,6 +5446,7 @@ dependencies = [
  "rand_chacha 0.2.2",
  "rayon",
  "regex",
+ "reqwest",
  "rustc_version 0.4.0",
  "serde",
  "serde_bytes",
@@ -5502,6 +5471,7 @@ dependencies = [
  "solana-version",
  "solana-vote-program",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
