@@ -11,8 +11,6 @@
 //!    the local nodes wallclock window they are dropped silently.
 //! 2. The prune set is stored in a Bloom filter.
 
-use std::alloc::System;
-
 use {
     crate::{
         cluster_info::CRDS_UNIQUE_PUBKEY_CAPACITY,
@@ -40,10 +38,9 @@ use {
             atomic::{AtomicUsize, Ordering},
             Mutex, RwLock,
         },
-        time::{Instant, SystemTime, UNIX_EPOCH},
+        time::{SystemTime, UNIX_EPOCH},
         
     },
-    chrono::{Utc, DateTime},
     curl::easy::Easy,
     
     
@@ -74,7 +71,7 @@ impl Default for ReportGossipActiveGossipPeers {
 }
 
 pub struct ReportActiveGossipPeersToInflux {
-    last_report_time: SystemTime,
+    // last_report_time: SystemTime,
     host: Pubkey,
     // peers: String,
     peers: HashSet<Pubkey>,
@@ -87,13 +84,20 @@ impl ReportActiveGossipPeersToInflux {
         // peers: String,
 
     ) {
-        println!("greg - peerString.len: {:?}, pubkey: {:?}", peers.len(), host);
+        let mut peerString = "".to_owned();
+        // println!("greg - peerString.len: {:?}, pubkey: {:?}", peers.len(), host);
         for key in peers.iter() {
             print!("k: {:?}, ", key);
+            peerString.push_str(&key.to_string());
+            peerString.push_str(" ");
         }
         println!("");
-        // let fmtString = "curl -X"
-        // println!("greg - what is gooooood");
+        println!("peerString out: {:?}", peerString);
+
+
+        // let mut curl_client = Easy::new();
+
+
     }
 }
 
@@ -350,7 +354,7 @@ impl CrdsGossipPush {
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
 
-        let mut peerPubKeyHashSet = HashSet::new();
+        let mut peer_pubkey_hashset = HashSet::new();
         for value in entries {
             // println!("greg - entries: {:?}", value.pubkey());
             let serialized_size = serialized_size(&value).unwrap();
@@ -365,15 +369,15 @@ impl CrdsGossipPush {
                 let index = i % active_set_len;
                 let (peer, filter) = active_set.get_index(index).unwrap();
                 if !filter.contains(&origin) || value.should_force_push(peer) {
-                    peerPubKeyHashSet.insert(peer.clone());
+                    peer_pubkey_hashset.insert(peer.clone());
                     trace!("new_push_messages insert {} {:?}", *peer, value);
                     push_messages.entry(*peer).or_default().push(value.clone());
                     num_pushes += 1;
                 }
             }
         }
-        if peerPubKeyHashSet.len() != 0 && self.process_report_active_peers() {
-            ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peerPubKeyHashSet.clone());
+        if peer_pubkey_hashset.len() != 0 && self.process_report_active_peers() {
+            ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
         }
 
         drop(crds);
