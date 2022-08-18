@@ -98,26 +98,25 @@ impl ReportActiveGossipPeersToInflux {
         println!("peerString out: {:?}", peer_string);
 
         let client = reqwest::Client::new();
-        let body = reqwest::get("https://www.rust-lang.org")
-            .await
-            .unwrap()
-            .text()
+        // let body_to_send = "--data-binary \"gossip-peers host=\"hostM\",peers=\"hostC hostY hostQ hostJ\"\"";
+        // let body_to_send = "gossip-peers host=\"hostM\",peers=\"hostC hostY hostQ hostJ\"";
+
+        let body_to_send1 = "gossip-peers host=\"hostM\",peers=\"hostC hostY hostQ hostJ\"";
+
+        let body_to_send = format!("gossip-peers host=\"{}\",peers=\"{}\"", host, peer_string );
+        println!("body_to_Send: {}", body_to_send);
+        println!("body_to_send_1: {}", body_to_send1);
+
+        let res = client.post("http://localhost:8087/write?db=gossipDb")
+            .body(body_to_send)
+            .send()
             .await
             .unwrap();
-
-        println!("body = {:?}", body);
-        // return body;
-
-        // let body_to_send = "--data-binary \"gossip-peers host=\"hostM\",peers=\"hostC hostY hostQ hostJ\"\"";
-        // let res = client.post("http://localhost:8087/write?db=gossipDb")
-        //     .body(body_to_send)
-        //     .send()
-        //     .await?;
         //     // ;
         // let res = client.get("http://google.com")
         //     .await?.text().await?;
 
-        // println!("greg - got back: {:?}", res);
+        println!("greg - got back: {:?}", res);
         // // return res;
 
 
