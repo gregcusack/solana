@@ -72,9 +72,7 @@ impl Default for ReportGossipActiveGossipPeers {
 }
 
 pub struct ReportActiveGossipPeersToInflux {
-    // last_report_time: SystemTime,
     host: Pubkey,
-    // peers: String,
     peers: HashSet<Pubkey>,
 }
 
@@ -84,11 +82,9 @@ impl ReportActiveGossipPeersToInflux {
     pub async fn send(
         host: Pubkey,
         peers: HashSet<Pubkey>,
-        // peers: String,
 
     ) {
         let mut peer_string = "".to_owned();
-        // println!("greg - peerString.len: {:?}, pubkey: {:?}", peers.len(), host);
         for key in peers.iter() {
             print!("k: {:?}, ", key);
             peer_string.push_str(&key.to_string());
@@ -98,43 +94,12 @@ impl ReportActiveGossipPeersToInflux {
         println!("peerString out: {:?}", peer_string);
 
         let client = reqwest::Client::new();
-        // let body_to_send = "--data-binary \"gossip-peers host=\"hostM\",peers=\"hostC hostY hostQ hostJ\"\"";
-        // let body_to_send = "gossip-peers host=\"hostM\",peers=\"hostC hostY hostQ hostJ\"";
-
-        let body_to_send1 = "gossip-peers host=\"hostM\",peers=\"hostC hostY hostQ hostJ\"";
-
         let body_to_send = format!("gossip-peers host=\"{}\",peers=\"{}\"", host, peer_string );
-        println!("body_to_Send: {}", body_to_send);
-        println!("body_to_send_1: {}", body_to_send1);
-
         let res = client.post("http://localhost:8087/write?db=gossipDb")
             .body(body_to_send)
             .send()
             .await
             .unwrap();
-        //     // ;
-        // let res = client.get("http://google.com")
-        //     .await?.text().await?;
-
-        println!("greg - got back: {:?}", res);
-        // // return res;
-
-
-
-        // let mut curl_client = Easy::new();
-
-        // let mut data = "--data-binary \"gossip-peers host=\"hostK\",peers=\"hostC hostY hostQ\"\"".as_bytes();
-        // curl_client.url("http://localhost:8086/write?db=gossipDb").unwrap();
-        // curl_client.post(true).unwrap();
-        // curl_client.post_field_size(data.len() as u64).unwrap();
-
-        // let mut transfer = curl_client.transfer();
-        // transfer.read_function(|buf| {
-        //     Ok(0)
-        // }).unwrap();
-        // transfer.perform().unwrap();
-
-
     }
 }
 
@@ -166,8 +131,7 @@ pub struct CrdsGossipPush {
     pub num_old: AtomicUsize,
     pub num_pushes: AtomicUsize,
     pub report_active_peers_timer: ReportGossipActiveGossipPeers,
-    // pub report_active_peers_timer: Instant,
-    // pub report_active_peers_timer: AtomicUsize,
+
 }
 
 
