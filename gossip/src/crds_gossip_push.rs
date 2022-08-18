@@ -72,8 +72,8 @@ impl Default for ReportGossipActiveGossipPeers {
 }
 
 pub struct ReportActiveGossipPeersToInflux {
-    host: Pubkey,
-    peers: HashSet<Pubkey>,
+    _host: Pubkey,
+    _peers: HashSet<Pubkey>,
 }
 
 impl ReportActiveGossipPeersToInflux {
@@ -95,7 +95,7 @@ impl ReportActiveGossipPeersToInflux {
 
         let client = reqwest::Client::new();
         let body_to_send = format!("gossip-peers host=\"{}\",peers=\"{}\"", host, peer_string );
-        let res = client.post("http://localhost:8087/write?db=gossipDb")
+        let _res = client.post("http://localhost:8087/write?db=gossipDb")
             .body(body_to_send)
             .send()
             .await
