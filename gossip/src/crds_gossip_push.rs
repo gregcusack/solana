@@ -71,10 +71,7 @@ impl Default for ReportGossipActiveGossipPeers {
     }
 }
 
-pub struct ReportActiveGossipPeersToInflux {
-    _host: Pubkey,
-    _peers: HashSet<Pubkey>,
-}
+pub struct ReportActiveGossipPeersToInflux { }
 
 impl ReportActiveGossipPeersToInflux {
 
