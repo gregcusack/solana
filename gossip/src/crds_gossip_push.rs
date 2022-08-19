@@ -43,6 +43,8 @@ use {
     },
     reqwest,
     tokio,
+    async_std,
+
     
     
 };
@@ -87,11 +89,11 @@ impl ReportActiveGossipPeersToInflux {
             peer_string.push_str(" ");
         }
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
-        println!("Reporting host {:?}, peer_string {:?}", host, peer_string);
+        // println!("Reporting host {:?}, peer_string {:?}", host, peer_string);
 
         let client = reqwest::Client::new();
-        let body_to_send = format!("gossip-peers gossipts=\"{:?}\",host=\"{}\",peers=\"{}\"", now, host, peer_string );
-        let _res = client.post("http://localhost:8087/write?db=gossipDb")
+        let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", now, host, peer_string );
+        let _res = client.post("http://localhost:8086/write?db=gossipDb")
             .body(body_to_send)
             .send()
             .await
@@ -373,10 +375,10 @@ impl CrdsGossipPush {
                 }
             }
         }
-        // ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
-
         if peer_pubkey_hashset.len() != 0 { // && self.process_report_active_peers() {
-            ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
+            async_std::task::spawn(async move {
+                ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
+            });
         }
 
         drop(crds);
