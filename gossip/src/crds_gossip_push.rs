@@ -83,15 +83,14 @@ impl ReportActiveGossipPeersToInflux {
     ) {
         let mut peer_string = "".to_owned();
         for key in peers.iter() {
-            print!("k: {:?}, ", key);
             peer_string.push_str(&key.to_string());
             peer_string.push_str(" ");
         }
-        println!("");
-        println!("peerString out: {:?}", peer_string);
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
+        println!("Reporting host {:?}, peer_string {:?}", host, peer_string);
 
         let client = reqwest::Client::new();
-        let body_to_send = format!("gossip-peers host=\"{}\",peers=\"{}\"", host, peer_string );
+        let body_to_send = format!("gossip-peers gossipts=\"{:?}\",host=\"{}\",peers=\"{}\"", now, host, peer_string );
         let _res = client.post("http://localhost:8087/write?db=gossipDb")
             .body(body_to_send)
             .send()
@@ -374,7 +373,9 @@ impl CrdsGossipPush {
                 }
             }
         }
-        if peer_pubkey_hashset.len() != 0 && self.process_report_active_peers() {
+        // ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
+
+        if peer_pubkey_hashset.len() != 0 { // && self.process_report_active_peers() {
             ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
         }
 
