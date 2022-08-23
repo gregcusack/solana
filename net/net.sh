@@ -339,6 +339,9 @@ startBootstrapLeader() {
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
          \"$isGossip\" \
+         \"$GOSSIP_INFLUX_USERNAME\" \
+         \"$GOSSIP_INFLUX_PASSWORD\" \
+         \"$GOSSIP_INFLUXDB_NAME\" \
       "
 
   ) >> "$logFile" 2>&1 || {
@@ -419,6 +422,9 @@ startNode() {
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
          \"$instanceIndex\" \
+         \"$GOSSIP_INFLUX_USERNAME\" \
+         \"$GOSSIP_INFLUX_PASSWORD\" \
+         \"$GOSSIP_INFLUXDB_NAME\" \
       "
   ) >> "$logFile" 2>&1 &
   declare pid=$!
@@ -1036,6 +1042,9 @@ done
 if [[ $isGossip == 1 ]]; then 
   if [[ ($instancesPerNode == 0 && $gossipInstances == 0) || ($instancesPerNode != 0 && $gossipInstances != 0) ]]; then 
     usage "need to set either --gossip-instances-per-node OR --gossip-instances (not both)"
+  fi
+  if [[ -z ${GOSSIP_INFLUX_USERNAME} || -z ${GOSSIP_INFLUX_PASSWORD} || -z ${GOSSIP_INFLUXDB_NAME} ]]; then
+    usage "need to set GOSSIP_INFLUX_USERNAME, GOSSIP_INFLUX_PASSWORD, GOSSIP_INFLUXDB_NAME environment variables"
   fi
 fi
 

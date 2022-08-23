@@ -39,11 +39,12 @@ use {
             Mutex, RwLock,
         },
         time::{SystemTime, UNIX_EPOCH},
-        
+        env,
     },
     reqwest,
     tokio,
     async_std,
+
 
     
     
@@ -89,15 +90,20 @@ impl ReportActiveGossipPeersToInflux {
             peer_string.push_str(" ");
         }
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
-        // println!("Reporting host {:?}, peer_string {:?}", host, peer_string);
+
+        let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
+        let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
+        let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
+
 
         let client = reqwest::Client::new();
         let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", now, host, peer_string );
-        let _res = client.post("http://localhost:8086/write?db=gossipDb")
+        let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
+        let _res = client.post(endpoint)
             .body(body_to_send)
-            .send()
-            .await
-            .unwrap();
+            .send();
+            // .await
+            // .unwrap();
     }
 }
 

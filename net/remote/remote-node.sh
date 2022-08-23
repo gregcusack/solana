@@ -29,10 +29,16 @@ waitForNodeInit="${20}"
 extraPrimordialStakes="${21:=0}"
 tmpfsAccounts="${22:false}"
 instanceIndex="${23:--1}"
+gossipInfluxUsername="${24}"
+gossipInfluxPassword="${25}"
+gossipInfluxdbName="${26}"
 
 if [[ $instanceIndex != -1 ]]; then 
   gossipRunScript="gossip-run-$instanceIndex"
   gossipRunKeyScript="gossip-run-key-$instanceIndex"
+  export GOSSIP_INFLUX_USERNAME=$gossipInfluxUsername
+  export GOSSIP_INFLUX_PASSWORD=$gossipInfluxPassword
+  export GOSSIP_INFLUXDB_NAME=$gossipInfluxdbName
 fi
 
 set +x
