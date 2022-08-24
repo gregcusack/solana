@@ -77,6 +77,7 @@ pub struct ReportActiveGossipPeersToInflux { }
 
 impl ReportActiveGossipPeersToInflux {
 
+    #[tokio::main]
     pub async fn send_to_influx(
         body_to_send: String,
     ) {
@@ -94,12 +95,11 @@ impl ReportActiveGossipPeersToInflux {
             .send()
             .await
             .unwrap();
-        println!("greg - resp: {:?}", res);
-
     }
 
     #[tokio::main]
     pub async fn send_peers(
+        timestamp: u64,
         host: Pubkey,
         peers: HashSet<Pubkey>,
 
@@ -109,50 +109,31 @@ impl ReportActiveGossipPeersToInflux {
             peer_string.push_str(&key.to_string());
             peer_string.push_str(" ");
         }
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
-        let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", now, host, peer_string );
+        // let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
+        let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", timestamp, host, peer_string );
 
         println!("greg - send_peers - body_to_send: {:?}", body_to_send);
-        Self::send_to_influx(body_to_send);
+        // Self::send_to_influx(body_to_send);
+        async_std::task::spawn(async move {
+            ReportActiveGossipPeersToInflux::send_to_influx(body_to_send);
+        });
 
-        // let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
-        // let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
-        // let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
-
-
-        // let client = reqwest::Client::new();
-        // let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", now, host, peer_string );
-        // let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
-        // let _res = client.post(endpoint)
-        //     .body(body_to_send)
-        //     .send();
-            // .await
-            // .unwrap();
     }
 
     #[tokio::main]
-    pub async fn send_messages_signatures(
+    pub async fn send_message_signatures(
+        timestamp: u64,
         current_host: Pubkey,
         originating_host: Pubkey,
         message_signature: Signature,
-        timestamp: u128,
     ) {
 
         let body_to_send = format!("gossip-messages timestamp_at_host={:?}i,curent_host=\"{}\",originating_host=\"{}\",message_signature=\"{}\"", timestamp, current_host, originating_host, message_signature);
-        Self::send_to_influx(body_to_send);
-        // let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
-        // let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
-        // let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
+        // Self::send_to_influx(body_to_send);
 
-
-        // let client = reqwest::Client::new();
-        // let body_to_send = format!("gossip-messages timestamp_at_host={:?}i,curent_host=\"{}\",originating_host=\"{}\",message_signature=\"{}\"", timestamp, current_host, originating_host, message_signature);
-        // let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
-        // let _res = client.post(endpoint)
-        //     .body(body_to_send)
-        //     .send();
-            // .await
-            // .unwrap();
+        async_std::task::spawn(async move {
+            ReportActiveGossipPeersToInflux::send_to_influx(body_to_send);
+        });
     }
 }
 
@@ -431,6 +412,9 @@ impl CrdsGossipPush {
                     let source_signature = value.signature;
                     println!("greg - pubkey, sig: {:?}, {:?}", source_pubkey, source_signature);
 
+                    async_std::task::spawn(async move {
+                        ReportActiveGossipPeersToInflux::send_message_signatures(timestamp(), self_id.unwrap().clone(), source_pubkey.clone(), source_signature);
+                    });
 
 
 
@@ -450,7 +434,7 @@ impl CrdsGossipPush {
         }
         if peer_pubkey_hashset.len() != 0 { // && self.process_report_active_peers() {
             async_std::task::spawn(async move {
-                ReportActiveGossipPeersToInflux::send_peers(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
+                ReportActiveGossipPeersToInflux::send_peers(timestamp(), self_id.unwrap().clone(), peer_pubkey_hashset.clone());
             });
         }
 
