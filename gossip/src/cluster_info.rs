@@ -1532,6 +1532,7 @@ impl ClusterInfo {
             .packets_sent_push_messages_count
             .add_relaxed(out.len() as u64);
         if generate_pull_requests {
+            info!("greg - gossip run pull req");
             let (pings, pull_requests) =
                 self.new_pull_requests(thread_pool, gossip_validators, stakes);
             self.stats
@@ -1698,7 +1699,16 @@ impl ClusterInfo {
                     self.push_message(value);
                 }
                 let mut generate_pull_requests = true;
+                // let mut timer0 = timestamp();
+                // let mut run_pull_req;
                 loop {
+                    // let timer1 = timestamp();
+                    // if Duration::from_millis(timer1 - timer0).as_secs() > 10 {
+                    //     run_pull_req = true;
+                    //     timer0 = timestamp();
+                    // } else {
+                    //     run_pull_req = false;
+                    // }
                     let start = timestamp();
                     if self.contact_debug_interval != 0
                         && start - last_contact_info_trace > self.contact_debug_interval
@@ -1736,6 +1746,7 @@ impl ClusterInfo {
                         &stakes,
                         &sender,
                         generate_pull_requests,
+                        // run_pull_req,
                     );
                     if exit.load(Ordering::Relaxed) {
                         return;

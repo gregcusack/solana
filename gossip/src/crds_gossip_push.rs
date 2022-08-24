@@ -10,7 +10,6 @@
 //! 1. There is no `max hop`.  Messages are signed with a local wallclock.  If they are outside of
 //!    the local nodes wallclock window they are dropped silently.
 //! 2. The prune set is stored in a Bloom filter.
-
 use {
     crate::{
         cluster_info::CRDS_UNIQUE_PUBKEY_CAPACITY,
@@ -27,7 +26,7 @@ use {
     lru::LruCache,
     rand::{seq::SliceRandom, Rng},
     solana_bloom::bloom::{AtomicBloom, Bloom},
-    solana_sdk::{packet::PACKET_DATA_SIZE, pubkey::Pubkey, timing::timestamp},
+    solana_sdk::{packet::PACKET_DATA_SIZE, pubkey::Pubkey, timing::timestamp, signature::Signature},
     solana_streamer::socket::SocketAddrSpace,
     std::{
         cmp,
@@ -78,8 +77,29 @@ pub struct ReportActiveGossipPeersToInflux { }
 
 impl ReportActiveGossipPeersToInflux {
 
+    pub async fn send_to_influx(
+        body_to_send: String,
+    ) {
+        let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
+        let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
+        let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
+
+        println!("greg - send_to_influx - body_to_send: {:?}", body_to_send);
+
+        let client = reqwest::Client::new();
+        let endpoint = format!("http://localhost:8086/write?db=gossipDb");
+        // let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
+        let res = client.post(endpoint)
+            .body(body_to_send)
+            .send()
+            .await
+            .unwrap();
+        println!("greg - resp: {:?}", res);
+
+    }
+
     #[tokio::main]
-    pub async fn send(
+    pub async fn send_peers(
         host: Pubkey,
         peers: HashSet<Pubkey>,
 
@@ -90,18 +110,47 @@ impl ReportActiveGossipPeersToInflux {
             peer_string.push_str(" ");
         }
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
-
-        let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
-        let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
-        let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
-
-
-        let client = reqwest::Client::new();
         let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", now, host, peer_string );
-        let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
-        let _res = client.post(endpoint)
-            .body(body_to_send)
-            .send();
+
+        println!("greg - send_peers - body_to_send: {:?}", body_to_send);
+        Self::send_to_influx(body_to_send);
+
+        // let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
+        // let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
+        // let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
+
+
+        // let client = reqwest::Client::new();
+        // let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", now, host, peer_string );
+        // let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
+        // let _res = client.post(endpoint)
+        //     .body(body_to_send)
+        //     .send();
+            // .await
+            // .unwrap();
+    }
+
+    #[tokio::main]
+    pub async fn send_messages_signatures(
+        current_host: Pubkey,
+        originating_host: Pubkey,
+        message_signature: Signature,
+        timestamp: u128,
+    ) {
+
+        let body_to_send = format!("gossip-messages timestamp_at_host={:?}i,curent_host=\"{}\",originating_host=\"{}\",message_signature=\"{}\"", timestamp, current_host, originating_host, message_signature);
+        Self::send_to_influx(body_to_send);
+        // let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
+        // let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
+        // let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
+
+
+        // let client = reqwest::Client::new();
+        // let body_to_send = format!("gossip-messages timestamp_at_host={:?}i,curent_host=\"{}\",originating_host=\"{}\",message_signature=\"{}\"", timestamp, current_host, originating_host, message_signature);
+        // let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
+        // let _res = client.post(endpoint)
+        //     .body(body_to_send)
+        //     .send();
             // .await
             // .unwrap();
     }
@@ -375,6 +424,24 @@ impl CrdsGossipPush {
                 let (peer, filter) = active_set.get_index(index).unwrap();
                 if !filter.contains(&origin) || value.should_force_push(peer) {
                     peer_pubkey_hashset.insert(peer.clone());
+
+
+                    // let originator = value.data.clone();
+                    let source_pubkey = value.pubkey();
+                    let source_signature = value.signature;
+                    println!("greg - pubkey, sig: {:?}, {:?}", source_pubkey, source_signature);
+
+
+
+
+                    // if let CrdsData::ContactInfo(contact_info_val) = originator {
+                    //     println!("greg - supppppppp");
+                    //     let source_pubkey = contact_info_val.id;
+                    //     let message_signature = value.signature;
+                    // }
+                    // println!("greg - originator: {:?}", originator);
+
+
                     trace!("new_push_messages insert {} {:?}", *peer, value);
                     push_messages.entry(*peer).or_default().push(value.clone());
                     num_pushes += 1;
@@ -383,7 +450,7 @@ impl CrdsGossipPush {
         }
         if peer_pubkey_hashset.len() != 0 { // && self.process_report_active_peers() {
             async_std::task::spawn(async move {
-                ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
+                ReportActiveGossipPeersToInflux::send_peers(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
             });
         }
 
