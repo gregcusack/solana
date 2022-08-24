@@ -78,7 +78,7 @@ pub struct ReportActiveGossipPeersToInflux { }
 impl ReportActiveGossipPeersToInflux {
 
     #[tokio::main]
-    pub async fn send(
+    pub async fn send_peers(
         host: Pubkey,
         peers: HashSet<Pubkey>,
 
@@ -92,8 +92,9 @@ impl ReportActiveGossipPeersToInflux {
         // println!("Reporting host {:?}, peer_string {:?}", host, peer_string);
 
         let client = reqwest::Client::new();
+        let endpoint = "http://localhost:8086/write?db=gossipDb";
         let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", now, host, peer_string );
-        let _res = client.post("http://localhost:8086/write?db=gossipDb")
+        let _res = client.post(endpoint)
             .body(body_to_send)
             .send()
             .await
@@ -377,7 +378,7 @@ impl CrdsGossipPush {
         }
         if peer_pubkey_hashset.len() != 0 { // && self.process_report_active_peers() {
             async_std::task::spawn(async move {
-                ReportActiveGossipPeersToInflux::send(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
+                ReportActiveGossipPeersToInflux::send_peers(self_id.unwrap().clone(), peer_pubkey_hashset.clone());
             });
         }
 
