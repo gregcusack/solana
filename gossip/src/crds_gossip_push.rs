@@ -85,10 +85,9 @@ impl ReportActiveGossipPeersToInflux {
         let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
         let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
         
-
         let client = reqwest::Client::new();
-        let endpoint = format!("http://localhost:8086/write?db=gossipDb");
-        // let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
+        // let endpoint = format!("http://localhost:8086/write?db=gossipDb");
+        let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
         let _res = client.post(endpoint)
             .body(body_to_send)
             .send()
