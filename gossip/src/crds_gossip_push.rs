@@ -81,9 +81,9 @@ impl ReportActiveGossipPeersToInflux {
     pub async fn send_to_influx(
         body_to_send: String,
     ) {
-        let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
-        let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
-        let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
+        let username = env::var("GOSSIP_INFLUX_USERNAME").expect("$INFLUX_USERNAME is not set");
+        let password = env::var("GOSSIP_INFLUX_PASSWORD").expect("$GOSSIP_INFLUX_PASSWORD is not set");
+        let influxdb_name = env::var("GOSSIP_INFLUXDB_NAME").expect("$GOSSIP_INFLUXDB_NAME is not set");
         
         let client = reqwest::Client::new();
         // let endpoint = format!("http://localhost:8086/write?db=gossipDb");
