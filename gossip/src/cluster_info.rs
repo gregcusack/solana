@@ -1482,7 +1482,7 @@ impl ClusterInfo {
         let mut push_messages = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.gossip
-                .new_push_messages(self.drain_push_queue(), timestamp())
+                .new_push_messages(self.drain_push_queue(), timestamp(), Some(self_id))
         };
         if self.require_stake_for_gossip(stakes) {
             push_messages.retain(|_, data| {
@@ -1532,6 +1532,7 @@ impl ClusterInfo {
             .packets_sent_push_messages_count
             .add_relaxed(out.len() as u64);
         if generate_pull_requests {
+            info!("greg - gossip run pull req");
             let (pings, pull_requests) =
                 self.new_pull_requests(thread_pool, gossip_validators, stakes);
             self.stats
@@ -1698,7 +1699,16 @@ impl ClusterInfo {
                     self.push_message(value);
                 }
                 let mut generate_pull_requests = true;
+                let mut timer0 = timestamp();
+                let mut run_pull_req;
                 loop {
+                    let timer1 = timestamp();
+                    if Duration::from_millis(timer1 - timer0).as_secs() > 10 {
+                        run_pull_req = true;
+                        timer0 = timestamp();
+                    } else {
+                        run_pull_req = false;
+                    }
                     let start = timestamp();
                     if self.contact_debug_interval != 0
                         && start - last_contact_info_trace > self.contact_debug_interval
@@ -1735,7 +1745,8 @@ impl ClusterInfo {
                         &recycler,
                         &stakes,
                         &sender,
-                        generate_pull_requests,
+                        // generate_pull_requests,
+                        run_pull_req,
                     );
                     if exit.load(Ordering::Relaxed) {
                         return;
@@ -2897,6 +2908,8 @@ impl Node {
         let (gossip_port, (gossip, ip_echo)) =
             Self::get_gossip_port(gossip_addr, port_range, bind_ip_addr);
 
+        info!("greg_gossip_port: {}", gossip_port);
+
         let (tvu_port, tvu_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu multi_bind");
 
@@ -3657,7 +3670,7 @@ RPC Enabled Nodes: 1"#;
         //check that all types of gossip messages are signed correctly
         let push_messages = cluster_info
             .gossip
-            .new_push_messages(cluster_info.drain_push_queue(), timestamp());
+            .new_push_messages(cluster_info.drain_push_queue(), timestamp(), None);
         // there should be some pushes ready
         assert!(!push_messages.is_empty());
         push_messages

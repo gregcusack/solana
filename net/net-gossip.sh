@@ -37,7 +37,6 @@ Operate a configured testnet
  sanity       - Sanity check the network
  stop         - Stop the network
  restart      - Shortcut for stop then start
- gossip-only  - Run gossip-nodes only. Runs prepareDeploy, stop, gossipDeploy (similar to restart)
  logs         - Fetch remote logs from each network node
  startnode    - Start an individual node (previously stopped with stopNode)
  stopnode     - Stop an individual node
@@ -58,6 +57,14 @@ Operate a configured testnet
    --client-delay-start
                                       - Number of seconds to wait after validators have finished starting before starting client programs
                                         (default: $clientDelayStart)
+
+   --gossip-instances                 - Number of gossip instances to deploy across GCE instances. 
+                                        Does a round robin deployment. 
+                                        Cannot be used with --gossip-instances-per-node
+
+   --gossip-instances-per-node        - Number of gossip instances to deploy on each GCE instance. 
+                                        Cannot be used with --gossip-instances
+
    -n NUM_VALIDATORS                  - Number of validators to apply command to.
    --gpu-mode GPU_MODE                - Specify GPU mode to launch validators with (default: $gpuMode).
                                         MODE must be one of
@@ -108,14 +115,6 @@ Operate a configured testnet
                                       - Boot from a snapshot that has warped ahead to WARP_SLOT rather than a slot 0 genesis.
    --full-rpc
                                       - Support full RPC services on all nodes
-
-   --gossip-instances                 - Number of gossip instances to deploy across GCE instances. 
-                                        Does a round robin deployment. Used with `gossip-only` command
-                                        Cannot be used with --gossip-instances-per-node
-
-   --gossip-instances-per-node        - Number of gossip instances to deploy on each GCE instance. 
-                                        Used with `gossip-only` command
-                                        Cannot be used with --gossip-instances
  sanity/start-specific options:
    -F                   - Discard validator nodes that didn't bootup successfully
    -o noInstallCheck    - Skip solana-install sanity
@@ -233,9 +232,9 @@ build() {
 SOLANA_HOME="\$HOME/solana"
 CARGO_BIN="\$HOME/.cargo/bin"
 
-startCommon() {
+startGossipNodeCommon() {
   declare ipAddress=$1
-  declare instanceIndex=${2:--1}
+  declare instanceIndex=$2
   test -d "$SOLANA_ROOT"
   if $skipSetup; then
     # shellcheck disable=SC2029
@@ -248,8 +247,7 @@ startCommon() {
       mkdir -p $SOLANA_HOME $CARGO_BIN;
       mv ~/config $SOLANA_HOME/
     "
-  elif [[ $instanceIndex -le 0 ]]; then 
-    # shellcheck disable=SC2029
+  elif [[ $instanceIndex == 0 ]]; then
     ssh "${sshOptions[@]}" "$ipAddress" "
       set -x;
       rm -rf $SOLANA_HOME;
@@ -261,7 +259,34 @@ startCommon() {
       set -x;
       mkdir -p $CARGO_BIN
     "
+  fi
+  [[ -z "$externalNodeSshKey" ]] || ssh-copy-id -f -i "$externalNodeSshKey" "${sshOptions[@]}" "solana@$ipAddress"
+  syncScripts "$ipAddress"
 
+}
+
+startCommon() {
+  declare ipAddress=$1
+  declare instanceIndex=$2
+  test -d "$SOLANA_ROOT"
+  if $skipSetup; then
+    # shellcheck disable=SC2029
+    ssh "${sshOptions[@]}" "$ipAddress" "
+      set -x;
+      mkdir -p $SOLANA_HOME/config;
+      rm -rf ~/config;
+      mv $SOLANA_HOME/config ~;
+      rm -rf $SOLANA_HOME;
+      mkdir -p $SOLANA_HOME $CARGO_BIN;
+      mv ~/config $SOLANA_HOME/
+    "
+  else
+    # shellcheck disable=SC2029
+    ssh "${sshOptions[@]}" "$ipAddress" "
+      set -x;
+      rm -rf $SOLANA_HOME;
+      mkdir -p $CARGO_BIN
+    "
   fi
   [[ -z "$externalNodeSshKey" ]] || ssh-copy-id -f -i "$externalNodeSshKey" "${sshOptions[@]}" "solana@$ipAddress"
   syncScripts "$ipAddress"
@@ -303,7 +328,6 @@ startBootstrapLeader() {
   declare ipAddress=$1
   declare nodeIndex="$2"
   declare logFile="$3"
-  declare isGossip=${4:--1}
   echo "--- Starting bootstrap validator: $ipAddress"
   echo "start log: $logFile"
 
@@ -338,10 +362,6 @@ startBootstrapLeader() {
          \"$waitForNodeInit\" \
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
-         \"$isGossip\" \
-         \"$GOSSIP_INFLUX_USERNAME\" \
-         \"$GOSSIP_INFLUX_PASSWORD\" \
-         \"$GOSSIP_INFLUXDB_NAME\" \
       "
 
   ) >> "$logFile" 2>&1 || {
@@ -351,20 +371,136 @@ startBootstrapLeader() {
   }
 }
 
+startGossipBootstrapLeader() {
+  declare ipAddress=$1
+  declare nodeIndex="$2"
+  declare logFile="$3"
+  echo "--- Starting bootstrap validator: $ipAddress"
+  echo "start log: $logFile"
+
+  (
+    set -x
+    startCommon "$ipAddress" || exit 1
+    [[ -z "$externalPrimordialAccountsFile" ]] || rsync -vPrc -e "ssh ${sshOptions[*]}" "$externalPrimordialAccountsFile" \
+      "$ipAddress:$remoteExternalPrimordialAccountsFile"
+
+    deployBootstrapValidator "$ipAddress"
+
+    ssh "${sshOptions[@]}" -n "$ipAddress" \
+      "./solana/net/remote/remote-gossip-node.sh \
+         $deployMethod \
+         bootstrap-validator \
+         $entrypointIp \
+         $((${#validatorIpList[@]} + ${#blockstreamerIpList[@]})) \
+         \"$RUST_LOG\" \
+         $skipSetup \
+         $failOnValidatorBootupFailure \
+         \"$remoteExternalPrimordialAccountsFile\" \
+         \"$maybeDisableAirdrops\" \
+         \"$internalNodesStakeLamports\" \
+         \"$internalNodesLamports\" \
+         $nodeIndex \
+         ${#clientIpList[@]} \"$benchTpsExtraArgs\" \
+         \"$genesisOptions\" \
+         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority $maybeAllowPrivateAddr $maybeAccountsDbSkipShrink $maybeSkipRequireTower\" \
+         \"$gpuMode\" \
+         \"$maybeWarpSlot\" \
+         \"$maybeFullRpc\" \
+         \"$waitForGossipNodeInit\" \
+         \"$extraPrimordialStakes\" \
+         \"$TMPFS_ACCOUNTS\" \
+      "
+
+  ) >> "$logFile" 2>&1 || {
+    cat "$logFile"
+    echo "^^^ +++"
+    exit 1
+  }
+}
+
+startGossipNode() {
+  echo "greg - in startGossipNode()"
+  declare ipAddress=$1
+  declare nodeType=$2
+  declare nodeIndex="$3"
+  declare instanceIndex=$4
+
+  echo "startgossipnode() instance index: $instanceIndex"
+
+  initLogDir
+  declare logFile="$netLogDir/validator-$ipAddress-$instanceIndex.log"
+
+  if [[ -z $nodeType ]]; then
+    echo nodeType not specified
+    exit 1
+  fi
+
+  if [[ -z $nodeIndex ]]; then
+    echo nodeIndex not specified
+    exit 1
+  fi
+
+  echo "--- Starting $nodeType: $ipAddress. instance: $instanceIndex"
+  echo "start log: $logFile"
+  (
+    set -x
+    startGossipNodeCommon "$ipAddress" $instanceIndex
+
+    if [[ $nodeType = blockstreamer ]] && [[ -n $letsEncryptDomainName ]]; then
+      #
+      # Create/renew TLS certificate
+      #
+      declare localArchive=~/letsencrypt-"$letsEncryptDomainName".tgz
+      if [[ -r "$localArchive" ]]; then
+        timeout 30s scp "${sshOptions[@]}" "$localArchive" "$ipAddress:letsencrypt.tgz"
+      fi
+      ssh "${sshOptions[@]}" -n "$ipAddress" \
+        "sudo -H /certbot-restore.sh $letsEncryptDomainName maintainers@solana.foundation"
+      rm -f letsencrypt.tgz
+      timeout 30s scp "${sshOptions[@]}" "$ipAddress:/letsencrypt.tgz" letsencrypt.tgz
+      test -s letsencrypt.tgz # Ensure non-empty before overwriting $localArchive
+      cp letsencrypt.tgz "$localArchive"
+    fi
+
+    ssh "${sshOptions[@]}" -n "$ipAddress" \
+      "./solana/net/remote/remote-gossip-node.sh \
+         $deployMethod \
+         $nodeType \
+         $entrypointIp \
+         $((${#validatorIpList[@]} + ${#blockstreamerIpList[@]})) \
+         \"$RUST_LOG\" \
+         $skipSetup \
+         $failOnValidatorBootupFailure \
+         \"$remoteExternalPrimordialAccountsFile\" \
+         \"$maybeDisableAirdrops\" \
+         \"$internalNodesStakeLamports\" \
+         \"$internalNodesLamports\" \
+         $nodeIndex \
+         ${#clientIpList[@]} \"$benchTpsExtraArgs\" \
+         \"$genesisOptions\" \
+         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority $maybeAllowPrivateAddr $maybeAccountsDbSkipShrink $maybeSkipRequireTower\" \
+         \"$gpuMode\" \
+         \"$maybeWarpSlot\" \
+         \"$maybeFullRpc\" \
+         \"$waitForGossipNodeInit\" \
+         \"$extraPrimordialStakes\" \
+         \"$TMPFS_ACCOUNTS\" \
+         \"$instanceIndex\" \
+      "
+  ) >> "$logFile" 2>&1
+  declare pid=$!
+  ln -sf "validator-$ipAddress-$instanceIndex.log" "$netLogDir/validator-$pid.log"
+  pids+=("$pid")
+
+}
+
 startNode() {
   declare ipAddress=$1
   declare nodeType=$2
   declare nodeIndex="$3"
-  declare instanceIndex=${4:--1}
-
-  echo "startNode instanceIndex: $instanceIndex"
 
   initLogDir
-  if [[ $instanceIndex == -1 ]]; then 
-    declare logFile="$netLogDir/validator-$ipAddress.log"
-  else
-    declare logFile="$netLogDir/validator-$ipAddress-$instanceIndex.log"
-  fi
+  declare logFile="$netLogDir/validator-$ipAddress.log"
 
   if [[ -z $nodeType ]]; then
     echo nodeType not specified
@@ -380,7 +516,7 @@ startNode() {
   echo "start log: $logFile"
   (
     set -x
-    startCommon "$ipAddress" $instanceIndex
+    startCommon "$ipAddress"
 
     if [[ $nodeType = blockstreamer ]] && [[ -n $letsEncryptDomainName ]]; then
       #
@@ -421,19 +557,10 @@ startNode() {
          \"$waitForNodeInit\" \
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
-         \"$instanceIndex\" \
-         \"$GOSSIP_INFLUX_USERNAME\" \
-         \"$GOSSIP_INFLUX_PASSWORD\" \
-         \"$GOSSIP_INFLUXDB_NAME\" \
       "
   ) >> "$logFile" 2>&1 &
   declare pid=$!
-  if [[ $instanceIndex == -1 ]]; then 
-    ln -sf "validator-$ipAddress.log" "$netLogDir/validator-$pid.log"
-  else 
-    ln -sf "validator-$ipAddress-$instanceIndex.log" "$netLogDir/validator-$pid.log"
-  fi
-
+  ln -sf "validator-$ipAddress.log" "$netLogDir/validator-$pid.log"
   pids+=("$pid")
 }
 
@@ -619,32 +746,37 @@ prepareDeploy() {
   fi
 }
 
-threadGossipDeploy() {
+gossipInstancesPerNode() {
   declare instancesPerNode=$1
   declare ipAddress="$2"
   declare nodeType=$3
   declare nodeIndex=$4
-  
-  for (( i=0; i<$instancesPerNode; i++ ))
+  declare leftoverBool=$5
+  if $leftoverBool; then 
+    startIndex=$instancesPerNode
+    endIndex=$(($instancesPerNode + 1))
+  else 
+    startIndex=0
+    endIndex=$instancesPerNode
+  fi 
+
+
+  for (( i=$startIndex; i<$endIndex; i++ ))
   do
     echo "startGossipNode: instanceIndex: $i"
-    startNode "$ipAddress" $nodeType $nodeIndex $i
+    startGossipNode "$ipAddress" $nodeType $nodeIndex $i
     echo "################# Launched Gossip Node: $i ###################"
-    sleep 5
+    # sleep 2
   done
+
 }
 
-calculateInstancesPerNode() {
-  perNode=$(( $gossipInstances / $(( ${#validatorIpList[@]} - 1)) ))
-  echo "perNode: $perNode"
-  if [[ $perNode -ge 1 ]]; then 
-    instancesPerNode=$perNode
-  else 
-    instancesPerNode=0
-  fi
-}
-
-deploy() {
+gossipDeploy() {
+  echo "greg - in gossipDeploy()"
+  declare instancesPerNode=$1
+  declare gossipInstances=$2
+  echo "greg - instancesPerNode in gossipDeploy: $instancesPerNode"
+  echo "greg - gossipInstances: $gossipInstances"
   initLogDir
 
   echo "Deployment started at $(date)"
@@ -652,13 +784,25 @@ deploy() {
 
   leftover=0
   if [[ $gossipInstances != 0 ]]; then 
-    calculateInstancesPerNode
-    leftover=$(( $gossipInstances % $(( ${#validatorIpList[@]} - 1 )) ))
-  else
+    perNode=$(( $gossipInstances / $(( ${#validatorIpList[@]} - 1)) ))
+    echo "perNode: $perNode"
+    if [[ $perNode -ge 1 ]]; then 
+      instancesPerNode=$perNode
+    else 
+      instancesPerNode=0
+    fi
+    leftover=$(($gossipInstances % $((${#validatorIpList[@]} - 1)) ))
+  else 
     gossipInstances=$(($instancesPerNode * $((${#validatorIpList[@]} - 1))))
   fi
+
+  echo "instancesPerNode: $instancesPerNode, leftover: $leftover"
+
   
-  gossipDeployLoopCount=0
+  echo "############## TOTAL GOSSIP INSTANCES TO DEPLOY (excl. bootstrap): $gossipInstances ##############"
+
+
+
   declare bootstrapLeader=true
   for nodeAddress in "${validatorIpList[@]}" "${blockstreamerIpList[@]}"; do
     nodeType=
@@ -667,7 +811,7 @@ deploy() {
     if $bootstrapLeader; then
       SECONDS=0
       declare bootstrapNodeDeployTime=
-      startBootstrapLeader "$nodeAddress" $nodeIndex "$netLogDir/bootstrap-validator-$ipAddress.log" $(($isGossip - 1))
+      startGossipBootstrapLeader "$nodeAddress" $nodeIndex "$netLogDir/bootstrap-validator-$ipAddress.log"
       bootstrapNodeDeployTime=$SECONDS
       $metricsWriteDatapoint "testnet-deploy net-bootnode-leader-started=1"
 
@@ -675,26 +819,98 @@ deploy() {
       SECONDS=0
       pids=()
     else
-      if [[ $isGossip == 1 ]]; then 
-        instancesAndLeftoverPerNode=$instancesPerNode
-        if [[ $gossipDeployLoopCount -lt $leftover ]]; then 
-          instancesAndLeftoverPerNode=$(($instancesPerNode  + 1))
-        fi 
-        threadGossipDeploy $instancesAndLeftoverPerNode $ipAddress $nodeType $nodeIndex &
-        gossipDeployLoopCount=$(($gossipDeployLoopCount + 1))
-      else 
-        startNode "$ipAddress" $nodeType $nodeIndex
-        # Stagger additional node start time. If too many nodes start simultaneously
-        # the bootstrap node gets more rsync requests from the additional nodes than
-        # it can handle.
-        sleep 2
-      fi
+      gossipInstancesPerNode $instancesPerNode $ipAddress $nodeType $nodeIndex false &      
     fi
   done
 
-  if [[ $isGossip == 1 ]]; then 
-    wait 
-  fi 
+  wait 
+
+  if [[ $leftover == 0 ]]; then 
+    echo "deploying leftovers. total leftover: $leftover"
+    declare skipBootstrapLeader=true
+    declare leftoverCount=0
+    for nodeAddress in "${validatorIpList[@]}"; do 
+      if $skipBootstrapLeader; then 
+        skipBootstrapLeader=false
+        continue
+      else 
+        nodeType=
+        nodeIndex=
+        getNodeType
+        gossipInstancesPerNode $instancesPerNode $ipAddress $nodeType $nodeIndex true &
+        leftoverCount=$(($leftoverCount + 1))
+        if [[ $leftoverCount == $leftover ]]; then 
+          break 
+        fi 
+      fi
+    done
+    wait
+  fi
+
+
+
+  declare networkVersion=unknown
+  case $deployMethod in
+  tar)
+    networkVersion="$(
+      (
+        set -o pipefail
+        grep "^commit: " "$SOLANA_ROOT"/solana-release/version.yml | head -n1 | cut -d\  -f2
+      ) || echo "tar-unknown"
+    )"
+    ;;
+  local)
+    networkVersion="$(git rev-parse HEAD || echo local-unknown)"
+    ;;
+  skip)
+    ;;
+  *)
+    usage "Internal error: invalid deployMethod: $deployMethod"
+    ;;
+  esac
+  # $metricsWriteDatapoint "testnet-deploy version=\"${networkVersion:0:9}\""
+
+  echo
+  echo "--- Deployment Successful"
+  echo "Bootstrap validator deployment took $bootstrapNodeDeployTime seconds"
+  echo "Deployed $gossipInstances gossip instances across $((${#validatorIpList[@]} - 1)) GCE nodes"
+  echo "      --- $instancesPerNode gossip instances per node + $leftover additional gossip instances"
+  echo "Additional validator deployment (${#validatorIpList[@]} validators, ${#blockstreamerIpList[@]} blockstreamer nodes) took $additionalNodeDeployTime seconds"
+  echo "Client deployment (${#clientIpList[@]} instances) took $clientDeployTime seconds"
+  echo "Network start logs in $netLogDir"
+}
+
+deploy() {
+  initLogDir
+
+  echo "Deployment started at $(date)"
+  $metricsWriteDatapoint "testnet-deploy net-start-begin=1"
+
+  declare bootstrapLeader=true
+  for nodeAddress in "${validatorIpList[@]}" "${blockstreamerIpList[@]}"; do
+    nodeType=
+    nodeIndex=
+    getNodeType
+    if $bootstrapLeader; then
+      SECONDS=0
+      declare bootstrapNodeDeployTime=
+      startBootstrapLeader "$nodeAddress" $nodeIndex "$netLogDir/bootstrap-validator-$ipAddress.log"
+      bootstrapNodeDeployTime=$SECONDS
+      $metricsWriteDatapoint "testnet-deploy net-bootnode-leader-started=1"
+
+      bootstrapLeader=false
+      SECONDS=0
+      pids=()
+    else
+      startNode "$ipAddress" $nodeType $nodeIndex
+
+      # Stagger additional node start time. If too many nodes start simultaneously
+      # the bootstrap node gets more rsync requests from the additional nodes than
+      # it can handle.
+      sleep 2
+    fi
+  done
+
 
   for pid in "${pids[@]}"; do
     declare ok=true
@@ -710,37 +926,35 @@ deploy() {
     fi
   done
 
-  if [[ $isGossip != 1 ]]; then 
-    if ! $waitForNodeInit; then
-      # Handle async init
-      declare startTime=$SECONDS
-      for ipAddress in "${validatorIpList[@]}" "${blockstreamerIpList[@]}"; do
-        declare timeWaited=$((SECONDS - startTime))
-        if [[ $timeWaited -gt 600 ]]; then
-          break
-        fi
-        ssh "${sshOptions[@]}" -n "$ipAddress" \
-          "./solana/net/remote/remote-node-wait-init.sh $((600 - timeWaited))"
-      done
-    fi
+  if ! $waitForNodeInit; then
+    # Handle async init
+    declare startTime=$SECONDS
+    for ipAddress in "${validatorIpList[@]}" "${blockstreamerIpList[@]}"; do
+      declare timeWaited=$((SECONDS - startTime))
+      if [[ $timeWaited -gt 600 ]]; then
+        break
+      fi
+      ssh "${sshOptions[@]}" -n "$ipAddress" \
+        "./solana/net/remote/remote-node-wait-init.sh $((600 - timeWaited))"
+    done
+  fi
 
-    $metricsWriteDatapoint "testnet-deploy net-validators-started=1"
-    additionalNodeDeployTime=$SECONDS
+  $metricsWriteDatapoint "testnet-deploy net-validators-started=1"
+  additionalNodeDeployTime=$SECONDS
 
-    annotateBlockexplorerUrl
+  annotateBlockexplorerUrl
 
-    sanity skipBlockstreamerSanity # skip sanity on blockstreamer node, it may not
-                                  # have caught up to the bootstrap validator yet
+  sanity skipBlockstreamerSanity # skip sanity on blockstreamer node, it may not
+                                 # have caught up to the bootstrap validator yet
 
-    echo "--- Sleeping $clientDelayStart seconds after validators are started before starting clients"
-    sleep "$clientDelayStart"
+  echo "--- Sleeping $clientDelayStart seconds after validators are started before starting clients"
+  sleep "$clientDelayStart"
 
-    SECONDS=0
-    startClients
-    clientDeployTime=$SECONDS
+  SECONDS=0
+  startClients
+  clientDeployTime=$SECONDS
 
-    $metricsWriteDatapoint "testnet-deploy net-start-complete=1"
-  fi 
+  $metricsWriteDatapoint "testnet-deploy net-start-complete=1"
 
   declare networkVersion=unknown
   case $deployMethod in
@@ -766,10 +980,6 @@ deploy() {
   echo
   echo "--- Deployment Successful"
   echo "Bootstrap validator deployment took $bootstrapNodeDeployTime seconds"
-  if [[ $isGossip == 1 ]]; then 
-    echo "Deployed $gossipInstances gossip instances across $((${#validatorIpList[@]} - 1)) GCE nodes"
-    echo "      --- $instancesPerNode gossip instances per node + $leftover additional gossip instances"
-  fi
   echo "Additional validator deployment (${#validatorIpList[@]} validators, ${#blockstreamerIpList[@]} blockstreamer nodes) took $additionalNodeDeployTime seconds"
   echo "Client deployment (${#clientIpList[@]} instances) took $clientDeployTime seconds"
   echo "Network start logs in $netLogDir"
@@ -888,11 +1098,11 @@ netLogDir=
 maybeWarpSlot=
 maybeFullRpc=false
 waitForNodeInit=true
+waitForGossipNodeInit=false
 extraPrimordialStakes=0
 # need to set either instancesPerNode or gossipInstances
 instancesPerNode=0 # default. 
 gossipInstances=0 # default number of gossip instances
-isGossip=0
 
 command=$1
 [[ -n $command ]] || usage
@@ -1023,11 +1233,9 @@ while [[ -n $1 ]]; do
       maybeSkipRequireTower="$1"
       shift 1
     elif [[ $1 = --gossip-instances-per-node ]]; then
-      isGossip=1
       instancesPerNode="$2"
       shift 2
     elif [[ $1 = --gossip-instances ]]; then
-      isGossip=1
       gossipInstances="$2"
       shift 2
     else
@@ -1039,13 +1247,9 @@ while [[ -n $1 ]]; do
   fi
 done
 
-if [[ $isGossip == 1 ]]; then 
-  if [[ ($instancesPerNode == 0 && $gossipInstances == 0) || ($instancesPerNode != 0 && $gossipInstances != 0) ]]; then 
-    usage "need to set either --gossip-instances-per-node OR --gossip-instances (not both)"
-  fi
-  if [[ -z ${GOSSIP_INFLUX_USERNAME} || -z ${GOSSIP_INFLUX_PASSWORD} || -z ${GOSSIP_INFLUXDB_NAME} ]]; then
-    usage "need to set GOSSIP_INFLUX_USERNAME, GOSSIP_INFLUX_PASSWORD, GOSSIP_INFLUXDB_NAME environment variables"
-  fi
+echo "greg - gossip instances per node: $instancesPerNode"
+if [[ ($instancesPerNode == 0 && $gossipInstances == 0) || ($instancesPerNode != 0 && $gossipInstances != 0) ]]; then 
+  usage "need to set either --gossip-instances-per-node OR --gossip-instances (not both)"
 fi
 
 while getopts "h?T:t:o:f:rc:Fn:i:d" opt "${shortArgs[@]}"; do
@@ -1182,6 +1386,11 @@ fi
 checkPremptibleInstances
 
 case $command in
+gossip-only)
+  prepareDeploy
+  stop
+  gossipDeploy $instancesPerNode $gossipInstances
+  ;;
 restart)
   prepareDeploy
   stop
@@ -1208,11 +1417,6 @@ upgrade)
   prepareDeploy
   deployBootstrapValidator "$bootstrapValidatorIp"
   # (start|stop)Node need refactored to support restarting the bootstrap validator
-  ;;
-gossip-only)
-  prepareDeploy
-  stop
-  deploy
   ;;
 stopnode)
   if [[ -z $nodeAddress ]]; then

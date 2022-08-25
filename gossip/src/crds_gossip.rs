@@ -39,6 +39,7 @@ pub struct CrdsGossip {
     pub crds: RwLock<Crds>,
     pub push: CrdsGossipPush,
     pub pull: CrdsGossipPull,
+    // pub report_active_peers_timer: ReportGossipActiveGossipPeers,
 }
 
 impl CrdsGossip {
@@ -86,6 +87,7 @@ impl CrdsGossip {
         &self,
         pending_push_messages: Vec<CrdsValue>,
         now: u64,
+        self_id: Option<Pubkey>,
     ) -> HashMap<Pubkey, Vec<CrdsValue>> {
         {
             let mut crds = self.crds.write().unwrap();
@@ -93,7 +95,7 @@ impl CrdsGossip {
                 let _ = crds.insert(entry, now, GossipRoute::LocalMessage);
             }
         }
-        self.push.new_push_messages(&self.crds, now)
+        self.push.new_push_messages(&self.crds, now, self_id)
     }
 
     pub(crate) fn push_duplicate_shred(
