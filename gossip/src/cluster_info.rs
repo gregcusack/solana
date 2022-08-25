@@ -1699,16 +1699,16 @@ impl ClusterInfo {
                     self.push_message(value);
                 }
                 let mut generate_pull_requests = true;
-                // let mut timer0 = timestamp();
-                // let mut run_pull_req;
+                let mut timer0 = timestamp();
+                let mut run_pull_req;
                 loop {
-                    // let timer1 = timestamp();
-                    // if Duration::from_millis(timer1 - timer0).as_secs() > 10 {
-                    //     run_pull_req = true;
-                    //     timer0 = timestamp();
-                    // } else {
-                    //     run_pull_req = false;
-                    // }
+                    let timer1 = timestamp();
+                    if Duration::from_millis(timer1 - timer0).as_secs() > 10 {
+                        run_pull_req = true;
+                        timer0 = timestamp();
+                    } else {
+                        run_pull_req = false;
+                    }
                     let start = timestamp();
                     if self.contact_debug_interval != 0
                         && start - last_contact_info_trace > self.contact_debug_interval
@@ -1745,8 +1745,8 @@ impl ClusterInfo {
                         &recycler,
                         &stakes,
                         &sender,
-                        generate_pull_requests,
-                        // run_pull_req,
+                        // generate_pull_requests,
+                        run_pull_req,
                     );
                     if exit.load(Ordering::Relaxed) {
                         return;

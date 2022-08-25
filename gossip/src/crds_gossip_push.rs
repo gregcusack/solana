@@ -84,13 +84,12 @@ impl ReportActiveGossipPeersToInflux {
         let username = env!("GOSSIP_INFLUX_USERNAME", "$INFLUX_USERNAME is not set");
         let password = env!("GOSSIP_INFLUX_PASSWORD", "$INFLUX_PASSWORDis not set");
         let influxdb_name = env!("GOSSIP_INFLUXDB_NAME", "$INFLUXDB_NAMEis not set");
-
-        println!("greg - send_to_influx - body_to_send: {:?}", body_to_send);
+        
 
         let client = reqwest::Client::new();
         let endpoint = format!("http://localhost:8086/write?db=gossipDb");
         // let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
-        let res = client.post(endpoint)
+        let _res = client.post(endpoint)
             .body(body_to_send)
             .send()
             .await
@@ -99,7 +98,7 @@ impl ReportActiveGossipPeersToInflux {
 
     #[tokio::main]
     pub async fn send_peers(
-        timestamp: u64,
+        timestamp: u128,
         host: Pubkey,
         peers: HashSet<Pubkey>,
 
@@ -109,11 +108,7 @@ impl ReportActiveGossipPeersToInflux {
             peer_string.push_str(&key.to_string());
             peer_string.push_str(" ");
         }
-        // let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
         let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", timestamp, host, peer_string );
-
-        println!("greg - send_peers - body_to_send: {:?}", body_to_send);
-        // Self::send_to_influx(body_to_send);
         async_std::task::spawn(async move {
             ReportActiveGossipPeersToInflux::send_to_influx(body_to_send);
         });
@@ -122,13 +117,13 @@ impl ReportActiveGossipPeersToInflux {
 
     #[tokio::main]
     pub async fn send_message_signatures(
-        timestamp: u64,
+        timestamp: u128,
         current_host: Pubkey,
         originating_host: Pubkey,
         message_signature: Signature,
     ) {
 
-        let body_to_send = format!("gossip-messages timestamp_at_host={:?}i,curent_host=\"{}\",originating_host=\"{}\",message_signature=\"{}\"", timestamp, current_host, originating_host, message_signature);
+        let body_to_send = format!("gossip-messages timestamp_at_host={:?}i,current_host=\"{}\",originating_host=\"{}\",message_signature=\"{}\"", timestamp, current_host, originating_host, message_signature);
         // Self::send_to_influx(body_to_send);
 
         async_std::task::spawn(async move {
@@ -410,21 +405,17 @@ impl CrdsGossipPush {
                     // let originator = value.data.clone();
                     let source_pubkey = value.pubkey();
                     let source_signature = value.signature;
-                    println!("greg - pubkey, sig: {:?}, {:?}", source_pubkey, source_signature);
+                    // println!("greg - pubkey, sig: {:?}, {:?}", source_pubkey, source_signature);
 
                     async_std::task::spawn(async move {
-                        ReportActiveGossipPeersToInflux::send_message_signatures(timestamp(), self_id.unwrap().clone(), source_pubkey.clone(), source_signature);
+                        ReportActiveGossipPeersToInflux::send_message_signatures(
+                            // timestamp(), 
+                            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros(),
+                            self_id.unwrap().clone(), 
+                            source_pubkey.clone(), 
+                            source_signature
+                        );
                     });
-
-
-
-                    // if let CrdsData::ContactInfo(contact_info_val) = originator {
-                    //     println!("greg - supppppppp");
-                    //     let source_pubkey = contact_info_val.id;
-                    //     let message_signature = value.signature;
-                    // }
-                    // println!("greg - originator: {:?}", originator);
-
 
                     trace!("new_push_messages insert {} {:?}", *peer, value);
                     push_messages.entry(*peer).or_default().push(value.clone());
@@ -434,7 +425,12 @@ impl CrdsGossipPush {
         }
         if peer_pubkey_hashset.len() != 0 { // && self.process_report_active_peers() {
             async_std::task::spawn(async move {
-                ReportActiveGossipPeersToInflux::send_peers(timestamp(), self_id.unwrap().clone(), peer_pubkey_hashset.clone());
+                ReportActiveGossipPeersToInflux::send_peers(
+                    // timestamp(), 
+                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros(),
+                    self_id.unwrap().clone(),
+                    peer_pubkey_hashset.clone()
+                );
             });
         }
 
