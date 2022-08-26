@@ -252,7 +252,7 @@ impl ClusterInfoVoteListener {
             let exit = exit.clone();
             let bank_forks = bank_forks.clone();
             Builder::new()
-                .name("solana-cluster_info_vote_listener".to_string())
+                .name("solCiVoteLstnr".to_string())
                 .spawn(move || {
                     let _ = Self::recv_loop(
                         exit,
@@ -266,7 +266,7 @@ impl ClusterInfoVoteListener {
         };
         let exit_ = exit.clone();
         let bank_send_thread = Builder::new()
-            .name("solana-cluster_info_bank_send".to_string())
+            .name("solCiBankSend".to_string())
             .spawn(move || {
                 let _ = Self::bank_send_loop(
                     exit_,
@@ -278,7 +278,7 @@ impl ClusterInfoVoteListener {
             .unwrap();
 
         let send_thread = Builder::new()
-            .name("solana-cluster_info_process_votes".to_string())
+            .name("solCiProcVotes".to_string())
             .spawn(move || {
                 let _ = Self::process_votes_loop(
                     exit,
@@ -714,7 +714,7 @@ impl ClusterInfoVoteListener {
                     // has no new information
 
                     // Note gossip votes will always be processed because those should be unique
-                    // and we need to update the gossip-only stake in the `VoteTracker`.
+                    // and we need to update the gossip-sim stake in the `VoteTracker`.
                     return;
                 }
 
@@ -809,7 +809,7 @@ impl ClusterInfoVoteListener {
                     // By this point we know if the vote was seen in gossip above,
                     // it was not seen in gossip at any point in the past (if it was seen
                     // in gossip in the past, `is_new` would be false and it would have
-                    // been filtered out above), so it's safe to increment the gossip-only
+                    // been filtered out above), so it's safe to increment the gossip-sim
                     // stake
                     Self::sum_stake(&mut gossip_only_stake, epoch_stakes, &pubkey);
                 }

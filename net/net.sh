@@ -29,7 +29,7 @@ usage() {
 EOM
 )
   cat <<EOF
-usage: $0 [start|stop|restart|sanity|gossip-only] [command-specific options]
+usage: $0 [start|stop|restart|sanity|gossip-sim] [command-specific options]
 
 Operate a configured testnet
 
@@ -37,7 +37,7 @@ Operate a configured testnet
  sanity       - Sanity check the network
  stop         - Stop the network
  restart      - Shortcut for stop then start
- gossip-only  - Run gossip-nodes only. Runs prepareDeploy, stop, gossipDeploy (similar to restart)
+ gossip-sim  - Run gossip-nodes only. Runs prepareDeploy, stop, gossipDeploy (similar to restart)
  logs         - Fetch remote logs from each network node
  startnode    - Start an individual node (previously stopped with stopNode)
  stopnode     - Stop an individual node
@@ -108,14 +108,15 @@ Operate a configured testnet
                                       - Boot from a snapshot that has warped ahead to WARP_SLOT rather than a slot 0 genesis.
    --full-rpc
                                       - Support full RPC services on all nodes
-
    --gossip-instances                 - Number of gossip instances to deploy across GCE instances. 
-                                        Does a round robin deployment. Used with `gossip-only` command
+                                        Does a round robin deployment. Used with `gossip-sim` command
                                         Cannot be used with --gossip-instances-per-node
-
    --gossip-instances-per-node        - Number of gossip instances to deploy on each GCE instance. 
-                                        Used with `gossip-only` command
+                                        Used with `gossip-sim` command
                                         Cannot be used with --gossip-instances
+   --tpu-disable-quic
+                                      - Disable quic for tpu packet forwarding
+
  sanity/start-specific options:
    -F                   - Discard validator nodes that didn't bootup successfully
    -o noInstallCheck    - Skip solana-install sanity
@@ -272,7 +273,7 @@ syncScripts() {
   declare ipAddress=$1
   rsync -vPrc -e "ssh ${sshOptions[*]}" \
     --exclude 'net/log*' \
-    "$SOLANA_ROOT"/{fetch-perf-libs.sh,fetch-spl.sh,scripts,net,multinode-demo,gossip-only} \
+    "$SOLANA_ROOT"/{fetch-perf-libs.sh,fetch-spl.sh,scripts,net,multinode-demo,gossip-sim} \
     "$ipAddress":"$SOLANA_HOME"/ > /dev/null
 }
 
@@ -338,6 +339,7 @@ startBootstrapLeader() {
          \"$waitForNodeInit\" \
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
+         \"$disableQuic\" \
          \"$isGossip\" \
          \"$GOSSIP_INFLUX_USERNAME\" \
          \"$GOSSIP_INFLUX_PASSWORD\" \
@@ -421,6 +423,7 @@ startNode() {
          \"$waitForNodeInit\" \
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
+         \"$disableQuic\" \
          \"$instanceIndex\" \
          \"$GOSSIP_INFLUX_USERNAME\" \
          \"$GOSSIP_INFLUX_PASSWORD\" \
@@ -889,10 +892,12 @@ maybeWarpSlot=
 maybeFullRpc=false
 waitForNodeInit=true
 extraPrimordialStakes=0
+disableQuic=false
 # need to set either instancesPerNode or gossipInstances
 instancesPerNode=0 # default. 
 gossipInstances=0 # default number of gossip instances
 isGossip=0
+
 
 command=$1
 [[ -n $command ]] || usage
@@ -1004,6 +1009,9 @@ while [[ -n $1 ]]; do
       shift 2
     elif [[ $1 == --full-rpc ]]; then
       maybeFullRpc=true
+      shift 1
+    elif [[ $1 == --tpu-disable-quic ]]; then
+      disableQuic=true
       shift 1
     elif [[ $1 == --async-node-init ]]; then
       waitForNodeInit=false
@@ -1209,7 +1217,7 @@ upgrade)
   deployBootstrapValidator "$bootstrapValidatorIp"
   # (start|stop)Node need refactored to support restarting the bootstrap validator
   ;;
-gossip-only)
+gossip-sim)
   prepareDeploy
   stop
   deploy
