@@ -355,7 +355,6 @@ impl CrdsGossipPush {
 
         let mut peer_pubkey_hashset = HashSet::new();
         for value in entries {
-            // println!("greg - entries: {:?}", value.pubkey());
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
             if total_bytes > self.max_bytes {

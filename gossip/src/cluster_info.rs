@@ -1538,7 +1538,6 @@ impl ClusterInfo {
             .packets_sent_push_messages_count
             .add_relaxed(out.len() as u64);
         if generate_pull_requests {
-            info!("greg - gossip run pull req");
             let (pings, pull_requests) =
                 self.new_pull_requests(thread_pool, gossip_validators, stakes);
             self.stats
