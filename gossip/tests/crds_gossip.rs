@@ -349,7 +349,10 @@ fn network_run_push(
                     Duration::from_millis(node.gossip.pull.crds_timeout),
                 );
                 node.gossip.purge(&node_pubkey, thread_pool, now, &timeouts);
-                (node_pubkey, node.gossip.new_push_messages(vec![], now, None))
+                (
+                    node_pubkey,
+                    node.gossip.new_push_messages(vec![], now, None),
+                )
             })
             .collect();
         let transfered: Vec<_> = requests

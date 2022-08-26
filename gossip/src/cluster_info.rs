@@ -3686,9 +3686,11 @@ RPC Enabled Nodes: 1"#;
             &SocketAddrSpace::Unspecified,
         );
         //check that all types of gossip messages are signed correctly
-        let push_messages = cluster_info
-            .gossip
-            .new_push_messages(cluster_info.drain_push_queue(), timestamp(), None);
+        let push_messages = cluster_info.gossip.new_push_messages(
+            cluster_info.drain_push_queue(),
+            timestamp(),
+            None,
+        );
         // there should be some pushes ready
         assert!(!push_messages.is_empty());
         push_messages

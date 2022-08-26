@@ -20,17 +20,22 @@ use {
         crds_value::CrdsValue,
         weighted_shuffle::WeightedShuffle,
     },
+    async_std,
     bincode::serialized_size,
     indexmap::map::IndexMap,
     itertools::Itertools,
     lru::LruCache,
     rand::{seq::SliceRandom, Rng},
+    reqwest,
     solana_bloom::bloom::{AtomicBloom, Bloom},
-    solana_sdk::{packet::PACKET_DATA_SIZE, pubkey::Pubkey, timing::timestamp, signature::Signature},
+    solana_sdk::{
+        packet::PACKET_DATA_SIZE, pubkey::Pubkey, signature::Signature, timing::timestamp,
+    },
     solana_streamer::socket::SocketAddrSpace,
     std::{
         cmp,
         collections::{HashMap, HashSet},
+        env,
         iter::repeat,
         ops::{DerefMut, RangeBounds},
         sync::{
@@ -38,15 +43,8 @@ use {
             Mutex, RwLock,
         },
         time::{SystemTime, UNIX_EPOCH},
-        env,
     },
-    reqwest,
     tokio,
-    async_std,
-
-
-    
-    
 };
 
 pub const CRDS_GOSSIP_NUM_ACTIVE: usize = 30;
@@ -62,22 +60,25 @@ pub const CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES: usize = 3;
 const PUSH_ACTIVE_TIMEOUT_MS: u64 = 60_000;
 pub const ACTIVE_PEER_REPORT_PERIOD: usize = 1000;
 
-pub struct ReportActiveGossipPeersToInflux { }
+pub struct ReportActiveGossipPeersToInflux {}
 
 impl ReportActiveGossipPeersToInflux {
-
     #[tokio::main]
-    pub async fn send_to_influx(
-        body_to_send: String,
-    ) {
+    pub async fn send_to_influx(body_to_send: String) {
         let username = env::var("GOSSIP_INFLUX_USERNAME").expect("$INFLUX_USERNAME is not set");
-        let password = env::var("GOSSIP_INFLUX_PASSWORD").expect("$GOSSIP_INFLUX_PASSWORD is not set");
-        let influxdb_name = env::var("GOSSIP_INFLUXDB_NAME").expect("$GOSSIP_INFLUXDB_NAME is not set");
-        
+        let password =
+            env::var("GOSSIP_INFLUX_PASSWORD").expect("$GOSSIP_INFLUX_PASSWORD is not set");
+        let influxdb_name =
+            env::var("GOSSIP_INFLUXDB_NAME").expect("$GOSSIP_INFLUXDB_NAME is not set");
+
         let client = reqwest::Client::new();
         // let endpoint = format!("http://localhost:8086/write?db=gossipDb");
-        let endpoint = format!("https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}", username, password, influxdb_name);
-        let _res = client.post(endpoint)
+        let endpoint = format!(
+            "https://internal-metrics.solana.com:8086/write?u={}&p={}&db={}",
+            username, password, influxdb_name
+        );
+        let _res = client
+            .post(endpoint)
             .body(body_to_send)
             .send()
             .await
@@ -85,22 +86,19 @@ impl ReportActiveGossipPeersToInflux {
     }
 
     #[tokio::main]
-    pub async fn send_peers(
-        timestamp: u128,
-        host: Pubkey,
-        peers: HashSet<Pubkey>,
-
-    ) {
+    pub async fn send_peers(timestamp: u128, host: Pubkey, peers: HashSet<Pubkey>) {
         let mut peer_string = "".to_owned();
         for key in peers.iter() {
             peer_string.push_str(&key.to_string());
             peer_string.push_str(" ");
         }
-        let body_to_send = format!("gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"", timestamp, host, peer_string );
+        let body_to_send = format!(
+            "gossip-peers gossipts={:?}i,host=\"{}\",peers=\"{}\"",
+            timestamp, host, peer_string
+        );
         async_std::task::spawn(async move {
             ReportActiveGossipPeersToInflux::send_to_influx(body_to_send);
         });
-
     }
 
     #[tokio::main]
@@ -110,7 +108,6 @@ impl ReportActiveGossipPeersToInflux {
         originating_host: Pubkey,
         message_signature: Signature,
     ) {
-
         let body_to_send = format!("gossip-messages timestamp_at_host={:?}i,current_host=\"{}\",originating_host=\"{}\",message_signature=\"{}\"", timestamp, current_host, originating_host, message_signature);
         // Self::send_to_influx(body_to_send);
 
@@ -147,10 +144,7 @@ pub struct CrdsGossipPush {
     pub num_total: AtomicUsize,
     pub num_old: AtomicUsize,
     pub num_pushes: AtomicUsize,
-
 }
-
-
 
 impl Default for CrdsGossipPush {
     fn default() -> Self {
@@ -372,10 +366,13 @@ impl CrdsGossipPush {
                     let source_signature = value.signature;
                     async_std::task::spawn(async move {
                         ReportActiveGossipPeersToInflux::send_message_signatures(
-                            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros(),
-                            self_id.unwrap().clone(), 
-                            source_pubkey.clone(), 
-                            source_signature
+                            SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_micros(),
+                            self_id.unwrap().clone(),
+                            source_pubkey.clone(),
+                            source_signature,
                         );
                     });
 
@@ -388,9 +385,12 @@ impl CrdsGossipPush {
         if peer_pubkey_hashset.len() != 0 {
             async_std::task::spawn(async move {
                 ReportActiveGossipPeersToInflux::send_peers(
-                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros(),
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_micros(),
                     self_id.unwrap().clone(),
-                    peer_pubkey_hashset.clone()
+                    peer_pubkey_hashset.clone(),
                 );
             });
         }
