@@ -37,9 +37,9 @@ gossipInfluxdbName="${27}"
 if [[ $instanceIndex != -1 ]]; then 
   gossipRunScript="gossip-run-$instanceIndex"
   gossipRunKeyScript="gossip-run-key-$instanceIndex"
-  export GOSSIP_INFLUX_USERNAME=$gossipInfluxUsername
-  export GOSSIP_INFLUX_PASSWORD=$gossipInfluxPassword
-  export GOSSIP_INFLUXDB_NAME=$gossipInfluxdbName
+  export INFLUX_USERNAME=$gossipInfluxUsername
+  export INFLUX_PASSWORD=$gossipInfluxPassword
+  export INFLUX_DATABASE=$gossipInfluxdbName
 fi
 
 

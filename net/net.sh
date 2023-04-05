@@ -341,9 +341,9 @@ startBootstrapLeader() {
          \"$TMPFS_ACCOUNTS\" \
          \"$disableQuic\" \
          \"$isGossip\" \
-         \"$GOSSIP_INFLUX_USERNAME\" \
-         \"$GOSSIP_INFLUX_PASSWORD\" \
-         \"$GOSSIP_INFLUXDB_NAME\" \
+         \"$INFLUX_USERNAME\" \
+         \"$INFLUX_PASSWORD\" \
+         \"$INFLUX_DATABASE\" \
       "
 
   ) >> "$logFile" 2>&1 || {
@@ -425,9 +425,9 @@ startNode() {
          \"$TMPFS_ACCOUNTS\" \
          \"$disableQuic\" \
          \"$instanceIndex\" \
-         \"$GOSSIP_INFLUX_USERNAME\" \
-         \"$GOSSIP_INFLUX_PASSWORD\" \
-         \"$GOSSIP_INFLUXDB_NAME\" \
+         \"$INFLUX_USERNAME\" \
+         \"$INFLUX_PASSWORD\" \
+         \"$INFLUX_DATABASE\" \
       "
   ) >> "$logFile" 2>&1 &
   declare pid=$!
@@ -1051,8 +1051,8 @@ if [[ $isGossip == 1 ]]; then
   if [[ ($instancesPerNode == 0 && $gossipInstances == 0) || ($instancesPerNode != 0 && $gossipInstances != 0) ]]; then 
     usage "need to set either --gossip-instances-per-node OR --gossip-instances (not both)"
   fi
-  if [[ -z ${GOSSIP_INFLUX_USERNAME} || -z ${GOSSIP_INFLUX_PASSWORD} || -z ${GOSSIP_INFLUXDB_NAME} ]]; then
-    usage "need to set GOSSIP_INFLUX_USERNAME, GOSSIP_INFLUX_PASSWORD, GOSSIP_INFLUXDB_NAME environment variables"
+  if [[ -z ${INFLUX_USERNAME} || -z ${INFLUX_PASSWORD} || -z ${INFLUX_DATABASE} ]]; then
+    usage "need to set INFLUX_USERNAME, INFLUX_PASSWORD, INFLUX_DATABASE environment variables"
   fi
 fi
 
