@@ -276,7 +276,7 @@ startCommon() {
 syncScripts() {
   echo "rsyncing scripts... to $ipAddress"
   declare ipAddress=$1
-  echo "solana root, solana home, ipaddress: $SOLANA_ROOT, $SOLANA_HOME, $ipAdress"
+  echo "solana root, solana home, home, ipaddress: $SOLANA_ROOT, $SOLANA_HOME, $HOME, $ipAddress"
   rsync -vPrc -e "ssh ${sshOptions[*]}" \
     --exclude 'net/log*' \
     "$SOLANA_ROOT"/{fetch-perf-libs.sh,fetch-spl.sh,scripts,net,multinode-demo,gossip-sim} \
