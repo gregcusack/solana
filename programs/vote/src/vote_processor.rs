@@ -1,11 +1,12 @@
 //! Vote program processor
 
 use {
-    crate::vote_state,
+    crate::{vote_error::VoteError, vote_state},
     log::*,
     solana_program::vote::{instruction::VoteInstruction, program::id, state::VoteAuthorize},
     solana_program_runtime::{
-        invoke_context::InvokeContext, sysvar_cache::get_sysvar_with_account_check,
+        declare_process_instruction, invoke_context::InvokeContext,
+        sysvar_cache::get_sysvar_with_account_check,
     },
     solana_sdk::{
         feature_set,
@@ -55,10 +56,9 @@ fn process_authorize_with_seed_instruction(
     )
 }
 
-pub fn process_instruction(
-    _first_instruction_account: usize,
-    invoke_context: &mut InvokeContext,
-) -> Result<(), InstructionError> {
+// Citing `runtime/src/block_cost_limit.rs`, vote has statically defined 2100
+// units; can consume based on instructions in the future like `bpf_loader` does.
+declare_process_instruction!(process_instruction, 2100, |invoke_context| {
     let transaction_context = &invoke_context.transaction_context;
     let instruction_context = transaction_context.get_current_instruction_context()?;
     let data = instruction_context.get_instruction_data();
@@ -70,7 +70,7 @@ pub fn process_instruction(
         return Err(InstructionError::InvalidAccountOwner);
     }
 
-    let signers = instruction_context.get_signers(transaction_context);
+    let signers = instruction_context.get_signers(transaction_context)?;
     match limited_deserialize(data)? {
         VoteInstruction::InitializeAccount(vote_init) => {
             let rent = get_sysvar_with_account_check::rent(invoke_context, instruction_context, 1)?;
@@ -133,6 +133,16 @@ pub fn process_instruction(
             vote_state::update_validator_identity(&mut me, node_pubkey, &signers)
         }
         VoteInstruction::UpdateCommission(commission) => {
+            if invoke_context.feature_set.is_active(
+                &feature_set::commission_updates_only_allowed_in_first_half_of_epoch::id(),
+            ) {
+                let sysvar_cache = invoke_context.get_sysvar_cache();
+                let epoch_schedule = sysvar_cache.get_epoch_schedule()?;
+                let clock = sysvar_cache.get_clock()?;
+                if !vote_state::is_commission_update_allowed(clock.slot, &epoch_schedule) {
+                    return Err(VoteError::CommissionUpdateTooLate.into());
+                }
+            }
             vote_state::update_commission(&mut me, commission, &signers)
         }
         VoteInstruction::Vote(vote) | VoteInstruction::VoteSwitch(vote, _) => {
@@ -170,8 +180,8 @@ pub fn process_instruction(
                 Err(InstructionError::InvalidInstructionData)
             }
         }
-        VoteInstruction::CompactUpdateVoteState(compact_vote_state_update)
-        | VoteInstruction::CompactUpdateVoteStateSwitch(compact_vote_state_update, _) => {
+        VoteInstruction::CompactUpdateVoteState(vote_state_update)
+        | VoteInstruction::CompactUpdateVoteStateSwitch(vote_state_update, _) => {
             if invoke_context
                 .feature_set
                 .is_active(&feature_set::allow_votes_to_directly_update_vote_state::id())
@@ -182,7 +192,6 @@ pub fn process_instruction(
                 let sysvar_cache = invoke_context.get_sysvar_cache();
                 let slot_hashes = sysvar_cache.get_slot_hashes()?;
                 let clock = sysvar_cache.get_clock()?;
-                let vote_state_update = compact_vote_state_update.uncompact()?;
                 vote_state::process_vote_state_update(
                     &mut me,
                     slot_hashes.slot_hashes(),
@@ -248,7 +257,7 @@ pub fn process_instruction(
             }
         }
     }
-}
+});
 
 #[cfg(test)]
 mod tests {
@@ -275,7 +284,10 @@ mod tests {
             hash::Hash,
             instruction::{AccountMeta, Instruction},
             pubkey::Pubkey,
-            sysvar::{self, clock::Clock, rent::Rent, slot_hashes::SlotHashes},
+            sysvar::{
+                self, clock::Clock, epoch_schedule::EpochSchedule, rent::Rent,
+                slot_hashes::SlotHashes,
+            },
         },
         std::{collections::HashSet, str::FromStr},
     };
@@ -307,10 +319,10 @@ mod tests {
             instruction_data,
             transaction_accounts,
             instruction_accounts,
-            None,
-            None,
             expected_result,
             super::process_instruction,
+            |_invoke_context| {},
+            |_invoke_context| {},
         )
     }
 
@@ -326,10 +338,12 @@ mod tests {
             instruction_data,
             transaction_accounts,
             instruction_accounts,
-            None,
-            Some(std::sync::Arc::new(FeatureSet::default())),
             expected_result,
             super::process_instruction,
+            |invoke_context| {
+                invoke_context.feature_set = std::sync::Arc::new(FeatureSet::default());
+            },
+            |_invoke_context| {},
         )
     }
 
@@ -343,6 +357,7 @@ mod tests {
             .map(|meta| meta.pubkey)
             .collect();
         pubkeys.insert(sysvar::clock::id());
+        pubkeys.insert(sysvar::epoch_schedule::id());
         pubkeys.insert(sysvar::rent::id());
         pubkeys.insert(sysvar::slot_hashes::id());
         let transaction_accounts: Vec<_> = pubkeys
@@ -352,6 +367,10 @@ mod tests {
                     *pubkey,
                     if sysvar::clock::check_id(pubkey) {
                         account::create_account_shared_data_for_test(&Clock::default())
+                    } else if sysvar::epoch_schedule::check_id(pubkey) {
+                        account::create_account_shared_data_for_test(
+                            &EpochSchedule::without_warmup(),
+                        )
                     } else if sysvar::slot_hashes::check_id(pubkey) {
                         account::create_account_shared_data_for_test(&SlotHashes::default())
                     } else if sysvar::rent::check_id(pubkey) {
@@ -464,10 +483,10 @@ mod tests {
         vote_state.authorized_withdrawer = vote_pubkey;
         vote_state.epoch_credits = Vec::new();
 
-        let mut current_epoch_credits = 0;
+        let mut current_epoch_credits: u64 = 0;
         let mut previous_epoch_credits = 0;
         for (epoch, credits) in credits_to_append.iter().enumerate() {
-            current_epoch_credits += credits;
+            current_epoch_credits = current_epoch_credits.saturating_add(*credits);
             vote_state.epoch_credits.push((
                 u64::try_from(epoch).unwrap(),
                 current_epoch_credits,
@@ -666,6 +685,15 @@ mod tests {
         let transaction_accounts = vec![
             (vote_pubkey, vote_account),
             (authorized_withdrawer, AccountSharedData::default()),
+            // Add the sysvar accounts so they're in the cache for mock processing
+            (
+                sysvar::clock::id(),
+                account::create_account_shared_data_for_test(&Clock::default()),
+            ),
+            (
+                sysvar::epoch_schedule::id(),
+                account::create_account_shared_data_for_test(&EpochSchedule::without_warmup()),
+            ),
         ];
         let mut instruction_accounts = vec![
             AccountMeta {

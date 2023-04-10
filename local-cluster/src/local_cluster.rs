@@ -6,12 +6,15 @@ use {
     },
     itertools::izip,
     log::*,
+    solana_client::{connection_cache::ConnectionCache, thin_client::ThinClient},
     solana_core::{
         tower_storage::FileTowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress},
     },
     solana_gossip::{
-        cluster_info::Node, contact_info::ContactInfo, gossip_service::discover_cluster,
+        cluster_info::Node,
+        contact_info::{ContactInfo, LegacyContactInfo},
+        gossip_service::discover_cluster,
     },
     solana_ledger::create_new_tmp_ledger,
     solana_runtime::{
@@ -20,18 +23,19 @@ use {
             ValidatorVoteKeypairs,
         },
         snapshot_config::SnapshotConfig,
+        snapshot_utils::create_accounts_run_and_snapshot_dirs,
     },
     solana_sdk::{
         account::{Account, AccountSharedData},
         client::SyncClient,
-        clock::{Slot, DEFAULT_DEV_SLOTS_PER_EPOCH, DEFAULT_TICKS_PER_SLOT},
+        clock::{DEFAULT_DEV_SLOTS_PER_EPOCH, DEFAULT_TICKS_PER_SLOT},
         commitment_config::CommitmentConfig,
         epoch_schedule::EpochSchedule,
         genesis_config::{ClusterType, GenesisConfig},
         message::Message,
         poh_config::PohConfig,
         pubkey::Pubkey,
-        signature::{Keypair, KeypairInsecureClone, Signer},
+        signature::{Keypair, Signer},
         stake::{
             config as stake_config, instruction as stake_instruction,
             state::{Authorized, Lockup},
@@ -41,9 +45,8 @@ use {
     },
     solana_stake_program::{config::create_account as create_stake_config_account, stake_state},
     solana_streamer::socket::SocketAddrSpace,
-    solana_thin_client::thin_client::ThinClient,
-    solana_tpu_client::connection_cache::{
-        ConnectionCache, DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_USE_QUIC,
+    solana_tpu_client::tpu_client::{
+        DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_ENABLE_UDP, DEFAULT_TPU_USE_QUIC,
     },
     solana_vote_program::{
         vote_instruction,
@@ -53,7 +56,6 @@ use {
         collections::HashMap,
         io::{Error, ErrorKind, Result},
         iter,
-        ops::Deref,
         path::{Path, PathBuf},
         sync::{Arc, RwLock},
     },
@@ -147,16 +149,20 @@ impl LocalCluster {
         config: &mut ValidatorConfig,
         ledger_path: &Path,
     ) {
-        config.account_paths = vec![ledger_path.join("accounts")];
+        config.account_paths = vec![
+            create_accounts_run_and_snapshot_dirs(ledger_path.join("accounts"))
+                .unwrap()
+                .0,
+        ];
         config.tower_storage = Arc::new(FileTowerStorage::new(ledger_path.to_path_buf()));
-        if let Some(snapshot_config) = &mut config.snapshot_config {
-            let dummy: PathBuf = DUMMY_SNAPSHOT_CONFIG_PATH_MARKER.into();
-            if snapshot_config.full_snapshot_archives_dir == dummy {
-                snapshot_config.full_snapshot_archives_dir = ledger_path.to_path_buf();
-            }
-            if snapshot_config.bank_snapshots_dir == dummy {
-                snapshot_config.bank_snapshots_dir = ledger_path.join("snapshot");
-            }
+
+        let snapshot_config = &mut config.snapshot_config;
+        let dummy: PathBuf = DUMMY_SNAPSHOT_CONFIG_PATH_MARKER.into();
+        if snapshot_config.full_snapshot_archives_dir == dummy {
+            snapshot_config.full_snapshot_archives_dir = ledger_path.to_path_buf();
+        }
+        if snapshot_config.bank_snapshots_dir == dummy {
+            snapshot_config.bank_snapshots_dir = ledger_path.join("snapshot");
         }
     }
 
@@ -202,8 +208,8 @@ impl LocalCluster {
                     if *in_genesis {
                         Some((
                             ValidatorVoteKeypairs {
-                                node_keypair: node_keypair.deref().clone(),
-                                vote_keypair: vote_keypair.deref().clone(),
+                                node_keypair: node_keypair.insecure_clone(),
+                                vote_keypair: vote_keypair.insecure_clone(),
                                 stake_keypair: Keypair::new(),
                             },
                             stake,
@@ -260,10 +266,13 @@ impl LocalCluster {
         let (leader_ledger_path, _blockhash) = create_new_tmp_ledger!(&genesis_config);
         let leader_contact_info = leader_node.info.clone();
         let mut leader_config = safe_clone_config(&config.validator_configs[0]);
-        leader_config.rpc_addrs = Some((leader_node.info.rpc, leader_node.info.rpc_pubsub));
+        leader_config.rpc_addrs = Some((
+            leader_node.info.rpc().unwrap(),
+            leader_node.info.rpc_pubsub().unwrap(),
+        ));
         Self::sync_ledger_path_across_nested_config_fields(&mut leader_config, &leader_ledger_path);
-        let leader_keypair = Arc::new(leader_keypair.clone());
-        let leader_vote_keypair = Arc::new(leader_vote_keypair.clone());
+        let leader_keypair = Arc::new(leader_keypair.insecure_clone());
+        let leader_vote_keypair = Arc::new(leader_vote_keypair.insecure_clone());
 
         let leader_server = Validator::new(
             leader_node,
@@ -274,10 +283,13 @@ impl LocalCluster {
             vec![],
             &leader_config,
             true, // should_check_duplicate_instance
+            None, // rpc_to_plugin_manager_receiver
             Arc::new(RwLock::new(ValidatorStartProgress::default())),
             socket_addr_space,
             DEFAULT_TPU_USE_QUIC,
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
+            DEFAULT_TPU_ENABLE_UDP,
+            Arc::new(RwLock::new(None)),
         )
         .expect("assume successful validator start");
 
@@ -312,7 +324,7 @@ impl LocalCluster {
             .map(|keypairs| {
                 (
                     keypairs.node_keypair.pubkey(),
-                    Arc::new(keypairs.vote_keypair.clone()),
+                    Arc::new(keypairs.vote_keypair.insecure_clone()),
                 )
             })
             .collect();
@@ -343,14 +355,14 @@ impl LocalCluster {
         });
 
         discover_cluster(
-            &cluster.entry_point_info.gossip,
+            &cluster.entry_point_info.gossip().unwrap(),
             config.node_stakes.len() + config.num_listeners as usize,
             socket_addr_space,
         )
         .unwrap();
 
         discover_cluster(
-            &cluster.entry_point_info.gossip,
+            &cluster.entry_point_info.gossip().unwrap(),
             config.node_stakes.len(),
             socket_addr_space,
         )
@@ -423,7 +435,9 @@ impl LocalCluster {
         mut voting_keypair: Option<Arc<Keypair>>,
         socket_addr_space: SocketAddrSpace,
     ) -> Pubkey {
-        let (rpc, tpu) = cluster_tests::get_client_facing_addr(&self.entry_point_info);
+        let (rpc, tpu) = LegacyContactInfo::try_from(&self.entry_point_info)
+            .map(cluster_tests::get_client_facing_addr)
+            .unwrap();
         let client = ThinClient::new(rpc, tpu, self.connection_cache.clone());
 
         // Must have enough tokens to fund vote account and set delegate
@@ -461,7 +475,10 @@ impl LocalCluster {
         }
 
         let mut config = safe_clone_config(validator_config);
-        config.rpc_addrs = Some((validator_node.info.rpc, validator_node.info.rpc_pubsub));
+        config.rpc_addrs = Some((
+            validator_node.info.rpc().unwrap(),
+            validator_node.info.rpc_pubsub().unwrap(),
+        ));
         Self::sync_ledger_path_across_nested_config_fields(&mut config, &ledger_path);
         let voting_keypair = voting_keypair.unwrap();
         let validator_server = Validator::new(
@@ -470,13 +487,16 @@ impl LocalCluster {
             &ledger_path,
             &voting_keypair.pubkey(),
             Arc::new(RwLock::new(vec![voting_keypair.clone()])),
-            vec![self.entry_point_info.clone()],
+            vec![LegacyContactInfo::try_from(&self.entry_point_info).unwrap()],
             &config,
             true, // should_check_duplicate_instance
+            None, // rpc_to_plugin_manager_receiver
             Arc::new(RwLock::new(ValidatorStartProgress::default())),
             socket_addr_space,
             DEFAULT_TPU_USE_QUIC,
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
+            DEFAULT_TPU_ENABLE_UDP,
+            Arc::new(RwLock::new(None)),
         )
         .expect("assume successful validator start");
 
@@ -510,7 +530,9 @@ impl LocalCluster {
     }
 
     pub fn transfer(&self, source_keypair: &Keypair, dest_pubkey: &Pubkey, lamports: u64) -> u64 {
-        let (rpc, tpu) = cluster_tests::get_client_facing_addr(&self.entry_point_info);
+        let (rpc, tpu) = LegacyContactInfo::try_from(&self.entry_point_info)
+            .map(cluster_tests::get_client_facing_addr)
+            .unwrap();
         let client = ThinClient::new(rpc, tpu, self.connection_cache.clone());
         Self::transfer_with_client(&client, source_keypair, dest_pubkey, lamports)
     }
@@ -529,7 +551,7 @@ impl LocalCluster {
         assert!(!alive_node_contact_infos.is_empty());
         info!("{} discovering nodes", test_name);
         let cluster_nodes = discover_cluster(
-            &alive_node_contact_infos[0].gossip,
+            &alive_node_contact_infos[0].gossip().unwrap(),
             alive_node_contact_infos.len(),
             socket_addr_space,
         )
@@ -554,12 +576,12 @@ impl LocalCluster {
         let alive_node_contact_infos: Vec<_> = self
             .validators
             .values()
-            .map(|v| v.info.contact_info.clone())
+            .map(|node| &node.info.contact_info)
             .collect();
         assert!(!alive_node_contact_infos.is_empty());
         info!("{} discovering nodes", test_name);
         let cluster_nodes = discover_cluster(
-            &alive_node_contact_infos[0].gossip,
+            &alive_node_contact_infos[0].gossip().unwrap(),
             alive_node_contact_infos.len(),
             socket_addr_space,
         )
@@ -568,7 +590,11 @@ impl LocalCluster {
         info!("{} making sure no new roots on any nodes", test_name);
         cluster_tests::check_no_new_roots(
             num_slots_to_wait,
-            &alive_node_contact_infos,
+            &alive_node_contact_infos
+                .into_iter()
+                .map(LegacyContactInfo::try_from)
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .unwrap(),
             &self.connection_cache,
             test_name,
         );
@@ -741,11 +767,9 @@ impl LocalCluster {
         // node lifecycle.
         // There must be some place holder for now...
         SnapshotConfig {
-            full_snapshot_archive_interval_slots: Slot::MAX,
-            incremental_snapshot_archive_interval_slots: Slot::MAX,
             full_snapshot_archives_dir: DUMMY_SNAPSHOT_CONFIG_PATH_MARKER.into(),
             bank_snapshots_dir: DUMMY_SNAPSHOT_CONFIG_PATH_MARKER.into(),
-            ..SnapshotConfig::default()
+            ..SnapshotConfig::new_load_only()
         }
     }
 }
@@ -757,7 +781,9 @@ impl Cluster for LocalCluster {
 
     fn get_validator_client(&self, pubkey: &Pubkey) -> Option<ThinClient> {
         self.validators.get(pubkey).map(|f| {
-            let (rpc, tpu) = cluster_tests::get_client_facing_addr(&f.info.contact_info);
+            let (rpc, tpu) = LegacyContactInfo::try_from(&f.info.contact_info)
+                .map(cluster_tests::get_client_facing_addr)
+                .unwrap();
             ThinClient::new(rpc, tpu, self.connection_cache.clone())
         })
     }
@@ -780,10 +806,11 @@ impl Cluster for LocalCluster {
         // Update the stored ContactInfo for this node
         let node = Node::new_localhost_with_pubkey(pubkey);
         cluster_validator_info.info.contact_info = node.info.clone();
-        cluster_validator_info.config.rpc_addrs = Some((node.info.rpc, node.info.rpc_pubsub));
+        cluster_validator_info.config.rpc_addrs =
+            Some((node.info.rpc().unwrap(), node.info.rpc_pubsub().unwrap()));
 
         let entry_point_info = {
-            if *pubkey == self.entry_point_info.id {
+            if pubkey == self.entry_point_info.pubkey() {
                 self.entry_point_info = node.info.clone();
                 None
             } else {
@@ -831,14 +858,19 @@ impl Cluster for LocalCluster {
             &validator_info.voting_keypair.pubkey(),
             Arc::new(RwLock::new(vec![validator_info.voting_keypair.clone()])),
             entry_point_info
-                .map(|entry_point_info| vec![entry_point_info])
+                .map(|entry_point_info| {
+                    vec![LegacyContactInfo::try_from(&entry_point_info).unwrap()]
+                })
                 .unwrap_or_default(),
             &safe_clone_config(&cluster_validator_info.config),
             true, // should_check_duplicate_instance
+            None, // rpc_to_plugin_manager_receiver
             Arc::new(RwLock::new(ValidatorStartProgress::default())),
             socket_addr_space,
             DEFAULT_TPU_USE_QUIC,
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
+            DEFAULT_TPU_ENABLE_UDP,
+            Arc::new(RwLock::new(None)),
         )
         .expect("assume successful validator start");
         cluster_validator_info.validator = Some(restarted_node);

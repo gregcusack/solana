@@ -1,5 +1,6 @@
 #![allow(deprecated)]
 use {
+    crate::version_req::VersionReq,
     solana_sdk::account::{AccountSharedData, ReadableAccount},
     spl_token_2022::{generic_token_account::GenericTokenAccount, state::Account},
     std::borrow::Cow,
@@ -57,7 +58,7 @@ impl RpcFilterType {
                                 if bytes.len() > MAX_DATA_BASE64_SIZE {
                                     return Err(RpcFilterError::DataTooLarge);
                                 }
-                                let bytes = base64::decode(&bytes)?;
+                                let bytes = base64::decode(bytes)?;
                                 if bytes.len() > MAX_DATA_SIZE {
                                     Err(RpcFilterError::DataTooLarge)
                                 } else {
@@ -132,18 +133,35 @@ pub enum MemcmpEncodedBytes {
 #[serde(into = "RpcMemcmp", from = "RpcMemcmp")]
 pub struct Memcmp {
     /// Data offset to begin match
+    #[deprecated(
+        since = "1.15.0",
+        note = "Field will be made private in future. Please use a constructor method instead."
+    )]
     pub offset: usize,
     /// Bytes, encoded with specified encoding, or default Binary
+    #[deprecated(
+        since = "1.15.0",
+        note = "Field will be made private in future. Please use a constructor method instead."
+    )]
     pub bytes: MemcmpEncodedBytes,
     /// Optional encoding specification
     #[deprecated(
         since = "1.11.2",
-        note = "Field has no server-side effect. Specify encoding with `MemcmpEncodedBytes` variant instead."
+        note = "Field has no server-side effect. Specify encoding with `MemcmpEncodedBytes` variant instead. \
+            Field will be made private in future. Please use a constructor method instead."
     )]
     pub encoding: Option<MemcmpEncoding>,
 }
 
 impl Memcmp {
+    pub fn new(offset: usize, encoded_bytes: MemcmpEncodedBytes) -> Self {
+        Self {
+            offset,
+            bytes: encoded_bytes,
+            encoding: None,
+        }
+    }
+
     pub fn new_raw_bytes(offset: usize, bytes: Vec<u8>) -> Self {
         Self {
             offset,
@@ -166,6 +184,23 @@ impl Memcmp {
             Binary(bytes) | Base58(bytes) => bs58::decode(bytes).into_vec().ok().map(Cow::Owned),
             Base64(bytes) => base64::decode(bytes).ok().map(Cow::Owned),
             Bytes(bytes) => Some(Cow::Borrowed(bytes)),
+        }
+    }
+
+    pub fn convert_to_raw_bytes(&mut self) -> Result<(), RpcFilterError> {
+        use MemcmpEncodedBytes::*;
+        match &self.bytes {
+            Binary(bytes) | Base58(bytes) => {
+                let bytes = bs58::decode(bytes).into_vec()?;
+                self.bytes = Bytes(bytes);
+                Ok(())
+            }
+            Base64(bytes) => {
+                let bytes = base64::decode(bytes)?;
+                self.bytes = Bytes(bytes);
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 
@@ -263,7 +298,11 @@ pub fn maybe_map_filters(
     node_version: Option<semver::Version>,
     filters: &mut [RpcFilterType],
 ) -> Result<(), String> {
-    if node_version.is_none() || node_version.unwrap() < semver::Version::new(1, 11, 2) {
+    let version_reqs = VersionReq::from_strs(&["<1.11.2", "~1.13"])?;
+    let needs_mapping = node_version
+        .map(|version| version_reqs.matches_any(&version))
+        .unwrap_or(true);
+    if needs_mapping {
         for filter in filters.iter_mut() {
             if let RpcFilterType::Memcmp(memcmp) = filter {
                 match &memcmp.bytes {

@@ -28,16 +28,18 @@ fi
 cat > "$CONFIG_FILE" <<EOF
 {
   "name": "$PROJECT_NAME",
-  "scope": "solana-labs",
+  "scope": "$VERCEL_SCOPE",
   "redirects": [
-    { "source": "/apps", "destination": "/developing/programming-model/overview" },
+    { "source": "/apps", "destination": "/developers" },
+    { "source": "/developing/programming-model/overview", "destination": "/developers" },
     { "source": "/apps/backwards-compatibility", "destination": "/developing/backwards-compatibility" },
     { "source": "/apps/break", "destination": "/developing/on-chain-programs/examples" },
     { "source": "/apps/builtins", "destination": "/developing/runtime-facilities/programs" },
     { "source": "/apps/drones", "destination": "/developing/on-chain-programs/examples" },
     { "source": "/apps/hello-world", "destination": "/developing/on-chain-programs/examples" },
     { "source": "/apps/javascript-api", "destination": "/developing/clients/javascript-api" },
-    { "source": "/apps/jsonrpc-api", "destination": "/developing/clients/jsonrpc-api" },
+    { "source": "/apps/jsonrpc-api", "destination": "/api/http" },
+    { "source": "/developing/clients/jsonrpc-api", "destination": "/api/http" },
     { "source": "/apps/programming-faq", "destination": "/developing/on-chain-programs/faq" },
     { "source": "/apps/rent", "destination": "/developing/programming-model/accounts#rent" },
     { "source": "/apps/sysvars", "destination": "/developing/runtime-facilities/sysvars" },

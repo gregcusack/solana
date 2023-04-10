@@ -465,7 +465,7 @@
 //!   - Instruction: [`solana_program::loader_instruction`]
 //!   - Invokable by programs? yes
 //!
-//! [lut]: https://docs.solana.com/proposals/transactions-v2
+//! [lut]: https://docs.solana.com/proposals/versioned-transactions
 
 #![allow(incomplete_features)]
 #![cfg_attr(RUSTC_WITH_SPECIALIZATION, feature(specialization))]
@@ -476,7 +476,9 @@ extern crate self as solana_program;
 
 pub mod account_info;
 pub mod address_lookup_table_account;
+pub mod alt_bn128;
 pub(crate) mod atomic_u64;
+pub mod big_mod_exp;
 pub mod blake3;
 pub mod borsh;
 pub mod bpf_loader;
@@ -498,6 +500,8 @@ pub mod keccak;
 pub mod lamports;
 pub mod loader_instruction;
 pub mod loader_upgradeable_instruction;
+pub mod loader_v3;
+pub mod loader_v3_instruction;
 pub mod log;
 pub mod message;
 pub mod native_token;
@@ -514,10 +518,12 @@ pub mod rent;
 pub mod sanitize;
 pub mod secp256k1_program;
 pub mod secp256k1_recover;
+pub mod serde_varint;
 pub mod serialize_utils;
 pub mod short_vec;
 pub mod slot_hashes;
 pub mod slot_history;
+pub mod stable_layout;
 pub mod stake;
 pub mod stake_history;
 pub mod syscalls;
@@ -544,7 +550,7 @@ pub mod config {
     }
 }
 
-/// A vector of Solana SDK IDs
+/// A vector of Solana SDK IDs.
 pub mod sdk_ids {
     use {
         crate::{
@@ -739,25 +745,6 @@ macro_rules! unchecked_div_by_const {
         let quotient = $num / $den;
         quotient
     }};
-}
-
-use std::{mem::MaybeUninit, ptr::write_bytes};
-
-#[macro_export]
-macro_rules! copy_field {
-    ($ptr:expr, $self:ident, $field:ident) => {
-        std::ptr::addr_of_mut!((*$ptr).$field).write($self.$field)
-    };
-}
-
-pub fn clone_zeroed<T, F>(clone: F) -> T
-where
-    F: Fn(&mut MaybeUninit<T>),
-{
-    let mut value = MaybeUninit::<T>::uninit();
-    unsafe { write_bytes(&mut value, 0, 1) }
-    clone(&mut value);
-    unsafe { value.assume_init() }
 }
 
 // This module is purposefully listed after all other exports: because of an

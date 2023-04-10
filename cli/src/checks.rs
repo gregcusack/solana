@@ -112,7 +112,7 @@ pub fn get_fee_for_messages(
 ) -> Result<u64, CliError> {
     Ok(messages
         .iter()
-        .map(|message| rpc_client.get_fee_for_message(message))
+        .map(|message| rpc_client.get_fee_for_message(*message))
         .collect::<Result<Vec<_>, _>>()?
         .iter()
         .sum())
@@ -185,8 +185,8 @@ mod tests {
         });
         let pubkey = solana_sdk::pubkey::new_rand();
 
-        let pubkey0 = Pubkey::new(&[0; 32]);
-        let pubkey1 = Pubkey::new(&[1; 32]);
+        let pubkey0 = Pubkey::from([0; 32]);
+        let pubkey1 = Pubkey::from([1; 32]);
         let ix0 = system_instruction::transfer(&pubkey0, &pubkey1, 1);
         let message0 = Message::new(&[ix0], Some(&pubkey0));
 
@@ -290,8 +290,8 @@ mod tests {
         assert_eq!(get_fee_for_messages(&rpc_client, &[]).unwrap(), 0);
 
         // One message w/ one signature, a fee.
-        let pubkey0 = Pubkey::new(&[0; 32]);
-        let pubkey1 = Pubkey::new(&[1; 32]);
+        let pubkey0 = Pubkey::from([0; 32]);
+        let pubkey1 = Pubkey::from([1; 32]);
         let ix0 = system_instruction::transfer(&pubkey0, &pubkey1, 1);
         let message0 = Message::new(&[ix0], Some(&pubkey0));
         assert_eq!(get_fee_for_messages(&rpc_client, &[&message0]).unwrap(), 1);

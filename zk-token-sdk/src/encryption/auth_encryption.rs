@@ -1,3 +1,6 @@
+//! Authenticated encryption implementation.
+//!
+//! This module is a simple wrapper of the `Aes128GcmSiv` implementation.
 #[cfg(not(target_os = "solana"))]
 use {
     aes_gcm_siv::{
@@ -23,7 +26,6 @@ use {
 struct AuthenticatedEncryption;
 impl AuthenticatedEncryption {
     #[cfg(not(target_os = "solana"))]
-    #[allow(clippy::new_ret_no_self)]
     fn keygen<T: RngCore + CryptoRng>(rng: &mut T) -> AeKey {
         AeKey(rng.gen::<[u8; 16]>())
     }
@@ -92,8 +94,8 @@ impl AeKey {
     }
 }
 
-/// For the purpose of encrypting balances for ZK-Token accounts, the nonce and ciphertext sizes
-/// should always be fixed.
+/// For the purpose of encrypting balances for the spl token accounts, the nonce and ciphertext
+/// sizes should always be fixed.
 pub type Nonce = [u8; 12];
 pub type Ciphertext = [u8; 24];
 

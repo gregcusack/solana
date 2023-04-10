@@ -12,21 +12,24 @@
 //!
 pub use solana_sdk::clock::Slot;
 use {
-    crate::poh_service::PohService,
+    crate::{leader_bank_notifier::LeaderBankNotifier, poh_service::PohService},
     crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, SendError, Sender, TrySendError},
     log::*,
-    solana_entry::{entry::Entry, poh::Poh},
+    solana_entry::{
+        entry::{hash_transactions, Entry},
+        poh::Poh,
+    },
     solana_ledger::{
         blockstore::Blockstore,
         genesis_utils::{create_genesis_config, GenesisConfigInfo},
         leader_schedule_cache::LeaderScheduleCache,
     },
-    solana_measure::measure,
+    solana_measure::{measure, measure_us},
     solana_metrics::poh_timing_point::{send_poh_timing_point, PohTimingSender, SlotPohTimingInfo},
     solana_runtime::bank::Bank,
     solana_sdk::{
         clock::NUM_CONSECUTIVE_LEADER_SLOTS, hash::Hash, poh_config::PohConfig, pubkey::Pubkey,
-        transaction::VersionedTransaction,
+        saturating_add_assign, transaction::VersionedTransaction,
     },
     std::{
         cmp,
@@ -44,9 +47,6 @@ pub const MAX_GRACE_SLOTS: u64 = 2;
 
 #[derive(Error, Debug, Clone)]
 pub enum PohRecorderError {
-    #[error("invalid calling object")]
-    InvalidCallingObject,
-
     #[error("max height reached")]
     MaxHeightReached,
 
@@ -61,7 +61,7 @@ type Result<T> = std::result::Result<T, PohRecorderError>;
 
 pub type WorkingBankEntry = (Arc<Bank>, (Entry, u64));
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct BankStart {
     pub working_bank: Arc<Bank>,
     pub bank_creation_time: Arc<Instant>,
@@ -69,14 +69,18 @@ pub struct BankStart {
 
 impl BankStart {
     fn get_working_bank_if_not_expired(&self) -> Option<&Arc<Bank>> {
-        if Bank::should_bank_still_be_processing_txs(
-            &self.bank_creation_time,
-            self.working_bank.ns_per_slot,
-        ) {
+        if self.should_working_bank_still_be_processing_txs() {
             Some(&self.working_bank)
         } else {
             None
         }
+    }
+
+    pub fn should_working_bank_still_be_processing_txs(&self) -> bool {
+        Bank::should_bank_still_be_processing_txs(
+            &self.bank_creation_time,
+            self.working_bank.ns_per_slot,
+        )
     }
 }
 
@@ -106,27 +110,87 @@ impl Record {
     }
 }
 
+#[derive(Default, Debug)]
+pub struct RecordTransactionsTimings {
+    pub execution_results_to_transactions_us: u64,
+    pub hash_us: u64,
+    pub poh_record_us: u64,
+}
+
+impl RecordTransactionsTimings {
+    pub fn accumulate(&mut self, other: &RecordTransactionsTimings) {
+        saturating_add_assign!(
+            self.execution_results_to_transactions_us,
+            other.execution_results_to_transactions_us
+        );
+        saturating_add_assign!(self.hash_us, other.hash_us);
+        saturating_add_assign!(self.poh_record_us, other.poh_record_us);
+    }
+}
+
+pub struct RecordTransactionsSummary {
+    // Metrics describing how time was spent recording transactions
+    pub record_transactions_timings: RecordTransactionsTimings,
+    // Result of trying to record the transactions into the PoH stream
+    pub result: Result<()>,
+    // Index in the slot of the first transaction recorded
+    pub starting_transaction_index: Option<usize>,
+}
+
+#[derive(Clone)]
 pub struct TransactionRecorder {
     // shared by all users of PohRecorder
     pub record_sender: Sender<Record>,
     pub is_exited: Arc<AtomicBool>,
 }
 
-impl Clone for TransactionRecorder {
-    fn clone(&self) -> Self {
-        TransactionRecorder::new(self.record_sender.clone(), self.is_exited.clone())
-    }
-}
-
 impl TransactionRecorder {
     pub fn new(record_sender: Sender<Record>, is_exited: Arc<AtomicBool>) -> Self {
         Self {
-            // shared
             record_sender,
-            // shared
             is_exited,
         }
     }
+
+    /// Hashes `transactions` and sends to PoH service for recording. Waits for response up to 1s.
+    /// Panics on unexpected (non-`MaxHeightReached`) errors.
+    pub fn record_transactions(
+        &self,
+        bank_slot: Slot,
+        transactions: Vec<VersionedTransaction>,
+    ) -> RecordTransactionsSummary {
+        let mut record_transactions_timings = RecordTransactionsTimings::default();
+        let mut starting_transaction_index = None;
+
+        if !transactions.is_empty() {
+            let (hash, hash_us) = measure_us!(hash_transactions(&transactions));
+            record_transactions_timings.hash_us = hash_us;
+
+            let (res, poh_record_us) = measure_us!(self.record(bank_slot, hash, transactions));
+            record_transactions_timings.poh_record_us = poh_record_us;
+
+            match res {
+                Ok(starting_index) => {
+                    starting_transaction_index = starting_index;
+                }
+                Err(PohRecorderError::MaxHeightReached) => {
+                    return RecordTransactionsSummary {
+                        record_transactions_timings,
+                        result: Err(PohRecorderError::MaxHeightReached),
+                        starting_transaction_index: None,
+                    };
+                }
+                Err(e) => panic!("Poh recorder returned unexpected error: {e:?}"),
+            }
+        }
+
+        RecordTransactionsSummary {
+            record_transactions_timings,
+            result: Ok(()),
+            starting_transaction_index,
+        }
+    }
+
     // Returns the index of `transactions.first()` in the slot, if being tracked by WorkingBank
     pub fn record(
         &self,
@@ -221,7 +285,6 @@ pub struct PohRecorder {
     id: Pubkey,
     blockstore: Arc<Blockstore>,
     leader_schedule_cache: Arc<LeaderScheduleCache>,
-    poh_config: Arc<PohConfig>,
     ticks_per_slot: u64,
     target_ns_per_tick: u64,
     record_lock_contention_us: u64,
@@ -235,13 +298,14 @@ pub struct PohRecorder {
     ticks_from_record: u64,
     last_metric: Instant,
     record_sender: Sender<Record>,
+    leader_bank_notifier: Arc<LeaderBankNotifier>,
     pub is_exited: Arc<AtomicBool>,
 }
 
 impl PohRecorder {
     fn clear_bank(&mut self) {
-        if let Some(working_bank) = self.working_bank.take() {
-            let bank = working_bank.bank;
+        if let Some(WorkingBank { bank, start, .. }) = self.working_bank.take() {
+            self.leader_bank_notifier.set_completed(bank.slot());
             let next_leader_slot = self.leader_schedule_cache.next_leader_slot(
                 &self.id,
                 bank.slot(),
@@ -263,7 +327,7 @@ impl PohRecorder {
             datapoint_info!(
                 "leader-slot-start-to-cleared-elapsed-ms",
                 ("slot", bank.slot(), i64),
-                ("elapsed", working_bank.start.elapsed().as_millis(), i64),
+                ("elapsed", start.elapsed().as_millis(), i64),
             );
         }
 
@@ -348,8 +412,12 @@ impl PohRecorder {
         self.ticks_per_slot
     }
 
-    pub fn recorder(&self) -> TransactionRecorder {
+    pub fn new_recorder(&self) -> TransactionRecorder {
         TransactionRecorder::new(self.record_sender.clone(), self.is_exited.clone())
+    }
+
+    pub fn new_leader_bank_notifier(&self) -> Arc<LeaderBankNotifier> {
+        self.leader_bank_notifier.clone()
     }
 
     fn is_same_fork_as_previous_leader(&self, slot: Slot) -> bool {
@@ -456,13 +524,11 @@ impl PohRecorder {
             ))
     }
 
-    // synchronize PoH with a bank
-    pub fn reset(&mut self, reset_bank: Arc<Bank>, next_leader_slot: Option<(Slot, Slot)>) {
-        self.clear_bank();
+    fn reset_poh(&mut self, reset_bank: Arc<Bank>, reset_start_bank: bool) {
         let blockhash = reset_bank.last_blockhash();
         let poh_hash = {
             let mut poh = self.poh.lock().unwrap();
-            poh.reset(blockhash, self.poh_config.hashes_per_tick);
+            poh.reset(blockhash, *reset_bank.hashes_per_tick());
             poh.hash
         };
         info!(
@@ -475,9 +541,17 @@ impl PohRecorder {
         );
 
         self.tick_cache = vec![];
-        self.start_bank = reset_bank;
+        if reset_start_bank {
+            self.start_bank = reset_bank;
+        }
         self.tick_height = (self.start_slot() + 1) * self.ticks_per_slot;
         self.start_tick_height = self.tick_height + 1;
+    }
+
+    // synchronize PoH with a bank
+    pub fn reset(&mut self, reset_bank: Arc<Bank>, next_leader_slot: Option<(Slot, Slot)>) {
+        self.clear_bank();
+        self.reset_poh(reset_bank, true);
 
         if let Some(ref sender) = self.poh_timing_point_sender {
             // start_slot() is the parent slot. current slot is start_slot() + 1.
@@ -500,6 +574,8 @@ impl PohRecorder {
     }
 
     pub fn set_bank(&mut self, bank: &Arc<Bank>, track_transaction_indexes: bool) {
+        assert!(self.working_bank.is_none());
+        self.leader_bank_notifier.set_in_progress(bank);
         let working_bank = WorkingBank {
             bank: bank.clone(),
             start: Arc::new(Instant::now()),
@@ -509,6 +585,19 @@ impl PohRecorder {
         };
         trace!("new working bank");
         assert_eq!(working_bank.bank.ticks_per_slot(), self.ticks_per_slot());
+        if let Some(hashes_per_tick) = *working_bank.bank.hashes_per_tick() {
+            if self.poh.lock().unwrap().hashes_per_tick() != hashes_per_tick {
+                // We must clear/reset poh when changing hashes per tick because it's
+                // possible there are ticks in the cache created with the old hashes per
+                // tick value that would get flushed later. This would corrupt the leader's
+                // block and it would be disregarded by the network.
+                info!(
+                    "resetting poh due to hashes per tick change detected at {}",
+                    working_bank.bank.slot()
+                );
+                self.reset_poh(working_bank.clone().bank, false);
+            }
+        }
         self.working_bank = Some(working_bank);
 
         // send poh slot start timing point
@@ -823,7 +912,7 @@ impl PohRecorder {
         blockstore: &Arc<Blockstore>,
         clear_bank_signal: Option<Sender<bool>>,
         leader_schedule_cache: &Arc<LeaderScheduleCache>,
-        poh_config: &Arc<PohConfig>,
+        poh_config: &PohConfig,
         poh_timing_point_sender: Option<PohTimingSender>,
         is_exited: Arc<AtomicBool>,
     ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
@@ -831,7 +920,6 @@ impl PohRecorder {
         let poh = Arc::new(Mutex::new(Poh::new_with_slot_info(
             last_entry_hash,
             poh_config.hashes_per_tick,
-            ticks_per_slot,
             tick_number,
         )));
 
@@ -862,7 +950,6 @@ impl PohRecorder {
                 leader_schedule_cache: leader_schedule_cache.clone(),
                 ticks_per_slot,
                 target_ns_per_tick,
-                poh_config: poh_config.clone(),
                 record_lock_contention_us: 0,
                 flush_cache_tick_us: 0,
                 flush_cache_no_tick_us: 0,
@@ -874,6 +961,7 @@ impl PohRecorder {
                 ticks_from_record: 0,
                 last_metric: Instant::now(),
                 record_sender,
+                leader_bank_notifier: Arc::default(),
                 is_exited,
             },
             receiver,
@@ -894,7 +982,7 @@ impl PohRecorder {
         id: &Pubkey,
         blockstore: &Arc<Blockstore>,
         leader_schedule_cache: &Arc<LeaderScheduleCache>,
-        poh_config: &Arc<PohConfig>,
+        poh_config: &PohConfig,
         is_exited: Arc<AtomicBool>,
     ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
         Self::new_with_clear_signal(
@@ -924,8 +1012,8 @@ impl PohRecorder {
 
     // Filters the return result of PohRecorder::bank_start(), returns the bank
     // if it's still processing transactions
-    pub fn get_working_bank_if_not_expired<'a, 'b>(
-        bank_start: &'b Option<&'a BankStart>,
+    pub fn get_working_bank_if_not_expired<'a>(
+        bank_start: &Option<&'a BankStart>,
     ) -> Option<&'a Arc<Bank>> {
         bank_start
             .as_ref()
@@ -956,7 +1044,7 @@ pub fn create_test_recorder(
         None => Arc::new(LeaderScheduleCache::new_from_bank(bank)),
     };
     let exit = Arc::new(AtomicBool::new(false));
-    let poh_config = Arc::new(poh_config.unwrap_or_default());
+    let poh_config = poh_config.unwrap_or_default();
     let (mut poh_recorder, entry_receiver, record_receiver) = PohRecorder::new(
         bank.tick_height(),
         bank.last_blockhash(),
@@ -1015,7 +1103,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
             poh_recorder.tick();
@@ -1045,7 +1133,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
             poh_recorder.tick();
@@ -1074,7 +1162,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
             poh_recorder.tick();
@@ -1103,7 +1191,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1133,7 +1221,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1196,7 +1284,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1245,7 +1333,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1288,7 +1376,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1330,7 +1418,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1386,7 +1474,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1426,7 +1514,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1498,7 +1586,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1554,7 +1642,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
             poh_recorder.tick();
@@ -1583,7 +1671,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
             poh_recorder.tick();
@@ -1614,7 +1702,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
             poh_recorder.tick();
@@ -1648,7 +1736,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1680,7 +1768,7 @@ mod tests {
                     &Arc::new(blockstore),
                     Some(sender),
                     &Arc::new(LeaderScheduleCache::default()),
-                    &Arc::new(PohConfig::default()),
+                    &PohConfig::default(),
                     None,
                     Arc::new(AtomicBool::default()),
                 );
@@ -1715,7 +1803,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1763,7 +1851,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &leader_schedule_cache,
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1826,7 +1914,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -1987,7 +2075,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
 
@@ -2039,7 +2127,7 @@ mod tests {
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
-                &Arc::new(PohConfig::default()),
+                &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
             );
             //create a new bank

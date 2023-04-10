@@ -7,7 +7,7 @@
 //!
 //! [`legacy`]: crate::message::legacy
 //! [`v0`]: crate::message::v0
-//! [future message format]: https://docs.solana.com/proposals/transactions-v2
+//! [future message format]: https://docs.solana.com/proposals/versioned-transactions
 
 #![allow(clippy::integer_arithmetic)]
 
@@ -16,7 +16,7 @@ use {
         bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable,
         hash::Hash,
         instruction::{CompiledInstruction, Instruction},
-        message::{CompiledKeys, MessageHeader},
+        message::{compiled_keys::CompiledKeys, MessageHeader},
         pubkey::Pubkey,
         sanitize::{Sanitize, SanitizeError},
         short_vec, system_instruction, system_program, sysvar, wasm_bindgen,
@@ -627,7 +627,7 @@ mod tests {
         let keys: HashSet<Pubkey> = BUILTIN_PROGRAMS_KEYS.iter().copied().collect();
         assert_eq!(keys.len(), 10);
         for k in keys {
-            let k = format!("{}", k);
+            let k = format!("{k}");
             assert!(k.ends_with("11111111111111111111111"));
         }
     }

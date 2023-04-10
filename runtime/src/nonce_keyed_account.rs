@@ -11,7 +11,9 @@ use {
         pubkey::Pubkey,
         system_instruction::{nonce_to_instruction_error, NonceError},
         sysvar::rent::Rent,
-        transaction_context::{BorrowedAccount, InstructionContext, TransactionContext},
+        transaction_context::{
+            BorrowedAccount, IndexOfAccount, InstructionContext, TransactionContext,
+        },
     },
     std::collections::HashSet,
 };
@@ -79,9 +81,9 @@ pub fn advance_nonce_account(
 }
 
 pub fn withdraw_nonce_account(
-    from_account_index: usize,
+    from_account_index: IndexOfAccount,
     lamports: u64,
-    to_account_index: usize,
+    to_account_index: IndexOfAccount,
     rent: &Rent,
     signers: &HashSet<Pubkey>,
     invoke_context: &InvokeContext,
@@ -270,26 +272,29 @@ mod test {
     use {
         super::*,
         assert_matches::assert_matches,
-        solana_program_runtime::invoke_context::InvokeContext,
+        solana_program_runtime::with_mock_invoke_context,
         solana_sdk::{
             account::AccountSharedData,
-            hash::{hash, Hash},
+            hash::hash,
             nonce::{self, State},
             nonce_account::{create_account, verify_nonce_account},
             system_instruction::SystemError,
             system_program,
-            transaction_context::{InstructionAccount, TransactionContext},
+            transaction_context::InstructionAccount,
         },
     };
 
-    pub const NONCE_ACCOUNT_INDEX: usize = 0;
-    pub const WITHDRAW_TO_ACCOUNT_INDEX: usize = 1;
+    pub const NONCE_ACCOUNT_INDEX: IndexOfAccount = 0;
+    pub const WITHDRAW_TO_ACCOUNT_INDEX: IndexOfAccount = 1;
 
     macro_rules! push_instruction_context {
         ($invoke_context:expr, $transaction_context:ident, $instruction_context:ident, $instruction_accounts:ident) => {
             $invoke_context
-                .push(&$instruction_accounts, &[2], &[])
-                .unwrap();
+                .transaction_context
+                .get_next_instruction_context()
+                .unwrap()
+                .configure(&[2], &$instruction_accounts, &[]);
+            $invoke_context.push().unwrap();
             let $transaction_context = &$invoke_context.transaction_context;
             let $instruction_context = $transaction_context
                 .get_current_instruction_context()
@@ -304,7 +309,7 @@ mod test {
                 ..Rent::default()
             };
             let from_lamports = $rent.minimum_balance(State::size()) + 42;
-            let accounts = vec![
+            let transaction_accounts = vec![
                 (
                     Pubkey::new_unique(),
                     create_account(from_lamports).into_inner(),
@@ -328,9 +333,7 @@ mod test {
                     is_writable: true,
                 },
             ];
-            let mut transaction_context =
-                TransactionContext::new(accounts, Some(Rent::default()), 1, 2);
-            let mut $invoke_context = InvokeContext::new_mock(&mut transaction_context, &[]);
+            with_mock_invoke_context!($invoke_context, transaction_context, transaction_accounts);
         };
     }
 

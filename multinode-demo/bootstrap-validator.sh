@@ -64,6 +64,9 @@ while [[ -n $1 ]]; do
     elif [[ $1 = --tpu-disable-quic ]]; then
       args+=("$1")
       shift
+    elif [[ $1 = --tpu-enable-udp ]]; then
+      args+=("$1")
+      shift
     elif [[ $1 = --rpc-send-batch-ms ]]; then
       args+=("$1" "$2")
       shift 2
@@ -92,9 +95,6 @@ while [[ -n $1 ]]; do
       args+=("$1" "$2")
       shift 2
     elif [[ $1 == --no-snapshot-fetch ]]; then
-      args+=("$1")
-      shift
-    elif [[ $1 == --allow-private-addr ]]; then
       args+=("$1")
       shift
     elif [[ $1 == --accounts-db-skip-shrink ]]; then
@@ -146,6 +146,7 @@ args+=(
   --no-os-network-limits-test
   --no-wait-for-vote-to-start-leader
   --full-rpc-api
+  --allow-private-addr
 )
 default_arg --gossip-port 8001
 default_arg --log -

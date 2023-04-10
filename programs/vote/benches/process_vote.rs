@@ -3,7 +3,7 @@
 extern crate test;
 
 use {
-    solana_program_runtime::invoke_context::InvokeContext,
+    solana_program_runtime::with_mock_invoke_context,
     solana_sdk::{
         account::{create_account_for_test, Account, AccountSharedData},
         clock::{Clock, Slot},
@@ -11,7 +11,7 @@ use {
         pubkey::Pubkey,
         slot_hashes::{SlotHashes, MAX_ENTRIES},
         sysvar,
-        transaction_context::{InstructionAccount, TransactionAccount, TransactionContext},
+        transaction_context::{IndexOfAccount, InstructionAccount, TransactionAccount},
     },
     solana_vote_program::{
         vote_instruction::VoteInstruction,
@@ -82,7 +82,7 @@ fn create_accounts() -> (
     ];
     let mut instruction_accounts = (0..4)
         .map(|index_in_callee| InstructionAccount {
-            index_in_transaction: 1usize.saturating_add(index_in_callee),
+            index_in_transaction: (1 as IndexOfAccount).saturating_add(index_in_callee),
             index_in_caller: index_in_callee,
             index_in_callee,
             is_signer: false,
@@ -107,19 +107,16 @@ fn bench_process_vote_instruction(
     instruction_data: Vec<u8>,
 ) {
     bencher.iter(|| {
-        let mut transaction_context = TransactionContext::new(
-            transaction_accounts.clone(),
-            Some(sysvar::rent::Rent::default()),
-            1,
-            1,
-        );
-        let mut invoke_context = InvokeContext::new_mock(&mut transaction_context, &[]);
+        let transaction_accounts = transaction_accounts.clone();
+        with_mock_invoke_context!(invoke_context, transaction_context, transaction_accounts);
         invoke_context
-            .push(&instruction_accounts, &[0], &instruction_data)
-            .unwrap();
+            .transaction_context
+            .get_next_instruction_context()
+            .unwrap()
+            .configure(&[0], &instruction_accounts, &instruction_data);
+        invoke_context.push().unwrap();
         assert!(
-            solana_vote_program::vote_processor::process_instruction(1, &mut invoke_context)
-                .is_ok()
+            solana_vote_program::vote_processor::process_instruction(&mut invoke_context).is_ok()
         );
         invoke_context.pop().unwrap();
     });

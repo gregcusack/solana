@@ -1,7 +1,12 @@
 ---
 title: Terminology
-description: "Learn the essential terminology used thoughtout the Solana blockchain and development models."
-keywords: "terms, dictionary, definitions, define, programming models"
+description: "Learn the essential terminology used throughout the Solana blockchain and development models."
+keywords:
+  - terms
+  - dictionary
+  - definitions
+  - define
+  - programming models
 ---
 
 The following terms are used throughout the Solana documentation and development ecosystem.
@@ -48,7 +53,7 @@ The [validator](#validator) that produces the genesis (first) [block](#block) of
 
 ## BPF loader
 
-The Solana program that owns and loads [BPF](developing/on-chain-programs/overview#berkeley-packet-filter-bpf) smart contract programs, allowing the program to interface with the runtime.
+The Solana program that owns and loads [BPF](developing/on-chain-programs/faq#berkeley-packet-filter-bpf) smart contract programs, allowing the program to interface with the runtime.
 
 ## client
 
@@ -164,6 +169,10 @@ A [public key](#public-key-pubkey) and corresponding [private key](#private-key)
 
 A fractional [native token](#native-token) with the value of 0.000000001 [sol](#sol).
 
+:::info
+Within the compute budget, a quantity of _[micro-lamports](https://github.com/solana-labs/solana/blob/ced8f6a512c61e0dd5308095ae8457add4a39e94/program-runtime/src/prioritization_fee.rs#L1-L2)_ is used in the calculation of [prioritization fees](#prioritization-fee).
+:::
+
 ## leader
 
 The role of a [validator](#validator) when it is appending [entries](#entry) to the [ledger](#ledger).
@@ -225,11 +234,11 @@ The private key of a [keypair](#keypair).
 
 ## program
 
-The code that interprets [instructions](#instruction).
+The executable code that interprets the [instructions](#instruction) sent inside of each [transaction](#transaction) on the Solana. These programs are often referred to as "[_smart contracts_](./developing//intro/programs.md)" on other blockchains.
 
 ## program derived account (PDA)
 
-An account whose owner is a program and thus is not controlled by a private key like other accounts.
+An account whose signing authority is a program and thus is not controlled by a private key like other accounts.
 
 ## program id
 
@@ -250,6 +259,16 @@ Transactions should request the minimum amount of compute units required for exe
 ## public key (pubkey)
 
 The public key of a [keypair](#keypair).
+
+## rent
+
+Fee paid by [Accounts](#account) and [Programs](#program) to store data on the blockchain. When accounts do not have enough balance to pay rent, they may be Garbage Collected.
+
+See also [rent exempt](#rent-exempt) below. Learn more about rent here: [What is rent?](../src/developing/intro/rent.md).
+
+## rent exempt
+
+Accounts that maintain more than 2 years with of rent payments in their account are considered "_rent exempt_" and will not incur the [collection of rent](../src/developing/intro/rent.md#collecting-rent).
 
 ## root
 
@@ -329,6 +348,10 @@ A digitally transferable asset.
 
 [Transactions](#transaction) per second.
 
+## tpu
+
+[Transaction processing unit](validator/tpu.md).
+
 ## transaction
 
 One or more [instructions](#instruction) signed by a [client](#client) using one or more [keypairs](#keypair) and executed atomically with only two possible outcomes: success or failure.
@@ -344,6 +367,10 @@ The number of [confirmed blocks](#confirmed-block) since the transaction was acc
 ## transactions entry
 
 A set of [transactions](#transaction) that may be executed in parallel.
+
+## tvu
+
+[Transaction validation unit](validator/tvu.md).
 
 ## validator
 

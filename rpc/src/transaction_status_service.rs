@@ -8,7 +8,7 @@ use {
     },
     solana_runtime::bank::{DurableNonceFee, TransactionExecutionDetails},
     solana_transaction_status::{
-        extract_and_fmt_memos, InnerInstructions, Reward, TransactionStatusMeta,
+        extract_and_fmt_memos, InnerInstruction, InnerInstructions, Reward, TransactionStatusMeta,
     },
     std::{
         sync::{
@@ -25,7 +25,6 @@ pub struct TransactionStatusService {
 }
 
 impl TransactionStatusService {
-    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         write_transaction_status_receiver: Receiver<TransactionStatusMessage>,
         max_complete_transaction_status_slot: Arc<AtomicU64>,
@@ -128,7 +127,13 @@ impl TransactionStatusService {
                                 .enumerate()
                                 .map(|(index, instructions)| InnerInstructions {
                                     index: index as u8,
-                                    instructions,
+                                    instructions: instructions
+                                        .into_iter()
+                                        .map(|info| InnerInstruction {
+                                            instruction: info.instruction,
+                                            stack_height: Some(u32::from(info.stack_height)),
+                                        })
+                                        .collect(),
                                 })
                                 .filter(|i| !i.instructions.is_empty())
                                 .collect()
@@ -351,7 +356,7 @@ pub(crate) mod tests {
 
         let mut nonce_account = nonce_account::create_account(1).into_inner();
         let durable_nonce = DurableNonce::from_blockhash(&Hash::new(&[42u8; 32]));
-        let data = nonce::state::Data::new(Pubkey::new(&[1u8; 32]), durable_nonce, 42);
+        let data = nonce::state::Data::new(Pubkey::from([1u8; 32]), durable_nonce, 42);
         nonce_account
             .set_state(&nonce::state::Versions::new(nonce::State::Initialized(
                 data,

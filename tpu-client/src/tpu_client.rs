@@ -1,37 +1,42 @@
 pub use crate::nonblocking::tpu_client::TpuSenderError;
 use {
-    crate::{
-        connection_cache::ConnectionCache,
-        nonblocking::tpu_client::TpuClient as NonblockingTpuClient,
+    crate::nonblocking::tpu_client::TpuClient as NonblockingTpuClient,
+    rayon::iter::{IntoParallelIterator, ParallelIterator},
+    solana_connection_cache::connection_cache::{
+        ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
     },
     solana_rpc_client::rpc_client::RpcClient,
-    solana_sdk::{
-        clock::Slot,
-        message::Message,
-        signers::Signers,
-        transaction::{Transaction, TransactionError},
-        transport::Result as TransportResult,
-    },
+    solana_sdk::{clock::Slot, transaction::Transaction, transport::Result as TransportResult},
     std::{
         collections::VecDeque,
         net::UdpSocket,
         sync::{Arc, RwLock},
     },
+};
+#[cfg(feature = "spinner")]
+use {
+    solana_sdk::{message::Message, signers::Signers, transaction::TransactionError},
     tokio::time::Duration,
 };
 
-type Result<T> = std::result::Result<T, TpuSenderError>;
+pub const DEFAULT_TPU_ENABLE_UDP: bool = false;
+pub const DEFAULT_TPU_USE_QUIC: bool = true;
+pub const DEFAULT_TPU_CONNECTION_POOL_SIZE: usize = 4;
+
+pub type Result<T> = std::result::Result<T, TpuSenderError>;
+
+/// Send at ~100 TPS
+#[cfg(feature = "spinner")]
+pub(crate) const SEND_TRANSACTION_INTERVAL: Duration = Duration::from_millis(10);
+/// Retry batch send after 4 seconds
+#[cfg(feature = "spinner")]
+pub(crate) const TRANSACTION_RESEND_INTERVAL: Duration = Duration::from_secs(4);
 
 /// Default number of slots used to build TPU socket fanout set
 pub const DEFAULT_FANOUT_SLOTS: u64 = 12;
 
 /// Maximum number of slots used to build TPU socket fanout set
 pub const MAX_FANOUT_SLOTS: u64 = 100;
-
-/// Send at ~100 TPS
-pub(crate) const SEND_TRANSACTION_INTERVAL: Duration = Duration::from_millis(10);
-/// Retry batch send after 4 seconds
-pub(crate) const TRANSACTION_RESEND_INTERVAL: Duration = Duration::from_secs(4);
 
 /// Config params for `TpuClient`
 #[derive(Clone, Debug)]
@@ -51,14 +56,23 @@ impl Default for TpuClientConfig {
 
 /// Client which sends transactions directly to the current leader's TPU port over UDP.
 /// The client uses RPC to determine the current leader and fetch node contact info
-pub struct TpuClient {
+pub struct TpuClient<
+    P, // ConnectionPool
+    M, // ConnectionManager
+    C, // NewConnectionConfig
+> {
     _deprecated: UdpSocket, // TpuClient now uses the connection_cache to choose a send_socket
     //todo: get rid of this field
     rpc_client: Arc<RpcClient>,
-    tpu_client: Arc<NonblockingTpuClient>,
+    tpu_client: Arc<NonblockingTpuClient<P, M, C>>,
 }
 
-impl TpuClient {
+impl<P, M, C> TpuClient<P, M, C>
+where
+    P: ConnectionPool<NewConnectionConfig = C>,
+    M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+    C: NewConnectionConfig,
+{
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
     pub fn send_transaction(&self, transaction: &Transaction) -> bool {
@@ -77,6 +91,20 @@ impl TpuClient {
         self.invoke(self.tpu_client.try_send_transaction(transaction))
     }
 
+    /// Serialize and send a batch of transactions to the current and upcoming leader TPUs according
+    /// to fanout size
+    /// Returns the last error if all sends fail
+    pub fn try_send_transaction_batch(&self, transactions: &[Transaction]) -> TransportResult<()> {
+        let wire_transactions = transactions
+            .into_par_iter()
+            .map(|tx| bincode::serialize(&tx).expect("serialize Transaction in send_batch"))
+            .collect::<Vec<_>>();
+        self.invoke(
+            self.tpu_client
+                .try_send_wire_transaction_batch(wire_transactions),
+        )
+    }
+
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
     /// Returns the last error if all sends fail
     pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>) -> TransportResult<()> {
@@ -88,9 +116,14 @@ impl TpuClient {
         rpc_client: Arc<RpcClient>,
         websocket_url: &str,
         config: TpuClientConfig,
+        connection_manager: M,
     ) -> Result<Self> {
-        let create_tpu_client =
-            NonblockingTpuClient::new(rpc_client.get_inner_client().clone(), websocket_url, config);
+        let create_tpu_client = NonblockingTpuClient::new(
+            rpc_client.get_inner_client().clone(),
+            websocket_url,
+            config,
+            connection_manager,
+        );
         let tpu_client =
             tokio::task::block_in_place(|| rpc_client.runtime().block_on(create_tpu_client))?;
 
@@ -106,7 +139,7 @@ impl TpuClient {
         rpc_client: Arc<RpcClient>,
         websocket_url: &str,
         config: TpuClientConfig,
-        connection_cache: Arc<ConnectionCache>,
+        connection_cache: Arc<ConnectionCache<P, M, C>>,
     ) -> Result<Self> {
         let create_tpu_client = NonblockingTpuClient::new_with_connection_cache(
             rpc_client.get_inner_client().clone(),
@@ -124,7 +157,8 @@ impl TpuClient {
         })
     }
 
-    pub fn send_and_confirm_messages_with_spinner<T: Signers>(
+    #[cfg(feature = "spinner")]
+    pub fn send_and_confirm_messages_with_spinner<T: Signers + ?Sized>(
         &self,
         messages: &[Message],
         signers: &T,

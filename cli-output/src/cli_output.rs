@@ -15,13 +15,17 @@ use {
     inflector::cases::titlecase::to_title_case,
     serde::{Deserialize, Serialize},
     serde_json::{Map, Value},
-    solana_account_decoder::parse_token::UiTokenAccount,
+    solana_account_decoder::{
+        parse_account_data::AccountAdditionalData, parse_token::UiTokenAccount, UiAccount,
+        UiAccountEncoding, UiDataSliceConfig,
+    },
     solana_clap_utils::keypair::SignOnly,
     solana_rpc_client_api::response::{
         RpcAccountBalance, RpcContactInfo, RpcInflationGovernor, RpcInflationRate, RpcKeyedAccount,
         RpcSupply, RpcVoteAccountInfo,
     },
     solana_sdk::{
+        account::ReadableAccount,
         clock::{Epoch, Slot, UnixTimestamp},
         epoch_info::EpochInfo,
         hash::Hash,
@@ -67,7 +71,7 @@ impl OutputFormat {
         T: Serialize + fmt::Display + QuietDisplay + VerboseDisplay,
     {
         match self {
-            OutputFormat::Display => format!("{}", item),
+            OutputFormat::Display => format!("{item}"),
             OutputFormat::DisplayQuiet => {
                 let mut s = String::new();
                 QuietDisplay::write_str(item, &mut s).unwrap();
@@ -105,6 +109,63 @@ pub struct CliAccount {
     pub keyed_account: RpcKeyedAccount,
     #[serde(skip_serializing, skip_deserializing)]
     pub use_lamports_unit: bool,
+}
+
+pub struct CliAccountNewConfig {
+    pub data_encoding: UiAccountEncoding,
+    pub additional_data: Option<AccountAdditionalData>,
+    pub data_slice_config: Option<UiDataSliceConfig>,
+    pub use_lamports_unit: bool,
+}
+
+impl Default for CliAccountNewConfig {
+    fn default() -> Self {
+        Self {
+            data_encoding: UiAccountEncoding::Base64,
+            additional_data: None,
+            data_slice_config: None,
+            use_lamports_unit: false,
+        }
+    }
+}
+
+impl CliAccount {
+    pub fn new<T: ReadableAccount>(address: &Pubkey, account: &T, use_lamports_unit: bool) -> Self {
+        Self::new_with_config(
+            address,
+            account,
+            &CliAccountNewConfig {
+                use_lamports_unit,
+                ..CliAccountNewConfig::default()
+            },
+        )
+    }
+
+    pub fn new_with_config<T: ReadableAccount>(
+        address: &Pubkey,
+        account: &T,
+        config: &CliAccountNewConfig,
+    ) -> Self {
+        let CliAccountNewConfig {
+            data_encoding,
+            additional_data,
+            data_slice_config,
+            use_lamports_unit,
+        } = *config;
+        Self {
+            keyed_account: RpcKeyedAccount {
+                pubkey: address.to_string(),
+                account: UiAccount::encode(
+                    address,
+                    account,
+                    data_encoding,
+                    additional_data,
+                    data_slice_config,
+                ),
+            },
+            use_lamports_unit,
+        }
+    }
 }
 
 impl QuietDisplay for CliAccount {}
@@ -281,7 +342,7 @@ impl fmt::Display for CliEpochInfo {
         writeln_name_value(
             f,
             "Epoch Slot Range:",
-            &format!("[{}..{})", start_slot, end_slot),
+            &format!("[{start_slot}..{end_slot})"),
         )?;
         writeln_name_value(
             f,
@@ -326,7 +387,7 @@ impl fmt::Display for CliEpochInfo {
         )?;
         if let Some(annotation) = annotation {
             writeln!(f)?;
-            writeln!(f, "{}", annotation)?;
+            writeln!(f, "{annotation}")?;
         }
         Ok(())
     }
@@ -396,11 +457,11 @@ impl fmt::Display for CliValidators {
                 if v == 0 {
                     "        -      ".into()
                 } else if v == max_v {
-                    format!("{:>9} (  0)", v)
+                    format!("{v:>9} (  0)")
                 } else if v > max_v.saturating_sub(100) {
                     format!("{:>9} ({:>3})", v, -(max_v.saturating_sub(v) as isize))
                 } else {
-                    format!("{:>9}      ", v)
+                    format!("{v:>9}      ")
                 }
             }
 
@@ -418,7 +479,7 @@ impl fmt::Display for CliValidators {
                 non_zero_or_dash(validator.last_vote, highest_last_vote),
                 non_zero_or_dash(validator.root_slot, highest_root),
                 if let Some(skip_rate) = validator.skip_rate {
-                    format!("{:.2}%", skip_rate)
+                    format!("{skip_rate:.2}%")
                 } else {
                     "-   ".to_string()
                 },
@@ -457,7 +518,7 @@ impl fmt::Display for CliValidators {
             padding = padding + 2
         ))
         .bold();
-        writeln!(f, "{}", header)?;
+        writeln!(f, "{header}")?;
 
         let mut sorted_validators = self.validators.clone();
         match self.validators_sort_order {
@@ -498,11 +559,7 @@ impl fmt::Display for CliValidators {
             }
             CliValidatorsSortOrder::Version => {
                 sorted_validators.sort_by(|a, b| {
-                    use std::cmp::Ordering;
-                    match a.version.cmp(&b.version) {
-                        Ordering::Equal => a.activated_stake.cmp(&b.activated_stake),
-                        ordering => ordering,
-                    }
+                    (&a.version, a.activated_stake).cmp(&(&b.version, b.activated_stake))
                 });
             }
         }
@@ -529,7 +586,7 @@ impl fmt::Display for CliValidators {
                 } else {
                     sorted_validators.len() - i
                 };
-                write!(f, "{:padding$} ", num, padding = padding)?;
+                write!(f, "{num:padding$} ")?;
             }
             write_vote_account(
                 f,
@@ -543,7 +600,7 @@ impl fmt::Display for CliValidators {
 
         // The actual header has long scrolled away.  Print the header once more as a footer
         if self.validators.len() > 100 {
-            writeln!(f, "{}", header)?;
+            writeln!(f, "{header}")?;
         }
 
         writeln!(f)?;
@@ -701,6 +758,111 @@ impl CliValidator {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliHistorySignatureVec(Vec<CliHistorySignature>);
+
+impl CliHistorySignatureVec {
+    pub fn new(list: Vec<CliHistorySignature>) -> Self {
+        Self(list)
+    }
+}
+
+impl QuietDisplay for CliHistorySignatureVec {}
+impl VerboseDisplay for CliHistorySignatureVec {
+    fn write_str(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        for signature in &self.0 {
+            VerboseDisplay::write_str(signature, w)?;
+        }
+        writeln!(w, "{} transactions found", self.0.len())
+    }
+}
+
+impl fmt::Display for CliHistorySignatureVec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for signature in &self.0 {
+            write!(f, "{signature}")?;
+        }
+        writeln!(f, "{} transactions found", self.0.len())
+    }
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CliHistorySignature {
+    pub signature: String,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub verbose: Option<CliHistoryVerbose>,
+}
+
+impl QuietDisplay for CliHistorySignature {}
+impl VerboseDisplay for CliHistorySignature {
+    fn write_str(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        let verbose = self
+            .verbose
+            .as_ref()
+            .expect("should have verbose.is_some()");
+        writeln!(
+            w,
+            "{} [slot={} {}status={}] {}",
+            self.signature,
+            verbose.slot,
+            match verbose.block_time {
+                None => "".to_string(),
+                Some(block_time) => format!("timestamp={} ", unix_timestamp_to_string(block_time)),
+            },
+            if let Some(err) = &verbose.err {
+                format!("Failed: {err:?}")
+            } else {
+                match &verbose.confirmation_status {
+                    None => "Finalized".to_string(),
+                    Some(status) => format!("{status:?}"),
+                }
+            },
+            verbose.memo.clone().unwrap_or_default(),
+        )
+    }
+}
+
+impl fmt::Display for CliHistorySignature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "{}", self.signature)
+    }
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CliHistoryVerbose {
+    pub slot: Slot,
+    pub block_time: Option<UnixTimestamp>,
+    pub err: Option<TransactionError>,
+    pub confirmation_status: Option<TransactionConfirmationStatus>,
+    pub memo: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliHistoryTransactionVec(Vec<CliTransactionConfirmation>);
+
+impl CliHistoryTransactionVec {
+    pub fn new(list: Vec<CliTransactionConfirmation>) -> Self {
+        Self(list)
+    }
+}
+
+impl QuietDisplay for CliHistoryTransactionVec {}
+impl VerboseDisplay for CliHistoryTransactionVec {}
+
+impl fmt::Display for CliHistoryTransactionVec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for transaction in &self.0 {
+            VerboseDisplay::write_str(transaction, f)?;
+            writeln!(f)?;
+        }
+        writeln!(f, "{} transactions found", self.0.len())
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliNonceAccount {
@@ -733,14 +895,14 @@ impl fmt::Display for CliNonceAccount {
             )
         )?;
         let nonce = self.nonce.as_deref().unwrap_or("uninitialized");
-        writeln!(f, "Nonce blockhash: {}", nonce)?;
+        writeln!(f, "Nonce blockhash: {nonce}")?;
         if let Some(fees) = self.lamports_per_signature {
-            writeln!(f, "Fee: {} lamports per signature", fees)?;
+            writeln!(f, "Fee: {fees} lamports per signature")?;
         } else {
             writeln!(f, "Fees: uninitialized")?;
         }
         let authority = self.authority.as_deref().unwrap_or("uninitialized");
-        writeln!(f, "Authority: {}", authority)
+        writeln!(f, "Authority: {authority}")
     }
 }
 
@@ -768,7 +930,7 @@ impl fmt::Display for CliStakeVec {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for state in &self.0 {
             writeln!(f)?;
-            write!(f, "{}", state)?;
+            write!(f, "{state}")?;
         }
         Ok(())
     }
@@ -866,11 +1028,11 @@ impl fmt::Display for CliKeyedEpochRewards {
                         reward.percent_change,
                         reward
                             .apr
-                            .map(|apr| format!("{:.2}%", apr))
+                            .map(|apr| format!("{apr:.2}%"))
                             .unwrap_or_default(),
                         reward
                             .commission
-                            .map(|commission| format!("{}%", commission))
+                            .map(|commission| format!("{commission}%"))
                             .unwrap_or_else(|| "-".to_string())
                     )?;
                 }
@@ -967,8 +1129,7 @@ fn show_votes_and_credits(
 
             writeln!(
                 f,
-                "- ... (omitting {} past rooted votes, which have already been credited)",
-                count
+                "- ... (omitting {count} past rooted votes, which have already been credited)"
             )?;
         }
     }
@@ -1002,11 +1163,11 @@ fn show_epoch_rewards(
                 reward.percent_change,
                 reward
                     .apr
-                    .map(|apr| format!("{:.2}%", apr))
+                    .map(|apr| format!("{apr:.2}%"))
                     .unwrap_or_default(),
                 reward
                     .commission
-                    .map(|commission| format!("{}%", commission))
+                    .map(|commission| format!("{commission}%"))
                     .unwrap_or_else(|| "-".to_string())
             )?;
         }
@@ -1052,9 +1213,9 @@ pub struct CliStakeState {
 impl QuietDisplay for CliStakeState {}
 impl VerboseDisplay for CliStakeState {
     fn write_str(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
-        write!(w, "{}", self)?;
+        write!(w, "{self}")?;
         if let Some(credits) = self.credits_observed {
-            writeln!(w, "Credits Observed: {}", credits)?;
+            writeln!(w, "Credits Observed: {credits}")?;
         }
         Ok(())
     }
@@ -1185,8 +1346,7 @@ impl fmt::Display for CliStakeState {
                         }
                         writeln!(
                             f,
-                            "Stake deactivates starting from epoch: {}",
-                            deactivation_epoch
+                            "Stake deactivates starting from epoch: {deactivation_epoch}"
                         )?;
                     }
                     if let Some(delegated_vote_account_address) =
@@ -1194,8 +1354,7 @@ impl fmt::Display for CliStakeState {
                     {
                         writeln!(
                             f,
-                            "Delegated Vote Account Address: {}",
-                            delegated_vote_account_address
+                            "Delegated Vote Account Address: {delegated_vote_account_address}"
                         )?;
                     }
                 } else {
@@ -1344,7 +1503,7 @@ impl fmt::Display for CliValidatorInfoVec {
         }
         for validator_info in &self.0 {
             writeln!(f)?;
-            write!(f, "{}", validator_info)?;
+            write!(f, "{validator_info}")?;
         }
         Ok(())
     }
@@ -1478,8 +1637,8 @@ pub struct CliLockout {
 impl From<&Lockout> for CliLockout {
     fn from(lockout: &Lockout) -> Self {
         Self {
-            slot: lockout.slot,
-            confirmation_count: lockout.confirmation_count,
+            slot: lockout.slot(),
+            confirmation_count: lockout.confirmation_count(),
         }
     }
 }
@@ -1634,19 +1793,19 @@ impl fmt::Display for CliSignOnlyData {
         if !self.signers.is_empty() {
             writeln!(f, "{}", style("Signers (Pubkey=Signature):").bold())?;
             for signer in self.signers.iter() {
-                writeln!(f, " {}", signer)?;
+                writeln!(f, " {signer}")?;
             }
         }
         if !self.absent.is_empty() {
             writeln!(f, "{}", style("Absent Signers (Pubkey):").bold())?;
             for pubkey in self.absent.iter() {
-                writeln!(f, " {}", pubkey)?;
+                writeln!(f, " {pubkey}")?;
             }
         }
         if !self.bad_sig.is_empty() {
             writeln!(f, "{}", style("Bad Signatures (Pubkey):").bold())?;
             for pubkey in self.bad_sig.iter() {
-                writeln!(f, " {}", pubkey)?;
+                writeln!(f, " {pubkey}")?;
             }
         }
         Ok(())
@@ -1741,7 +1900,7 @@ impl fmt::Display for CliSupply {
             writeln!(f)?;
             writeln_name_value(f, "Non-Circulating Accounts:", " ")?;
             for account in &self.non_circulating_accounts {
-                writeln!(f, "  {}", account)?;
+                writeln!(f, "  {account}")?;
             }
         }
         Ok(())
@@ -1790,7 +1949,7 @@ impl VerboseDisplay for CliFees {}
 impl fmt::Display for CliFees {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.inner.as_ref() {
-            Some(inner) => write!(f, "{}", inner),
+            Some(inner) => write!(f, "{inner}"),
             None => write!(f, "Fees unavailable"),
         }
     }
@@ -2156,7 +2315,7 @@ impl fmt::Display for CliAddressLookupTable {
                 style(format!("  {:<5}  {}", "Index", "Address")).bold()
             )?;
             for (index, address) in self.addresses.iter().enumerate() {
-                writeln!(f, "  {:<5}  {}", index, address)?;
+                writeln!(f, "  {index:<5}  {address}")?;
             }
         }
         Ok(())
@@ -2212,7 +2371,7 @@ pub fn return_signers_data(tx: &Transaction, config: &ReturnSignersConfig) -> Cl
         .zip(verify_results.into_iter())
         .for_each(|((sig, key), res)| {
             if res {
-                signers.push(format!("{}={}", key, sig))
+                signers.push(format!("{key}={sig}"))
             } else if *sig == Signature::default() {
                 absent.push(key.to_string());
             } else {
@@ -2221,7 +2380,7 @@ pub fn return_signers_data(tx: &Transaction, config: &ReturnSignersConfig) -> Cl
         });
     let message = if config.dump_transaction_message {
         let message_data = tx.message_data();
-        Some(base64::encode(&message_data))
+        Some(base64::encode(message_data))
     } else {
         None
     };
@@ -2354,10 +2513,14 @@ impl fmt::Display for CliBlock {
             self.encoded_confirmed_block.previous_blockhash
         )?;
         if let Some(block_time) = self.encoded_confirmed_block.block_time {
-            writeln!(f, "Block Time: {:?}", Local.timestamp(block_time, 0))?;
+            writeln!(
+                f,
+                "Block Time: {:?}",
+                Local.timestamp_opt(block_time, 0).unwrap()
+            )?;
         }
         if let Some(block_height) = self.encoded_confirmed_block.block_height {
-            writeln!(f, "Block Height: {:?}", block_height)?;
+            writeln!(f, "Block Height: {block_height:?}")?;
         }
         if !self.encoded_confirmed_block.rewards.is_empty() {
             let mut rewards = self.encoded_confirmed_block.rewards.clone();
@@ -2379,7 +2542,7 @@ impl fmt::Display for CliBlock {
                     "  {:<44}  {:^15}  {:>15}  {}  {}",
                     reward.pubkey,
                     if let Some(reward_type) = reward.reward_type {
-                        format!("{}", reward_type)
+                        format!("{reward_type}")
                     } else {
                         "-".to_string()
                     },
@@ -2401,7 +2564,7 @@ impl fmt::Display for CliBlock {
                     },
                     reward
                         .commission
-                        .map(|commission| format!("{:>9}%", commission))
+                        .map(|commission| format!("{commission:>9}%"))
                         .unwrap_or_else(|| "    -".to_string())
                 )?;
             }
@@ -2417,7 +2580,7 @@ impl fmt::Display for CliBlock {
         for (index, transaction_with_meta) in
             self.encoded_confirmed_block.transactions.iter().enumerate()
         {
-            writeln!(f, "Transaction {}:", index)?;
+            writeln!(f, "Transaction {index}:")?;
             writeln_transaction(
                 f,
                 &transaction_with_meta.transaction.decode().unwrap(),
@@ -2437,7 +2600,7 @@ pub struct CliTransaction {
     pub transaction: EncodedTransaction,
     pub meta: Option<UiTransactionStatusMeta>,
     pub block_time: Option<UnixTimestamp>,
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slot: Option<Slot>,
     #[serde(skip_serializing)]
     pub decoded_transaction: VersionedTransaction,
@@ -2488,7 +2651,7 @@ impl VerboseDisplay for CliTransactionConfirmation {
                 "\nTransaction executed in slot {}:",
                 transaction.slot.expect("slot should exist")
             )?;
-            write!(w, "{}", transaction)?;
+            write!(w, "{transaction}")?;
         } else if let Some(confirmation_status) = &self.confirmation_status {
             if confirmation_status != &TransactionConfirmationStatus::Finalized {
                 writeln!(w)?;
@@ -2498,11 +2661,11 @@ impl VerboseDisplay for CliTransactionConfirmation {
                 )?;
             } else if let Some(err) = &self.get_transaction_error {
                 writeln!(w)?;
-                writeln!(w, "Unable to get finalized transaction details: {}", err)?;
+                writeln!(w, "Unable to get finalized transaction details: {err}")?;
             }
         }
         writeln!(w)?;
-        write!(w, "{}", self)
+        write!(w, "{self}")
     }
 }
 
@@ -2512,9 +2675,9 @@ impl fmt::Display for CliTransactionConfirmation {
             None => write!(f, "Not found"),
             Some(confirmation_status) => {
                 if let Some(err) = &self.err {
-                    write!(f, "Transaction failed: {}", err)
+                    write!(f, "Transaction failed: {err}")
                 } else {
-                    write!(f, "{:?}", confirmation_status)
+                    write!(f, "{confirmation_status:?}")
                 }
             }
         }
@@ -2536,6 +2699,8 @@ pub struct CliGossipNode {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc_host: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub pubsub_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub feature_set: Option<u32>,
@@ -2550,6 +2715,7 @@ impl CliGossipNode {
             gossip_port: info.gossip.map(|addr| addr.port()),
             tpu_port: info.tpu.map(|addr| addr.port()),
             rpc_host: info.rpc.map(|addr| addr.to_string()),
+            pubsub_host: info.pubsub.map(|addr| addr.to_string()),
             version: info.version,
             feature_set: info.feature_set,
         }
@@ -2607,7 +2773,7 @@ impl fmt::Display for CliGossipNodes {
              --------+-------+-----------------------+---------+----------------",
         )?;
         for node in self.0.iter() {
-            writeln!(f, "{}", node)?;
+            writeln!(f, "{node}")?;
         }
         writeln!(f, "Nodes: {}", self.0.len())
     }
@@ -2642,19 +2808,18 @@ impl fmt::Display for CliPing {
             };
             writeln!(
                 f,
-                "Fixed blockhash is used: {} ({})",
-                fixed_blockhash, blockhash_origin
+                "Fixed blockhash is used: {fixed_blockhash} ({blockhash_origin})"
             )?;
         }
         writeln!(f)?;
         for ping in &self.pings {
-            write!(f, "{}", ping)?;
+            write!(f, "{ping}")?;
         }
         writeln!(f)?;
         writeln!(f, "--- transaction statistics ---")?;
         write!(f, "{}", self.transaction_stats)?;
         if let Some(confirmation_stats) = &self.confirmation_stats {
-            write!(f, "{}", confirmation_stats)?;
+            write!(f, "{confirmation_stats}")?;
         }
         Ok(())
     }
@@ -2798,7 +2963,7 @@ impl QuietDisplay for CliBalance {
             ..self.config
         };
         let balance_message = build_balance_message_with_config(self.lamports, &config);
-        write!(w, "{}", balance_message)
+        write!(w, "{balance_message}")
     }
 }
 
@@ -2810,14 +2975,14 @@ impl VerboseDisplay for CliBalance {
             ..self.config
         };
         let balance_message = build_balance_message_with_config(self.lamports, &config);
-        write!(w, "{}", balance_message)
+        write!(w, "{balance_message}")
     }
 }
 
 impl fmt::Display for CliBalance {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let balance_message = build_balance_message_with_config(self.lamports, &self.config);
-        write!(f, "{}", balance_message)
+        write!(f, "{balance_message}")
     }
 }
 
@@ -2862,10 +3027,10 @@ mod tests {
         }
 
         let present: Box<dyn Signer> = Box::new(keypair_from_seed(&[2u8; 32]).unwrap());
-        let absent: Box<dyn Signer> = Box::new(NullSigner::new(&Pubkey::new(&[3u8; 32])));
-        let bad: Box<dyn Signer> = Box::new(BadSigner::new(Pubkey::new(&[4u8; 32])));
-        let to = Pubkey::new(&[5u8; 32]);
-        let nonce = Pubkey::new(&[6u8; 32]);
+        let absent: Box<dyn Signer> = Box::new(NullSigner::new(&Pubkey::from([3u8; 32])));
+        let bad: Box<dyn Signer> = Box::new(BadSigner::new(Pubkey::from([4u8; 32])));
+        let to = Pubkey::from([5u8; 32]);
+        let nonce = Pubkey::from([6u8; 32]);
         let from = present.pubkey();
         let fee_payer = absent.pubkey();
         let nonce_auth = bad.pubkey();

@@ -25,6 +25,10 @@ impl BpfAllocator {
             pos: 0,
         }
     }
+
+    pub fn heap_mut(&mut self) -> &mut AlignedMemory<HOST_ALIGN> {
+        &mut self.heap
+    }
 }
 
 impl Alloc for BpfAllocator {

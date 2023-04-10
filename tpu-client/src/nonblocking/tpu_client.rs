@@ -1,32 +1,29 @@
+pub use crate::tpu_client::Result;
 use {
-    crate::{
-        connection_cache::ConnectionCache,
-        nonblocking::tpu_connection::TpuConnection,
-        tpu_client::{
-            RecentLeaderSlots, TpuClientConfig, MAX_FANOUT_SLOTS, SEND_TRANSACTION_INTERVAL,
-            TRANSACTION_RESEND_INTERVAL,
-        },
-    },
+    crate::tpu_client::{RecentLeaderSlots, TpuClientConfig, MAX_FANOUT_SLOTS},
     bincode::serialize,
     futures_util::{future::join_all, stream::StreamExt},
-    indicatif::ProgressBar,
     log::*,
+    solana_connection_cache::{
+        connection_cache::{
+            ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
+            DEFAULT_CONNECTION_POOL_SIZE,
+        },
+        nonblocking::client_connection::ClientConnection,
+    },
     solana_pubsub_client::nonblocking::pubsub_client::{PubsubClient, PubsubClientError},
-    solana_rpc_client::{nonblocking::rpc_client::RpcClient, spinner},
+    solana_rpc_client::nonblocking::rpc_client::RpcClient,
     solana_rpc_client_api::{
         client_error::{Error as ClientError, Result as ClientResult},
-        request::MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS,
         response::{RpcContactInfo, SlotUpdate},
     },
     solana_sdk::{
         clock::Slot,
         commitment_config::CommitmentConfig,
         epoch_info::EpochInfo,
-        message::Message,
         pubkey::Pubkey,
         signature::SignerError,
-        signers::Signers,
-        transaction::{Transaction, TransactionError},
+        transaction::Transaction,
         transport::{Result as TransportResult, TransportError},
     },
     std::{
@@ -44,6 +41,38 @@ use {
         time::{sleep, timeout, Duration, Instant},
     },
 };
+#[cfg(feature = "spinner")]
+use {
+    crate::tpu_client::{SEND_TRANSACTION_INTERVAL, TRANSACTION_RESEND_INTERVAL},
+    indicatif::ProgressBar,
+    solana_rpc_client::spinner,
+    solana_rpc_client_api::request::MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS,
+    solana_sdk::{message::Message, signers::Signers, transaction::TransactionError},
+};
+
+#[cfg(feature = "spinner")]
+fn set_message_for_confirmed_transactions(
+    progress_bar: &ProgressBar,
+    confirmed_transactions: u32,
+    total_transactions: usize,
+    block_height: Option<u64>,
+    last_valid_block_height: u64,
+    status: &str,
+) {
+    progress_bar.set_message(format!(
+        "{:>5.1}% | {:<40}{}",
+        confirmed_transactions as f64 * 100. / total_transactions as f64,
+        status,
+        match block_height {
+            Some(block_height) => format!(
+                " [block height {}; re-sign in {} blocks]",
+                block_height,
+                last_valid_block_height.saturating_sub(block_height),
+            ),
+            None => String::new(),
+        },
+    ));
+}
 
 #[derive(Error, Debug)]
 pub enum TpuSenderError {
@@ -60,9 +89,9 @@ pub enum TpuSenderError {
 }
 
 struct LeaderTpuCacheUpdateInfo {
-    maybe_cluster_nodes: Option<ClientResult<Vec<RpcContactInfo>>>,
-    maybe_epoch_info: Option<ClientResult<EpochInfo>>,
-    maybe_slot_leaders: Option<ClientResult<Vec<Pubkey>>>,
+    pub(super) maybe_cluster_nodes: Option<ClientResult<Vec<RpcContactInfo>>>,
+    pub(super) maybe_epoch_info: Option<ClientResult<EpochInfo>>,
+    pub(super) maybe_slot_leaders: Option<ClientResult<Vec<Pubkey>>>,
 }
 impl LeaderTpuCacheUpdateInfo {
     pub fn has_some(&self) -> bool {
@@ -111,9 +140,17 @@ impl LeaderTpuCache {
     }
 
     // Get the TPU sockets for the current leader and upcoming leaders according to fanout size
-    pub fn get_leader_sockets(&self, current_slot: Slot, fanout_slots: u64) -> Vec<SocketAddr> {
+    fn get_leader_sockets(
+        &self,
+        estimated_current_slot: Slot,
+        fanout_slots: u64,
+    ) -> Vec<SocketAddr> {
         let mut leader_set = HashSet::new();
         let mut leader_sockets = Vec::new();
+        // `first_slot` might have been advanced since caller last read the `estimated_current_slot`
+        // value. Take the greater of the two values to ensure we are reading from the latest
+        // leader schedule.
+        let current_slot = std::cmp::max(estimated_current_slot, self.first_slot);
         for leader_slot in current_slot..current_slot + fanout_slots {
             if let Some(leader) = self.get_slot_leader(leader_slot) {
                 if let Some(tpu_socket) = self.leader_tpu_map.get(leader) {
@@ -209,28 +246,54 @@ impl LeaderTpuCache {
     }
 }
 
-type Result<T> = std::result::Result<T, TpuSenderError>;
-
 /// Client which sends transactions directly to the current leader's TPU port over UDP.
 /// The client uses RPC to determine the current leader and fetch node contact info
-pub struct TpuClient {
+pub struct TpuClient<
+    P, // ConnectionPool
+    M, // ConnectionManager
+    C, // NewConnectionConfig
+> {
     fanout_slots: u64,
     leader_tpu_service: LeaderTpuService,
     exit: Arc<AtomicBool>,
     rpc_client: Arc<RpcClient>,
-    connection_cache: Arc<ConnectionCache>,
+    connection_cache: Arc<ConnectionCache<P, M, C>>,
 }
 
-async fn send_wire_transaction_to_addr(
-    connection_cache: &ConnectionCache,
+async fn send_wire_transaction_to_addr<P, M, C>(
+    connection_cache: &ConnectionCache<P, M, C>,
     addr: &SocketAddr,
     wire_transaction: Vec<u8>,
-) -> TransportResult<()> {
+) -> TransportResult<()>
+where
+    P: ConnectionPool<NewConnectionConfig = C>,
+    M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+    C: NewConnectionConfig,
+{
     let conn = connection_cache.get_nonblocking_connection(addr);
-    conn.send_wire_transaction(wire_transaction.clone()).await
+    conn.send_data(&wire_transaction).await
 }
 
-impl TpuClient {
+async fn send_wire_transaction_batch_to_addr<P, M, C>(
+    connection_cache: &ConnectionCache<P, M, C>,
+    addr: &SocketAddr,
+    wire_transactions: &[Vec<u8>],
+) -> TransportResult<()>
+where
+    P: ConnectionPool<NewConnectionConfig = C>,
+    M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+    C: NewConnectionConfig,
+{
+    let conn = connection_cache.get_nonblocking_connection(addr);
+    conn.send_data_batch(wire_transactions).await
+}
+
+impl<P, M, C> TpuClient<P, M, C>
+where
+    P: ConnectionPool<NewConnectionConfig = C>,
+    M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+    C: NewConnectionConfig,
+{
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
     pub async fn send_transaction(&self, transaction: &Transaction) -> bool {
@@ -296,13 +359,60 @@ impl TpuClient {
         }
     }
 
+    /// Send a batch of wire transactions to the current and upcoming leader TPUs according to
+    /// fanout size
+    /// Returns the last error if all sends fail
+    pub async fn try_send_wire_transaction_batch(
+        &self,
+        wire_transactions: Vec<Vec<u8>>,
+    ) -> TransportResult<()> {
+        let leaders = self
+            .leader_tpu_service
+            .leader_tpu_sockets(self.fanout_slots);
+        let futures = leaders
+            .iter()
+            .map(|addr| {
+                send_wire_transaction_batch_to_addr(
+                    &self.connection_cache,
+                    addr,
+                    &wire_transactions,
+                )
+            })
+            .collect::<Vec<_>>();
+        let results: Vec<TransportResult<()>> = join_all(futures).await;
+
+        let mut last_error: Option<TransportError> = None;
+        let mut some_success = false;
+        for result in results {
+            if let Err(e) = result {
+                if last_error.is_none() {
+                    last_error = Some(e);
+                }
+            } else {
+                some_success = true;
+            }
+        }
+        if !some_success {
+            Err(if let Some(err) = last_error {
+                err
+            } else {
+                std::io::Error::new(std::io::ErrorKind::Other, "No sends attempted").into()
+            })
+        } else {
+            Ok(())
+        }
+    }
+
     /// Create a new client that disconnects when dropped
     pub async fn new(
         rpc_client: Arc<RpcClient>,
         websocket_url: &str,
         config: TpuClientConfig,
+        connection_manager: M,
     ) -> Result<Self> {
-        let connection_cache = Arc::new(ConnectionCache::default());
+        let connection_cache = Arc::new(
+            ConnectionCache::new(connection_manager, DEFAULT_CONNECTION_POOL_SIZE).unwrap(),
+        ); // TODO: Handle error properly, as the ConnectionCache ctor is now fallible.
         Self::new_with_connection_cache(rpc_client, websocket_url, config, connection_cache).await
     }
 
@@ -311,14 +421,14 @@ impl TpuClient {
         rpc_client: Arc<RpcClient>,
         websocket_url: &str,
         config: TpuClientConfig,
-        connection_cache: Arc<ConnectionCache>,
+        connection_cache: Arc<ConnectionCache<P, M, C>>,
     ) -> Result<Self> {
         let exit = Arc::new(AtomicBool::new(false));
         let leader_tpu_service =
             LeaderTpuService::new(rpc_client.clone(), websocket_url, exit.clone()).await?;
 
         Ok(Self {
-            fanout_slots: config.fanout_slots.min(MAX_FANOUT_SLOTS).max(1),
+            fanout_slots: config.fanout_slots.clamp(1, MAX_FANOUT_SLOTS),
             leader_tpu_service,
             exit,
             rpc_client,
@@ -326,12 +436,12 @@ impl TpuClient {
         })
     }
 
-    pub async fn send_and_confirm_messages_with_spinner<T: Signers>(
+    #[cfg(feature = "spinner")]
+    pub async fn send_and_confirm_messages_with_spinner<T: Signers + ?Sized>(
         &self,
         messages: &[Message],
         signers: &T,
     ) -> Result<Vec<Option<TransactionError>>> {
-        let mut expired_blockhash_retries = 5;
         let progress_bar = spinner::new_progress_bar();
         progress_bar.set_message("Setting up...");
 
@@ -344,7 +454,7 @@ impl TpuClient {
         let mut transaction_errors = vec![None; transactions.len()];
         let mut confirmed_transactions = 0;
         let mut block_height = self.rpc_client.get_block_height().await?;
-        while expired_blockhash_retries > 0 {
+        for expired_blockhash_retries in (0..5).rev() {
             let (blockhash, last_valid_block_height) = self
                 .rpc_client
                 .get_latest_blockhash_with_commitment(self.rpc_client.commitment())
@@ -387,10 +497,7 @@ impl TpuClient {
                     total_transactions,
                     Some(block_height),
                     last_valid_block_height,
-                    &format!(
-                        "Waiting for next block, {} transactions pending...",
-                        num_transactions
-                    ),
+                    &format!("Waiting for next block, {num_transactions} transactions pending..."),
                 );
                 let mut new_block_height = block_height;
                 while block_height == new_block_height && block_height_refreshes > 0 {
@@ -419,10 +526,8 @@ impl TpuClient {
                                     if let Some((i, _)) = pending_transactions.remove(signature) {
                                         confirmed_transactions += 1;
                                         if status.err.is_some() {
-                                            progress_bar.println(format!(
-                                                "Failed transaction: {:?}",
-                                                status
-                                            ));
+                                            progress_bar
+                                                .println(format!("Failed transaction: {status:?}"));
                                         }
                                         transaction_errors[i] = status.err;
                                     }
@@ -445,12 +550,10 @@ impl TpuClient {
                 }
             }
 
-            transactions = pending_transactions.into_iter().map(|(_k, v)| v).collect();
+            transactions = pending_transactions.into_values().collect();
             progress_bar.println(format!(
-                "Blockhash expired. {} retries remaining",
-                expired_blockhash_retries
+                "Blockhash expired. {expired_blockhash_retries} retries remaining"
             ));
-            expired_blockhash_retries -= 1;
         }
         Err(TpuSenderError::Custom("Max retries exceeded".into()))
     }
@@ -464,7 +567,8 @@ impl TpuClient {
         self.leader_tpu_service.join().await;
     }
 }
-impl Drop for TpuClient {
+
+impl<P, M, C> Drop for TpuClient<P, M, C> {
     fn drop(&mut self) {
         self.exit.store(true, Ordering::Relaxed);
     }
@@ -539,7 +643,7 @@ impl LeaderTpuService {
         self.recent_slots.estimated_current_slot()
     }
 
-    fn leader_tpu_sockets(&self, fanout_slots: u64) -> Vec<SocketAddr> {
+    pub fn leader_tpu_sockets(&self, fanout_slots: u64) -> Vec<SocketAddr> {
         let current_slot = self.recent_slots.estimated_current_slot();
         self.leader_tpu_cache
             .read()
@@ -665,27 +769,4 @@ async fn maybe_fetch_cache_info(
         maybe_epoch_info,
         maybe_slot_leaders,
     }
-}
-
-fn set_message_for_confirmed_transactions(
-    progress_bar: &ProgressBar,
-    confirmed_transactions: u32,
-    total_transactions: usize,
-    block_height: Option<u64>,
-    last_valid_block_height: u64,
-    status: &str,
-) {
-    progress_bar.set_message(format!(
-        "{:>5.1}% | {:<40}{}",
-        confirmed_transactions as f64 * 100. / total_transactions as f64,
-        status,
-        match block_height {
-            Some(block_height) => format!(
-                " [block height {}; re-sign in {} blocks]",
-                block_height,
-                last_valid_block_height.saturating_sub(block_height),
-            ),
-            None => String::new(),
-        },
-    ));
 }

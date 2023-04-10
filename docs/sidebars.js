@@ -1,4 +1,6 @@
 module.exports = {
+  // load the API specific sidebars file
+  ...require("./sidebars/api.js"),
   introductionSidebar: [
     {
       type: "category",
@@ -48,9 +50,9 @@ module.exports = {
       items: [
         "terminology",
         {
-          type: "ref",
+          type: "link",
+          href: "/developers",
           label: "Developers",
-          id: "developing/programming-model/overview",
         },
         {
           type: "ref",
@@ -75,40 +77,189 @@ module.exports = {
       ],
     },
   ],
-  developingSidebar: [
+  developerSidebar: [
     {
-      type: "doc",
-      id: "developing/programming-model/overview",
+      type: "link",
+      href: "/developers",
       label: "Overview",
+    },
+    {
+      type: "category",
+      label: "Get Started",
+      items: [
+        {
+          type: "link",
+          href: "/getstarted",
+          label: "All guides",
+        },
+        {
+          type: "doc",
+          id: "getstarted/hello-world",
+          label: "Hello world",
+        },
+        {
+          type: "doc",
+          id: "getstarted/local",
+          label: "Local development",
+        },
+        {
+          type: "doc",
+          id: "getstarted/rust",
+          label: "Rust program",
+        },
+        // {
+        //   type: "doc",
+        //   id: "getstarted/token",
+        //   label: "Create a token",
+        // },
+        // {
+        //   type: "doc",
+        //   id: "getstarted/nft",
+        //   label: "Create a NFT",
+        // },
+        // {
+        //   type: "doc",
+        //   id: "getstarted/c",
+        //   label: "C / C++",
+        // },
+        // {
+        //   type: "doc",
+        //   id: "getstarted/web3js",
+        //   label: "Web3.js",
+        // },
+      ],
     },
     {
       type: "category",
       label: "Core Concepts",
       // collapsed: false,
       items: [
-        "developing/programming-model/transactions",
-        "developing/programming-model/accounts",
-        "developing/programming-model/calling-between-programs",
-        "developing/programming-model/runtime",
+        {
+          type: "doc",
+          id: "developing/programming-model/accounts",
+          label: "Accounts",
+        },
+        {
+          type: "category",
+          label: "Transactions",
+          items: [
+            {
+              type: "doc",
+              id: "developing/programming-model/transactions",
+              label: "Overview",
+            },
+            {
+              type: "doc",
+              id: "developing/versioned-transactions",
+              label: "Versioned Transactions",
+            },
+            {
+              type: "doc",
+              id: "developing/lookup-tables",
+              label: "Address Lookup Tables",
+            },
+            {
+              type: "doc",
+              id: "developing/intro/transaction_fees",
+              label: "Transaction Fees",
+            },
+            {
+              type: "doc",
+              id: "developing/transaction_confirmation",
+              label: "Transaction Confirmation",
+            },
+          ],
+        },
+        {
+          type: "doc",
+          id: "developing/intro/programs",
+          label: "Programs",
+        },
+        {
+          type: "doc",
+          id: "developing/intro/rent",
+          label: "Rent",
+        },
+        {
+          type: "doc",
+          id: "developing/programming-model/calling-between-programs",
+          label: "Calling between programs",
+        },
+        {
+          type: "doc",
+          id: "developing/programming-model/runtime",
+          label: "Runtime",
+        },
+      ],
+    },
+    {
+      type: "category",
+      label: "Advanced Concepts",
+      // collapsed: false,
+      items: [
+        {
+          type: "doc",
+          id: "learn/state-compression",
+          label: "State Compression",
+        },
       ],
     },
     {
       type: "category",
       label: "Clients",
       items: [
-        "developing/clients/jsonrpc-api",
-        "developing/clients/javascript-api",
-        "developing/clients/javascript-reference",
-        "developing/clients/rust-api",
+        {
+          type: "link",
+          href: "/api",
+          label: "JSON RPC API",
+        },
+        {
+          type: "doc",
+          id: "developing/clients/javascript-api",
+          label: "Web3 JavaScript API",
+        },
+        {
+          type: "doc",
+          id: "developing/clients/javascript-reference",
+          label: "Web3 API Reference",
+        },
+        {
+          type: "doc",
+          id: "developing/clients/rust-api",
+          label: "Rust API",
+        },
+      ],
+    },
+    {
+      type: "category",
+      label: "Guides",
+      items: [
+        {
+          type: "doc",
+          id: "developing/guides/compressed-nfts",
+          label: "Compressed NFTs",
+        },
       ],
     },
     {
       type: "category",
       label: "Writing Programs",
       items: [
-        "developing/on-chain-programs/overview",
-        "developing/on-chain-programs/developing-rust",
-        "developing/on-chain-programs/developing-c",
+        {
+          type: "doc",
+          id: "developing/on-chain-programs/overview",
+          label: "Overview",
+        },
+        {
+          type: "doc",
+          id: "developing/on-chain-programs/developing-rust",
+          label: "Developing with Rust",
+        },
+        {
+          type: "doc",
+          id: "developing/on-chain-programs/developing-c",
+          label: "Developing with C/C++",
+        },
         {
           type: "doc",
           label: "Deploying",
@@ -119,8 +270,21 @@ module.exports = {
           label: "Debugging",
           id: "developing/on-chain-programs/debugging",
         },
-        "developing/on-chain-programs/examples",
-        "developing/on-chain-programs/faq",
+        {
+          type: "doc",
+          id: "developing/on-chain-programs/examples",
+          label: "Program Examples",
+        },
+        {
+          type: "doc",
+          id: "developing/on-chain-programs/limitations",
+          label: "Limitations",
+        },
+        {
+          type: "doc",
+          id: "developing/on-chain-programs/faq",
+          label: "FAQ",
+        },
       ],
     },
     {
@@ -132,16 +296,30 @@ module.exports = {
           label: "Overview",
           id: "developing/runtime-facilities/programs",
         },
-        "developing/runtime-facilities/sysvars",
+        {
+          type: "doc",
+          id: "developing/runtime-facilities/sysvars",
+          label: "Sysvar Cluster Data",
+        },
       ],
     },
     {
       type: "category",
       label: "Local Development",
       collapsed: false,
-      items: ["developing/test-validator"],
+      items: [
+        {
+          type: "doc",
+          id: "developing/test-validator",
+          label: "Solana Test Validator",
+        },
+      ],
     },
-    "developing/backwards-compatibility",
+    {
+      type: "doc",
+      id: "developing/backwards-compatibility",
+      label: "Backward Compatibility Policy",
+    },
   ],
   validatorsSidebar: [
     "running-validator",
@@ -175,7 +353,6 @@ module.exports = {
   cliSidebar: [
     "cli",
     "cli/install-solana-cli-tools",
-    "cli/install-solana-cli-tools",
     {
       type: "category",
       label: "Command-line Wallets",
@@ -202,6 +379,7 @@ module.exports = {
     "offline-signing",
     "offline-signing/durable-nonce",
     "cli/usage",
+    "cli/sign-offchain-message",
   ],
   architectureSidebar: [
     {

@@ -27,10 +27,10 @@
 }
 
 @keyframes fadeInUp {
-  0% {
+  /* 0% {
     opacity: 0;
     transform: translateY(1.5rem);
-  }
+  } */
 }
 
 main {
@@ -44,6 +44,26 @@ main {
   padding: 0 var(--ifm-pre-padding);
 }
 
+.button {
+  background-color: var(--ifm-link-color);
+  color: var(--ifm-background-surface-color) !important;
+  padding: 0.5em 0.8em;
+  border: 0px solid red;
+  font-size: 1em !important;
+}
+
+.container__spacer {
+  margin: 0em 1em 3em 1em;
+}
+
+.cards__container {
+  /* margin-bottom: 0; */
+}
+
+.cards__container .col {
+  margin-bottom: 3em;
+}
+
 .card {
   padding: 1rem;
   margin-top: 0rem;
@@ -51,7 +71,14 @@ main {
   animation-delay: 150ms;
   transition-property: all;
   transition-duration: 200ms;
-  box-shadow: 0 8px 28px 4px rgba(86, 91, 115, 0.15);
+  align-items: start;
+  height: 100%;
+  /* box-shadow: 0 8px 15px 2px rgba(86, 91, 115, 0.1); */
+  border: 1px solid #ccc;
+}
+
+[data-theme="dark"] .card {
+  border-color: #444;
 }
 
 .card a {
@@ -59,7 +86,8 @@ main {
 }
 
 .card:hover {
-  transform: translate(0px, -5px);
+  /* transform: translate(0px, -5px); */
+  border-color: var(--ifm-color-primary);
 }
 
 .footer--dark {

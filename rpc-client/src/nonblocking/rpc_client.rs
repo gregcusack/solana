@@ -12,13 +12,17 @@ use solana_rpc_client_api::deprecated_config::{
     RpcConfirmedBlockConfig, RpcConfirmedTransactionConfig,
     RpcGetConfirmedSignaturesForAddress2Config,
 };
+#[cfg(feature = "spinner")]
+use {crate::spinner, solana_sdk::clock::MAX_HASH_AGE_IN_SECONDS, std::cmp::min};
 use {
     crate::{
         http_sender::HttpSender,
         mock_sender::MockSender,
-        rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClientConfig},
+        rpc_client::{
+            GetConfirmedSignaturesForAddress2Config, RpcClientConfig, SerializableMessage,
+            SerializableTransaction,
+        },
         rpc_sender::*,
-        spinner,
     },
     bincode::serialize,
     log::*,
@@ -38,16 +42,15 @@ use {
     },
     solana_sdk::{
         account::Account,
-        clock::{Epoch, Slot, UnixTimestamp, DEFAULT_MS_PER_SLOT, MAX_HASH_AGE_IN_SECONDS},
+        clock::{Epoch, Slot, UnixTimestamp, DEFAULT_MS_PER_SLOT},
         commitment_config::{CommitmentConfig, CommitmentLevel},
         epoch_info::EpochInfo,
         epoch_schedule::EpochSchedule,
         fee_calculator::{FeeCalculator, FeeRateGovernor},
         hash::Hash,
-        message::Message,
         pubkey::Pubkey,
         signature::Signature,
-        transaction::{self, uses_durable_nonce, Transaction},
+        transaction,
     },
     solana_transaction_status::{
         EncodedConfirmedBlock, EncodedConfirmedTransactionWithStatusMeta, TransactionStatus,
@@ -55,7 +58,6 @@ use {
     },
     solana_vote_program::vote_state::MAX_LOCKOUT_HISTORY,
     std::{
-        cmp::min,
         net::SocketAddr,
         str::FromStr,
         time::{Duration, Instant},
@@ -278,10 +280,10 @@ impl RpcClient {
     /// The URL is an HTTP URL, usually for port 8899, as in
     /// "http://localhost:8899".
     ///
-    /// The `confirm_transaction_initial_timeout` argument specifies, when
+    /// The `confirm_transaction_initial_timeout` argument specifies the amount of
+    /// time to allow for the server to initially process a transaction, when
     /// confirming a transaction via one of the `_with_spinner` methods, like
-    /// [`RpcClient::send_and_confirm_transaction_with_spinner`], the amount of
-    /// time to allow for the server to initially process a transaction. In
+    /// [`RpcClient::send_and_confirm_transaction_with_spinner`]. In
     /// other words, setting `confirm_transaction_initial_timeout` to > 0 allows
     /// `RpcClient` to wait for confirmation of a transaction that the server
     /// has not "seen" yet.
@@ -450,9 +452,9 @@ impl RpcClient {
     /// # Examples
     ///
     /// ```
-    /// # use std::net::SocketAddr;
+    /// # use std::net::{Ipv4Addr, SocketAddr};
     /// # use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-    /// let addr = SocketAddr::from(([127, 0, 0, 1], 8899));
+    /// let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 8899));
     /// let client = RpcClient::new_socket(addr);
     /// ```
     pub fn new_socket(addr: SocketAddr) -> Self {
@@ -469,10 +471,10 @@ impl RpcClient {
     /// # Examples
     ///
     /// ```
-    /// # use std::net::SocketAddr;
+    /// # use std::net::{Ipv4Addr, SocketAddr};
     /// # use solana_rpc_client::nonblocking::rpc_client::RpcClient;
     /// # use solana_sdk::commitment_config::CommitmentConfig;
-    /// let addr = SocketAddr::from(([127, 0, 0, 1], 8899));
+    /// let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 8899));
     /// let commitment_config = CommitmentConfig::processed();
     /// let client = RpcClient::new_socket_with_commitment(
     ///     addr,
@@ -495,10 +497,10 @@ impl RpcClient {
     /// # Examples
     ///
     /// ```
-    /// # use std::net::SocketAddr;
+    /// # use std::net::{Ipv4Addr, SocketAddr};
     /// # use std::time::Duration;
     /// # use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-    /// let addr = SocketAddr::from(([127, 0, 0, 1], 8899));
+    /// let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 8899));
     /// let timeout = Duration::from_secs(1);
     /// let client = RpcClient::new_socket_with_timeout(addr, timeout);
     /// ```
@@ -512,6 +514,12 @@ impl RpcClient {
         self.sender.url()
     }
 
+    pub async fn set_node_version(&self, version: semver::Version) -> Result<(), ()> {
+        let mut w_node_version = self.node_version.write().await;
+        *w_node_version = Some(version);
+        Ok(())
+    }
+
     async fn get_node_version(&self) -> Result<semver::Version, RpcError> {
         let r_node_version = self.node_version.read().await;
         if let Some(version) = &*r_node_version {
@@ -520,10 +528,10 @@ impl RpcClient {
             drop(r_node_version);
             let mut w_node_version = self.node_version.write().await;
             let node_version = self.get_version().await.map_err(|e| {
-                RpcError::RpcRequestError(format!("cluster version query failed: {}", e))
+                RpcError::RpcRequestError(format!("cluster version query failed: {e}"))
             })?;
             let node_version = semver::Version::parse(&node_version.solana_core).map_err(|e| {
-                RpcError::RpcRequestError(format!("failed to parse cluster version: {}", e))
+                RpcError::RpcRequestError(format!("failed to parse cluster version: {e}"))
             })?;
             *w_node_version = Some(node_version.clone());
             Ok(node_version)
@@ -658,7 +666,7 @@ impl RpcClient {
     /// ```
     pub async fn send_and_confirm_transaction(
         &self,
-        transaction: &Transaction,
+        transaction: &impl SerializableTransaction,
     ) -> ClientResult<Signature> {
         const SEND_RETRIES: usize = 1;
         const GET_STATUS_RETRIES: usize = usize::MAX;
@@ -666,13 +674,13 @@ impl RpcClient {
         'sending: for _ in 0..SEND_RETRIES {
             let signature = self.send_transaction(transaction).await?;
 
-            let recent_blockhash = if uses_durable_nonce(transaction).is_some() {
+            let recent_blockhash = if transaction.uses_durable_nonce() {
                 let (recent_blockhash, ..) = self
                     .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
                     .await?;
                 recent_blockhash
             } else {
-                transaction.message.recent_blockhash
+                *transaction.get_recent_blockhash()
             };
 
             for status_retry in 0..GET_STATUS_RETRIES {
@@ -708,9 +716,10 @@ impl RpcClient {
         .into())
     }
 
+    #[cfg(feature = "spinner")]
     pub async fn send_and_confirm_transaction_with_spinner(
         &self,
-        transaction: &Transaction,
+        transaction: &impl SerializableTransaction,
     ) -> ClientResult<Signature> {
         self.send_and_confirm_transaction_with_spinner_and_commitment(
             transaction,
@@ -719,9 +728,10 @@ impl RpcClient {
         .await
     }
 
+    #[cfg(feature = "spinner")]
     pub async fn send_and_confirm_transaction_with_spinner_and_commitment(
         &self,
-        transaction: &Transaction,
+        transaction: &impl SerializableTransaction,
         commitment: CommitmentConfig,
     ) -> ClientResult<Signature> {
         self.send_and_confirm_transaction_with_spinner_and_config(
@@ -735,18 +745,19 @@ impl RpcClient {
         .await
     }
 
+    #[cfg(feature = "spinner")]
     pub async fn send_and_confirm_transaction_with_spinner_and_config(
         &self,
-        transaction: &Transaction,
+        transaction: &impl SerializableTransaction,
         commitment: CommitmentConfig,
         config: RpcSendTransactionConfig,
     ) -> ClientResult<Signature> {
-        let recent_blockhash = if uses_durable_nonce(transaction).is_some() {
+        let recent_blockhash = if transaction.uses_durable_nonce() {
             self.get_latest_blockhash_with_commitment(CommitmentConfig::processed())
                 .await?
                 .0
         } else {
-            transaction.message.recent_blockhash
+            *transaction.get_recent_blockhash()
         };
         let signature = self
             .send_transaction_with_config(transaction, config)
@@ -826,7 +837,10 @@ impl RpcClient {
     /// # })?;
     /// # Ok::<(), Error>(())
     /// ```
-    pub async fn send_transaction(&self, transaction: &Transaction) -> ClientResult<Signature> {
+    pub async fn send_transaction(
+        &self,
+        transaction: &impl SerializableTransaction,
+    ) -> ClientResult<Signature> {
         self.send_transaction_with_config(
             transaction,
             RpcSendTransactionConfig {
@@ -924,7 +938,7 @@ impl RpcClient {
     /// ```
     pub async fn send_transaction_with_config(
         &self,
-        transaction: &Transaction,
+        transaction: &impl SerializableTransaction,
         config: RpcSendTransactionConfig,
     ) -> ClientResult<Signature> {
         let encoding = if let Some(encoding) = config.encoding {
@@ -941,7 +955,7 @@ impl RpcClient {
             preflight_commitment: Some(preflight_commitment.commitment),
             ..config
         };
-        let serialized_encoded = serialize_and_encode::<Transaction>(transaction, encoding)?;
+        let serialized_encoded = serialize_and_encode(transaction, encoding)?;
         let signature_base58_str: String = match self
             .send(
                 RpcRequest::SendTransaction,
@@ -981,14 +995,15 @@ impl RpcClient {
         // should not be passed along to confirmation methods. The transaction may or may
         // not have been submitted to the cluster, so callers should verify the success of
         // the correct transaction signature independently.
-        if signature != transaction.signatures[0] {
+        if signature != *transaction.get_signature() {
             Err(RpcError::RpcRequestError(format!(
                 "RPC node returned mismatched signature {:?}, expected {:?}",
-                signature, transaction.signatures[0]
+                signature,
+                transaction.get_signature()
             ))
             .into())
         } else {
-            Ok(transaction.signatures[0])
+            Ok(*transaction.get_signature())
         }
     }
 
@@ -1124,6 +1139,7 @@ impl RpcClient {
         })
     }
 
+    #[cfg(feature = "spinner")]
     pub async fn confirm_transaction_with_spinner(
         &self,
         signature: &Signature,
@@ -1140,8 +1156,7 @@ impl RpcClient {
         let progress_bar = spinner::new_progress_bar();
 
         progress_bar.set_message(format!(
-            "[{}/{}] Finalizing transaction {}",
-            confirmations, desired_confirmations, signature,
+            "[{confirmations}/{desired_confirmations}] Finalizing transaction {signature}",
         ));
 
         let now = Instant::now();
@@ -1286,7 +1301,7 @@ impl RpcClient {
     /// ```
     pub async fn simulate_transaction(
         &self,
-        transaction: &Transaction,
+        transaction: &impl SerializableTransaction,
     ) -> RpcResult<RpcSimulateTransactionResult> {
         self.simulate_transaction_with_config(
             transaction,
@@ -1373,7 +1388,7 @@ impl RpcClient {
     /// ```
     pub async fn simulate_transaction_with_config(
         &self,
-        transaction: &Transaction,
+        transaction: &impl SerializableTransaction,
         config: RpcSimulateTransactionConfig,
     ) -> RpcResult<RpcSimulateTransactionResult> {
         let encoding = if let Some(encoding) = config.encoding {
@@ -1388,7 +1403,7 @@ impl RpcClient {
             commitment: Some(commitment),
             ..config
         };
-        let serialized_encoded = serialize_and_encode::<Transaction>(transaction, encoding)?;
+        let serialized_encoded = serialize_and_encode(transaction, encoding)?;
         self.send(
             RpcRequest::SimulateTransaction,
             json!([serialized_encoded, config]),
@@ -1454,7 +1469,7 @@ impl RpcClient {
     ///
     /// If the transaction has been processed with the default commitment level,
     /// and the transaction succeeded, this method returns `Ok(Some(Ok(())))`.
-    /// If the transaction has peen processed with the default commitment level,
+    /// If the transaction has been processed with the default commitment level,
     /// and the transaction failed, this method returns `Ok(Some(Err(_)))`,
     /// where the interior error is type [`TransactionError`].
     ///
@@ -1674,7 +1689,7 @@ impl RpcClient {
     ///
     /// If the transaction has been processed with the given commitment level,
     /// and the transaction succeeded, this method returns `Ok(Some(Ok(())))`.
-    /// If the transaction has peen processed with the given commitment level,
+    /// If the transaction has been processed with the given commitment level,
     /// and the transaction failed, this method returns `Ok(Some(Err(_)))`,
     /// where the interior error is type [`TransactionError`].
     ///
@@ -1750,7 +1765,7 @@ impl RpcClient {
     ///
     /// If the transaction has been processed with the given commitment level,
     /// and the transaction succeeded, this method returns `Ok(Some(Ok(())))`.
-    /// If the transaction has peen processed with the given commitment level,
+    /// If the transaction has been processed with the given commitment level,
     /// and the transaction failed, this method returns `Ok(Some(Err(_)))`,
     /// where the interior error is type [`TransactionError`].
     ///
@@ -1976,11 +1991,8 @@ impl RpcClient {
                     .iter()
                     .map(|slot_leader| {
                         Pubkey::from_str(slot_leader).map_err(|err| {
-                            ClientErrorKind::Custom(format!(
-                                "pubkey deserialization failed: {}",
-                                err
-                            ))
-                            .into()
+                            ClientErrorKind::Custom(format!("pubkey deserialization failed: {err}"))
+                                .into()
                         })
                     })
                     .collect()
@@ -3279,7 +3291,7 @@ impl RpcClient {
         response
             .map(|result_json: Value| {
                 if result_json.is_null() {
-                    return Err(RpcError::ForUser(format!("Block Not Found: slot={}", slot)).into());
+                    return Err(RpcError::ForUser(format!("Block Not Found: slot={slot}")).into());
                 }
                 let result = serde_json::from_value(result_json)
                     .map_err(|err| ClientError::new_with_request(err.into(), request))?;
@@ -3529,6 +3541,49 @@ impl RpcClient {
             .await
     }
 
+    /// Returns a list of minimum prioritization fees from recent blocks.
+    /// Takes an optional vector of addresses; if any addresses are provided, the response will
+    /// reflect the minimum prioritization fee to land a transaction locking all of the provided
+    /// accounts as writable.
+    ///
+    /// Currently, a node's prioritization-fee cache stores data from up to 150 blocks.
+    ///
+    /// # RPC Reference
+    ///
+    /// This method corresponds directly to the [`getRecentPrioritizationFees`] RPC method.
+    ///
+    /// [`getRecentPrioritizationFees`]: https://docs.solana.com/developing/clients/jsonrpc-api#getrecentprioritizationfees
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use solana_rpc_client_api::client_error::Error;
+    /// # use solana_rpc_client::nonblocking::rpc_client::RpcClient;
+    /// # use solana_sdk::signature::{Keypair, Signer};
+    /// # futures::executor::block_on(async {
+    /// #     let rpc_client = RpcClient::new_mock("succeeds".to_string());
+    /// #     let alice = Keypair::new();
+    /// #     let bob = Keypair::new();
+    /// let addresses = vec![alice.pubkey(), bob.pubkey()];
+    /// let prioritization_fees = rpc_client.get_recent_prioritization_fees(
+    ///     &addresses,
+    /// ).await?;
+    /// #     Ok::<(), Error>(())
+    /// # })?;
+    /// # Ok::<(), Error>(())
+    /// ```
+    pub async fn get_recent_prioritization_fees(
+        &self,
+        addresses: &[Pubkey],
+    ) -> ClientResult<Vec<RpcPrioritizationFee>> {
+        let addresses: Vec<_> = addresses
+            .iter()
+            .map(|address| address.to_string())
+            .collect();
+        self.send(RpcRequest::GetRecentPrioritizationFees, json!([addresses]))
+            .await
+    }
+
     /// Returns the identity pubkey for the current node.
     ///
     /// # RPC Reference
@@ -3775,7 +3830,7 @@ impl RpcClient {
         self.get_account_with_commitment(pubkey, self.commitment())
             .await?
             .value
-            .ok_or_else(|| RpcError::ForUser(format!("AccountNotFound: pubkey={}", pubkey)).into())
+            .ok_or_else(|| RpcError::ForUser(format!("AccountNotFound: pubkey={pubkey}")).into())
     }
 
     /// Returns all information associated with the account of the provided pubkey.
@@ -3898,7 +3953,7 @@ impl RpcClient {
             .map(|result_json: Value| {
                 if result_json.is_null() {
                     return Err(
-                        RpcError::ForUser(format!("AccountNotFound: pubkey={}", pubkey)).into(),
+                        RpcError::ForUser(format!("AccountNotFound: pubkey={pubkey}")).into(),
                     );
                 }
                 let Response {
@@ -3915,8 +3970,7 @@ impl RpcClient {
             })
             .map_err(|err| {
                 Into::<ClientError>::into(RpcError::ForUser(format!(
-                    "AccountNotFound: pubkey={}: {}",
-                    pubkey, err
+                    "AccountNotFound: pubkey={pubkey}: {err}"
                 )))
             })?
     }
@@ -4367,11 +4421,10 @@ impl RpcClient {
     /// #         AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
     /// #         AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
     /// #         AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-    /// let memcmp = RpcFilterType::Memcmp(Memcmp {
-    ///     offset: 0,
-    ///     bytes: MemcmpEncodedBytes::Base64(base64_bytes.to_string()),
-    ///     encoding: None,
-    /// });
+    /// let memcmp = RpcFilterType::Memcmp(Memcmp::new(
+    ///     0,                                                    // offset
+    ///     MemcmpEncodedBytes::Base64(base64_bytes.to_string()), // encoded bytes
+    /// ));
     /// let config = RpcProgramAccountsConfig {
     ///     filters: Some(vec![
     ///         RpcFilterType::DataSize(128),
@@ -4410,12 +4463,14 @@ impl RpcClient {
         if let Some(filters) = config.filters {
             config.filters = Some(self.maybe_map_filters(filters).await?);
         }
-        let accounts: Vec<RpcKeyedAccount> = self
-            .send(
+
+        let accounts = self
+            .send::<OptionalContext<Vec<RpcKeyedAccount>>>(
                 RpcRequest::GetProgramAccounts,
                 json!([pubkey.to_string(), config]),
             )
-            .await?;
+            .await?
+            .parse_value();
         parse_keyed_accounts(accounts, RpcRequest::GetProgramAccounts)
     }
 
@@ -4768,7 +4823,7 @@ impl RpcClient {
             .map(|result_json: Value| {
                 if result_json.is_null() {
                     return Err(
-                        RpcError::ForUser(format!("AccountNotFound: pubkey={}", pubkey)).into(),
+                        RpcError::ForUser(format!("AccountNotFound: pubkey={pubkey}")).into(),
                     );
                 }
                 let Response {
@@ -4790,16 +4845,14 @@ impl RpcClient {
                         }
                     }
                     Err(Into::<ClientError>::into(RpcError::ForUser(format!(
-                        "Account could not be parsed as token account: pubkey={}",
-                        pubkey
+                        "Account could not be parsed as token account: pubkey={pubkey}"
                     ))))
                 };
                 response?
             })
             .map_err(|err| {
                 Into::<ClientError>::into(RpcError::ForUser(format!(
-                    "AccountNotFound: pubkey={}: {}",
-                    pubkey, err
+                    "AccountNotFound: pubkey={pubkey}: {err}"
                 )))
             })?
     }
@@ -5005,7 +5058,7 @@ impl RpcClient {
         .await
         .and_then(|signature: String| {
             Signature::from_str(&signature).map_err(|err| {
-                ClientErrorKind::Custom(format!("signature deserialization failed: {}", err)).into()
+                ClientErrorKind::Custom(format!("signature deserialization failed: {err}")).into()
             })
         })
         .map_err(|_| {
@@ -5266,28 +5319,20 @@ impl RpcClient {
     }
 
     #[allow(deprecated)]
-    pub async fn get_fee_for_message(&self, message: &Message) -> ClientResult<u64> {
-        if self.get_node_version().await? < semver::Version::new(1, 9, 0) {
-            let fee_calculator = self
-                .get_fee_calculator_for_blockhash(&message.recent_blockhash)
-                .await?
-                .ok_or_else(|| ClientErrorKind::Custom("Invalid blockhash".to_string()))?;
-            Ok(fee_calculator
-                .lamports_per_signature
-                .saturating_mul(message.header.num_required_signatures as u64))
-        } else {
-            let serialized_encoded =
-                serialize_and_encode::<Message>(message, UiTransactionEncoding::Base64)?;
-            let result = self
-                .send::<Response<Option<u64>>>(
-                    RpcRequest::GetFeeForMessage,
-                    json!([serialized_encoded, self.commitment()]),
-                )
-                .await?;
-            result
-                .value
-                .ok_or_else(|| ClientErrorKind::Custom("Invalid blockhash".to_string()).into())
-        }
+    pub async fn get_fee_for_message(
+        &self,
+        message: &impl SerializableMessage,
+    ) -> ClientResult<u64> {
+        let serialized_encoded = serialize_and_encode(message, UiTransactionEncoding::Base64)?;
+        let result = self
+            .send::<Response<Option<u64>>>(
+                RpcRequest::GetFeeForMessage,
+                json!([serialized_encoded, self.commitment()]),
+            )
+            .await?;
+        result
+            .value
+            .ok_or_else(|| ClientErrorKind::Custom("Invalid blockhash".to_string()).into())
     }
 
     pub async fn get_new_latest_blockhash(&self, blockhash: &Hash) -> ClientResult<Hash> {
@@ -5339,14 +5384,13 @@ where
     T: serde::ser::Serialize,
 {
     let serialized = serialize(input)
-        .map_err(|e| ClientErrorKind::Custom(format!("Serialization failed: {}", e)))?;
+        .map_err(|e| ClientErrorKind::Custom(format!("Serialization failed: {e}")))?;
     let encoded = match encoding {
         UiTransactionEncoding::Base58 => bs58::encode(serialized).into_string(),
         UiTransactionEncoding::Base64 => base64::encode(serialized),
         _ => {
             return Err(ClientErrorKind::Custom(format!(
-                "unsupported encoding: {}. Supported encodings: base58, base64",
-                encoding
+                "unsupported encoding: {encoding}. Supported encodings: base58, base64"
             ))
             .into())
         }
@@ -5356,9 +5400,9 @@ where
 
 pub(crate) fn get_rpc_request_str(rpc_addr: SocketAddr, tls: bool) -> String {
     if tls {
-        format!("https://{}", rpc_addr)
+        format!("https://{rpc_addr}")
     } else {
-        format!("http://{}", rpc_addr)
+        format!("http://{rpc_addr}")
     }
 }
 

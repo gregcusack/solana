@@ -73,7 +73,8 @@ Operate a configured testnet
    --faucet-lamports NUM_LAMPORTS_TO_MINT
                                       - Override the default 500000000000000000 lamports minted in genesis
    --extra-primordial-stakes NUM_EXTRA_PRIMORDIAL_STAKES
-                                      - Number of extra nodes to be initially staked in genesis.
+                                      - Number of nodes to be initially staked in genesis.
+                                        Gives extra stake in genesis to NUM_EXTRA_PRIMORDIAL_STAKES many nodes.
                                         Implies --wait-for-supermajority 1 --async-node-init and the supermajority
                                         wait slot may be overridden with the corresponding flag
    --internal-nodes-stake-lamports NUM_LAMPORTS_PER_NODE
@@ -117,6 +118,12 @@ Operate a configured testnet
    --tpu-disable-quic
                                       - Disable quic for tpu packet forwarding
 
+   --tpu-enable-udp
+                                      - Enable UDP for tpu transactions
+
+   --client-type
+                                      - Specify backend client type for bench-tps. Valid options are (thin-client|rpc-client|tpu-client), thin-client is default
+
  sanity/start-specific options:
    -F                   - Discard validator nodes that didn't bootup successfully
    -o noInstallCheck    - Skip solana-install sanity
@@ -145,7 +152,7 @@ Operate a configured testnet
  startclients-specific options:
    $CLIENT_OPTIONS
 
-Note: if RUST_LOG is set in the environment it will be propogated into the
+Note: if RUST_LOG is set in the environment it will be propagated into the
       network nodes.
 EOF
   exit $exitcode
@@ -332,7 +339,7 @@ startBootstrapLeader() {
          $nodeIndex \
          ${#clientIpList[@]} \"$benchTpsExtraArgs\" \
          \"$genesisOptions\" \
-         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority $maybeAllowPrivateAddr $maybeAccountsDbSkipShrink $maybeSkipRequireTower\" \
+         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority $maybeAccountsDbSkipShrink $maybeSkipRequireTower\" \
          \"$gpuMode\" \
          \"$maybeWarpSlot\" \
          \"$maybeFullRpc\" \
@@ -340,6 +347,7 @@ startBootstrapLeader() {
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
          \"$disableQuic\" \
+         \"$enableUdp\" \
          \"$isGossip\" \
          \"$INFLUX_USERNAME\" \
          \"$INFLUX_PASSWORD\" \
@@ -393,7 +401,7 @@ startNode() {
         timeout 30s scp "${sshOptions[@]}" "$localArchive" "$ipAddress:letsencrypt.tgz"
       fi
       ssh "${sshOptions[@]}" -n "$ipAddress" \
-        "sudo -H /certbot-restore.sh $letsEncryptDomainName maintainers@solana.foundation"
+        "sudo -H /certbot-restore.sh $letsEncryptDomainName maintainers@solanalabs.com"
       rm -f letsencrypt.tgz
       timeout 30s scp "${sshOptions[@]}" "$ipAddress:/letsencrypt.tgz" letsencrypt.tgz
       test -s letsencrypt.tgz # Ensure non-empty before overwriting $localArchive
@@ -416,7 +424,7 @@ startNode() {
          $nodeIndex \
          ${#clientIpList[@]} \"$benchTpsExtraArgs\" \
          \"$genesisOptions\" \
-         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority $maybeAllowPrivateAddr $maybeAccountsDbSkipShrink $maybeSkipRequireTower\" \
+         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority $maybeAccountsDbSkipShrink $maybeSkipRequireTower\" \
          \"$gpuMode\" \
          \"$maybeWarpSlot\" \
          \"$maybeFullRpc\" \
@@ -424,6 +432,7 @@ startNode() {
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
          \"$disableQuic\" \
+         \"$enableUdp\" \
          \"$instanceIndex\" \
          \"$INFLUX_USERNAME\" \
          \"$INFLUX_PASSWORD\" \
@@ -455,7 +464,7 @@ startClient() {
     startCommon "$ipAddress"
     ssh "${sshOptions[@]}" -f "$ipAddress" \
       "./solana/net/remote/remote-client.sh $deployMethod $entrypointIp \
-      $clientToRun \"$RUST_LOG\" \"$benchTpsExtraArgs\" $clientIndex"
+      $clientToRun \"$RUST_LOG\" \"$benchTpsExtraArgs\" $clientIndex $clientType"
   ) >> "$logFile" 2>&1 || {
     cat "$logFile"
     echo "^^^ +++"
@@ -875,7 +884,6 @@ maybeLimitLedgerSize=""
 maybeSkipLedgerVerify=""
 maybeDisableAirdrops=""
 maybeWaitForSupermajority=""
-maybeAllowPrivateAddr=""
 maybeAccountsDbSkipShrink=""
 maybeSkipRequireTower=""
 debugBuild=false
@@ -897,7 +905,8 @@ disableQuic=false
 instancesPerNode=0 # default. 
 gossipInstances=0 # default number of gossip instances
 isGossip=0
-
+enableUdp=false
+clientType=thin-client
 
 command=$1
 [[ -n $command ]] || usage
@@ -1013,6 +1022,9 @@ while [[ -n $1 ]]; do
     elif [[ $1 == --tpu-disable-quic ]]; then
       disableQuic=true
       shift 1
+    elif [[ $1 == --tpu-enable-udp ]]; then
+      enableUdp=true
+      shift 1
     elif [[ $1 == --async-node-init ]]; then
       waitForNodeInit=false
       shift 1
@@ -1020,9 +1032,7 @@ while [[ -n $1 ]]; do
       extraPrimordialStakes=$2
       shift 2
     elif [[ $1 = --allow-private-addr ]]; then
-      # May also be added by loadConfigFile if 'gce.sh create' was invoked
-      # without -P.
-      maybeAllowPrivateAddr="$1"
+      echo "--allow-private-addr is a default value"
       shift 1
     elif [[ $1 = --accounts-db-skip-shrink ]]; then
       maybeAccountsDbSkipShrink="$1"
@@ -1037,6 +1047,16 @@ while [[ -n $1 ]]; do
     elif [[ $1 = --gossip-instances ]]; then
       isGossip=1
       gossipInstances="$2"
+    elif [[ $1 = --client-type ]]; then
+      clientType=$2
+      case "$clientType" in
+        thin-client|tpu-client|rpc-client)
+          ;;
+        *)
+          echo "Unexpected client type: \"$clientType\""
+          exit 1
+          ;;
+      esac
       shift 2
     else
       usage "Unknown long option: $1"
@@ -1237,7 +1257,7 @@ startnode)
   nodeType=
   nodeIndex=
   getNodeType
-  startNode "$nodeAddress" $nodeType $nodeIndex
+  startNode "$nodeAddress" "$nodeType" "$nodeIndex"
   ;;
 startclients)
   startClients

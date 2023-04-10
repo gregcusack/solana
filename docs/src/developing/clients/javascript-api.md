@@ -4,7 +4,7 @@ title: Web3 JavaScript API
 
 ## What is Solana-Web3.js?
 
-The Solana-Web3.js library aims to provide complete coverage of Solana. The library was built on top of the [Solana JSON RPC API](../clients/jsonrpc-api.md).
+The Solana-Web3.js library aims to provide complete coverage of Solana. The library was built on top of the [Solana JSON RPC API](/api).
 
 You can find the full documentation for the `@solana/web3.js` library [here](https://solana-labs.github.io/solana-web3.js/).
 
@@ -184,7 +184,7 @@ let airdropSignature = await connection.requestAirdrop(
   web3.LAMPORTS_PER_SOL,
 );
 
-await connection.confirmTransaction(airdropSignature);
+await connection.confirmTransaction({ signature: airdropSignature });
 ```
 
 First, we set up the account Keypair and connection so that we have an account to make allocate on the testnet. We also create a payer Keypair and airdrop some sol so we can pay for the allocate transaction.
@@ -309,7 +309,7 @@ let airdropSignature = await connection.requestAirdrop(
   web3.LAMPORTS_PER_SOL,
 );
 
-await connection.confirmTransaction(airdropSignature);
+await connection.confirmTransaction({ signature: airdropSignature });
 
 let allocateTransaction = new web3.Transaction({
   feePayer: payer.publicKey,
