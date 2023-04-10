@@ -11,8 +11,8 @@ use {
     solana_core::gen_keys::GenKeys,
     solana_gossip::{
         cluster_info::{ClusterInfo, Node},
-        contact_info::ContactInfo,
         gossip_service::GossipService,
+        legacy_contact_info::LegacyContactInfo as ContactInfo
     },
     solana_net_utils::VALIDATOR_PORT_RANGE,
     solana_runtime::{
@@ -308,7 +308,7 @@ pub fn main() {
             None,
         );
         let my_keypair = Arc::new(Keypair::from_bytes(&node_keys[0].to_bytes()).unwrap());
-        node.info.shred_version = shred_version;
+        node.info.set_shred_version(shred_version);
 
         let cluster_info =
             ClusterInfo::new(node.info.clone(), my_keypair.clone(), socket_addr_space);
@@ -323,7 +323,6 @@ pub fn main() {
             vec![ledger_path.clone()],
             AccountSecondaryIndexes::default(),
             false,
-            accounts_db::AccountShrinkThreshold::default(),
         );
         bank0.freeze();
         let bank_forks = BankForks::new(bank0);
@@ -356,7 +355,7 @@ pub fn main() {
                 None,
             );
             let my_keypair = Arc::new(Keypair::from_bytes(&node_keys[i].to_bytes()).unwrap());
-            node.info.shred_version = shred_version;
+            node.info.set_shred_version(shred_version);
 
             let cluster_info =
                 ClusterInfo::new(node.info.clone(), my_keypair.clone(), socket_addr_space);

@@ -261,7 +261,7 @@ impl CrdsGossipPush {
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
 
-        let mut peer_pubkey_hashset = HashSet::new();
+        let mut peer_pubkey_hashset: HashSet<Pubkey> = HashSet::new();
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
