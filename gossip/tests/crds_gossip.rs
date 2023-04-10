@@ -349,7 +349,10 @@ fn network_run_push(
                     Duration::from_millis(node.gossip.pull.crds_timeout),
                 );
                 node.gossip.purge(&node_pubkey, thread_pool, now, &timeouts);
-                (node_pubkey, node.gossip.new_push_messages(vec![], now, None))
+                (
+                    node_pubkey,
+                    node.gossip.new_push_messages(vec![], now, None),
+                )
             })
             .collect();
         let transfered: Vec<_> = requests
@@ -608,7 +611,7 @@ fn network_run_pull(
 fn build_gossip_thread_pool() -> ThreadPool {
     ThreadPoolBuilder::new()
         .num_threads(get_thread_count().min(2))
-        .thread_name(|i| format!("crds_gossip_test_{}", i))
+        .thread_name(|i| format!("gossipTest{:02}", i))
         .build()
         .unwrap()
 }

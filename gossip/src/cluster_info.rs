@@ -92,6 +92,7 @@ use {
         thread::{sleep, Builder, JoinHandle},
         time::{Duration, Instant},
     },
+    thiserror::Error,
 };
 
 /// The Data plane fanout size, also used as the neighborhood size
@@ -138,12 +139,17 @@ const MIN_STAKE_FOR_GOSSIP: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 /// Minimum number of staked nodes for enforcing stakes in gossip.
 const MIN_NUM_STAKED_NODES: usize = 500;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Error)]
 pub enum ClusterInfoError {
+    #[error("NoPeers")]
     NoPeers,
+    #[error("NoLeader")]
     NoLeader,
+    #[error("BadContactInfo")]
     BadContactInfo,
+    #[error("BadGossipAddress")]
     BadGossipAddress,
+    #[error("TooManyIncrementalSnapshotHashes")]
     TooManyIncrementalSnapshotHashes,
 }
 
@@ -1532,7 +1538,6 @@ impl ClusterInfo {
             .packets_sent_push_messages_count
             .add_relaxed(out.len() as u64);
         if generate_pull_requests {
-            info!("greg - gossip run pull req");
             let (pings, pull_requests) =
                 self.new_pull_requests(thread_pool, gossip_validators, stakes);
             self.stats
@@ -1677,11 +1682,11 @@ impl ClusterInfo {
     ) -> JoinHandle<()> {
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(std::cmp::min(get_thread_count(), 8))
-            .thread_name(|i| format!("ClusterInfo::gossip-{}", i))
+            .thread_name(|i| format!("solRunGossip{:02}", i))
             .build()
             .unwrap();
         Builder::new()
-            .name("solana-gossip".to_string())
+            .name("solGossip".to_string())
             .spawn(move || {
                 let mut last_push = timestamp();
                 let mut last_contact_info_trace = timestamp();
@@ -2182,14 +2187,18 @@ impl ClusterInfo {
         I: IntoIterator<Item = (SocketAddr, Ping)>,
     {
         let keypair = self.keypair();
-        let pongs_and_dests: Vec<_> = pings
-            .into_iter()
-            .filter_map(|(addr, ping)| {
-                let pong = Pong::new(&ping, &keypair).ok()?;
-                let pong = Protocol::PongMessage(pong);
-                Some((addr, pong))
-            })
-            .collect();
+        let mut pongs_and_dests = Vec::new();
+        for (addr, ping) in pings {
+            // Respond both with and without domain so that the other node will
+            // accept the response regardless of its upgrade status.
+            // TODO: remove domain = false once cluster is upgraded.
+            for domain in [false, true] {
+                if let Ok(pong) = Pong::new(domain, &ping, &keypair) {
+                    let pong = Protocol::PongMessage(pong);
+                    pongs_and_dests.push((addr, pong));
+                }
+            }
+        }
         if pongs_and_dests.is_empty() {
             None
         } else {
@@ -2568,7 +2577,7 @@ impl ClusterInfo {
     ) -> JoinHandle<()> {
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(get_thread_count().min(8))
-            .thread_name(|i| format!("gossip-consume-{}", i))
+            .thread_name(|i| format!("solGossipCons{:02}", i))
             .build()
             .unwrap();
         let run_consume = move || {
@@ -2584,7 +2593,7 @@ impl ClusterInfo {
                 }
             }
         };
-        let thread_name = String::from("gossip-consume");
+        let thread_name = String::from("solGossipConsum");
         Builder::new().name(thread_name).spawn(run_consume).unwrap()
     }
 
@@ -2600,11 +2609,11 @@ impl ClusterInfo {
         let recycler = PacketBatchRecycler::default();
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(get_thread_count().min(8))
-            .thread_name(|i| format!("sol-gossip-work-{}", i))
+            .thread_name(|i| format!("solGossipWork{:02}", i))
             .build()
             .unwrap();
         Builder::new()
-            .name("solana-listen".to_string())
+            .name("solGossipListen".to_string())
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
                     if let Err(err) = self.run_listen(
@@ -3301,7 +3310,9 @@ RPC Enabled Nodes: 1"#;
         let pongs: Vec<(SocketAddr, Pong)> = pings
             .iter()
             .zip(&remote_nodes)
-            .map(|(ping, (keypair, socket))| (*socket, Pong::new(ping, keypair).unwrap()))
+            .map(|(ping, (keypair, socket))| {
+                (*socket, Pong::new(/*domain:*/ true, ping, keypair).unwrap())
+            })
             .collect();
         let now = now + Duration::from_millis(1);
         cluster_info.handle_batch_pong_messages(pongs, now);
@@ -3344,7 +3355,7 @@ RPC Enabled Nodes: 1"#;
             .collect();
         let pongs: Vec<_> = pings
             .iter()
-            .map(|ping| Pong::new(ping, &this_node).unwrap())
+            .map(|ping| Pong::new(/*domain:*/ false, ping, &this_node).unwrap())
             .collect();
         let recycler = PacketBatchRecycler::default();
         let packets = cluster_info
@@ -3356,9 +3367,9 @@ RPC Enabled Nodes: 1"#;
                 &recycler,
             )
             .unwrap();
-        assert_eq!(remote_nodes.len(), packets.len());
+        assert_eq!(remote_nodes.len() * 2, packets.len());
         for (packet, (_, socket), pong) in izip!(
-            packets.into_iter(),
+            packets.into_iter().step_by(2),
             remote_nodes.into_iter(),
             pongs.into_iter()
         ) {
@@ -3675,9 +3686,11 @@ RPC Enabled Nodes: 1"#;
             &SocketAddrSpace::Unspecified,
         );
         //check that all types of gossip messages are signed correctly
-        let push_messages = cluster_info
-            .gossip
-            .new_push_messages(cluster_info.drain_push_queue(), timestamp(), None);
+        let push_messages = cluster_info.gossip.new_push_messages(
+            cluster_info.drain_push_queue(),
+            timestamp(),
+            None,
+        );
         // there should be some pushes ready
         assert!(!push_messages.is_empty());
         push_messages
@@ -3780,6 +3793,8 @@ RPC Enabled Nodes: 1"#;
                 latest_refreshed_recent_blockhash,
             );
             cluster_info.refresh_vote(latest_refresh_tx.clone(), refresh_slot);
+            // Sleep to avoid votes with same timestamp causing later vote to not override prior vote
+            std::thread::sleep(Duration::from_millis(1));
         }
         // The diff since `max_ts` should only be the latest refreshed vote
         let votes = cluster_info.get_votes(&mut cursor);

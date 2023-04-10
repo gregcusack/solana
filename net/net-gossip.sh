@@ -419,7 +419,6 @@ startGossipBootstrapLeader() {
 }
 
 startGossipNode() {
-  echo "greg - in startGossipNode()"
   declare ipAddress=$1
   declare nodeType=$2
   declare nodeIndex="$3"
@@ -772,11 +771,8 @@ gossipInstancesPerNode() {
 }
 
 gossipDeploy() {
-  echo "greg - in gossipDeploy()"
   declare instancesPerNode=$1
   declare gossipInstances=$2
-  echo "greg - instancesPerNode in gossipDeploy: $instancesPerNode"
-  echo "greg - gossipInstances: $gossipInstances"
   initLogDir
 
   echo "Deployment started at $(date)"
@@ -1247,7 +1243,6 @@ while [[ -n $1 ]]; do
   fi
 done
 
-echo "greg - gossip instances per node: $instancesPerNode"
 if [[ ($instancesPerNode == 0 && $gossipInstances == 0) || ($instancesPerNode != 0 && $gossipInstances != 0) ]]; then 
   usage "need to set either --gossip-instances-per-node OR --gossip-instances (not both)"
 fi
