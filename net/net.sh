@@ -237,6 +237,11 @@ CARGO_BIN="\$HOME/.cargo/bin"
 startCommon() {
   declare ipAddress=$1
   declare instanceIndex=${2:--1}
+  echo "greg ipaddr: $ipAddress"
+  echo "greg instance index: $instanceIndex"
+  echo "greg solana root: $SOLANA_ROOT"
+  echo "greg skipsetup: $skipSetup"
+  echo "greg solana home: $SOLANA_HOME"
   test -d "$SOLANA_ROOT"
   if $skipSetup; then
     # shellcheck disable=SC2029
