@@ -16,7 +16,7 @@ use {
     },
     solana_net_utils::VALIDATOR_PORT_RANGE,
     solana_runtime::{
-        accounts_db, accounts_index::AccountSecondaryIndexes, bank::Bank, bank_forks::BankForks,
+        accounts_db::AccountShrinkThreshold, accounts_index::AccountSecondaryIndexes, bank::Bank, bank_forks::BankForks,
         genesis_utils::create_genesis_config_with_leader, runtime_config::RuntimeConfig,
     },
     solana_sdk::{
@@ -322,7 +322,7 @@ pub fn main() {
             Arc::<RuntimeConfig>::default(),
             vec![ledger_path.clone()],
             AccountSecondaryIndexes::default(),
-            false,
+            AccountShrinkThreshold::default(),
         );
         bank0.freeze();
         let bank_forks = BankForks::new(bank0);
