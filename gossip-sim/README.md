@@ -9,21 +9,21 @@ git checkout gossip-sim-gce-influx
 Run gce.sh script to deploy any number of GCP nodes
 ```
 cd net/
-./gce.sh create -p $INFLUX_DATABASE -n <number-of-nodes> -z us-west1-a -d pd-ssd --dedicated
+./gce.sh create -p $GOSSIP_INFLUXDB_NAME -n <number-of-nodes> -z us-west1-a -d pd-ssd --dedicated
 ```
 
 Setup metrics server. This is what we'll be pushing gossip loop metrics to:
 ```
 cd ../metrics
-./init-metrics.sh $INFLUX_USERNAME
+./init-metrics.sh $GOSSIP_INFLUX_USERNAME
 # Then enter your password for influx when asked
 ```
 
 Setup Influx Credentials as environment variables
 ```
-export INFLUX_USERNAME=<influx-username>
-export INFLUX_PASSWORD=<influx-password>
-export INFLUX_DATABASE=<influx-database-name>
+export GOSSIP_INFLUX_USERNAME=<influx-username>
+export GOSSIP_INFLUX_PASSWORD=<influx-password>
+export GOSSIP_INFLUXDB_NAME=<influx-database-name>
 ```
 
 Run Gossip Only across the GCP nodes
