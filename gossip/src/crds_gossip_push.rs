@@ -262,6 +262,7 @@ impl CrdsGossipPush {
             .filter(|value| wallclock_window.contains(&value.wallclock()));
 
         let mut peer_pubkey_hashset: HashSet<Pubkey> = HashSet::new();
+        let this_node = pubkey.clone();
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
@@ -270,6 +271,13 @@ impl CrdsGossipPush {
             }
             num_values += 1;
             let origin = value.pubkey();
+            let nodes = active_set.get_nodes(
+                pubkey,
+                &origin,
+                |node| value.should_force_push(node),
+                stakes,
+            );
+///////////////////
             // let offset = origin.as_ref()[0] as usize;
             // for i in offset..offset + push_fanout {
             //     let index = i % active_set_len;
@@ -294,29 +302,43 @@ impl CrdsGossipPush {
             //         push_messages.entry(*peer).or_default().push(value.clone());
             //         num_pushes += 1;
             //     }
-            let nodes = active_set.get_nodes(
-                pubkey,
-                &origin,
-                |node| value.should_force_push(node),
-                stakes,
-            );
+
+                ///////////
+
             for node in nodes.take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
+
+                peer_pubkey_hashset.insert(node.clone());
+                let source_pubkey = value.pubkey();
+                let source_signature = value.signature;
+                async_std::task::spawn(async move {
+                    ReportActiveGossipPeersToInflux::send_message_signatures(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_micros(),
+                            this_node, //this node
+                        origin.clone(), //source_pubkey.clone(), //origin.clone(), //originating node
+                        source_signature,
+                    );
+                });
+
+                trace!("new_push_messages insert {} {:?}", *node, value);
             }
         }
-        // if peer_pubkey_hashset.len() != 0 {
-        //     async_std::task::spawn(async move {
-        //         ReportActiveGossipPeersToInflux::send_peers(
-        //             SystemTime::now()
-        //                 .duration_since(UNIX_EPOCH)
-        //                 .unwrap()
-        //                 .as_micros(),
-        //             self_id.unwrap().clone(),
-        //             peer_pubkey_hashset.clone(),
-        //         );
-        //     });
-        // }
+        if peer_pubkey_hashset.len() != 0 {
+            async_std::task::spawn(async move {
+                ReportActiveGossipPeersToInflux::send_peers(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_micros(),
+                    this_node, //this node
+                    peer_pubkey_hashset.clone(),
+                );
+            });
+        }
 
         drop(crds);
         drop(crds_cursor);
