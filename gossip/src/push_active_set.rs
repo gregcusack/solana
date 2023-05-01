@@ -13,6 +13,13 @@ const NUM_PUSH_ACTIVE_SET_ENTRIES: usize = 25;
 //     min stake of { this node, crds value owner }
 // The entry represents set of gossip nodes to actively
 // push to for crds values belonging to the bucket.
+// Each entry in the PushActiveSet array corresponds to a PushActiveSetEntry
+// Each entry corresponds to a set of gossip nodes to actively push to for
+// a crds value belonging to the bucket,. 
+// Our active set is made up of 24 buckets. Each bucket contains an IndexMap<Pubkey, Bloom<Pubkey>>
+// so when a node gets added to the active_set, it gets places in one of the buckets
+// then when we have a CrdsValue to push, we get the bucket that the CrdsValue owner falls into
+// and we return all the nodes that fall into that bucket
 #[derive(Default)]
 pub(crate) struct PushActiveSet([PushActiveSetEntry; NUM_PUSH_ACTIVE_SET_ENTRIES]);
 
@@ -38,7 +45,8 @@ impl PushActiveSet {
         // get the stake of the peer that originated this CrdsValue. 
         // compare that origin stake to our node's stake. Take whichever is smaller.
         let stake = stakes.get(pubkey).min(stakes.get(origin));
-        
+        // based on the stake above, get the PushActiveSetEntry at that bucket.
+        // 
         self.get_entry(stake).get_nodes(origin, should_force_push)
     }
 
@@ -74,6 +82,7 @@ impl PushActiveSet {
         // Active set of nodes to push to are sampled from these gossip nodes,
         // using sampling probabilities obtained from the stake bucket of each
         // node.
+        //smaller buckets, smaller node stake. larger bucket, higher stake
         let buckets: Vec<_> = nodes
             .iter()
             .map(|node| get_stake_bucket(stakes.get(node)))
@@ -111,9 +120,12 @@ impl PushActiveSetEntry {
     const BLOOM_FALSE_RATE: f64 = 0.1;
     const BLOOM_MAX_BITS: usize = 1024 * 8 * 4;
 
+    // return all nodes in the bucket. aka get all nodes in the PushActiveSetEntry
+    // that corresponds to that bucket. (Bucket selected via stake of CrdsValue origin)
+    // nodes to push to are placed in these buckets based on their stake
     fn get_nodes<'a>(
         &'a self,
-        origin: &'a Pubkey,
+        origin: &'a Pubkey, //origin of crdsvalue
         // If true forces gossip push even if the node has pruned the origin.
         mut should_force_push: impl FnMut(&Pubkey) -> bool + 'a,
     ) -> impl Iterator<Item = &Pubkey> + 'a {
@@ -146,12 +158,15 @@ impl PushActiveSetEntry {
         debug_assert_eq!(nodes.len(), weights.len());
         debug_assert!(weights.iter().all(|&weight| weight != 0u64));
         let shuffle = WeightedShuffle::new("rotate-active-set", weights).shuffle(rng);
+        info!("greg weights, nodes, SAFE.len, size length: {}, {}, {}, {}", weights.len(), nodes.len(), self.0.len(), size);
         for node in shuffle.map(|k| &nodes[k]) {
             // We intend to discard the oldest/first entry in the index-map.
             if self.0.len() > size {
+                info!("greg self.0.len > size, break!");
                 break;
             }
             if self.0.contains_key(node) {
+                info!("greg self.0.contains node's pubkey. continue. pubkey: {:?}", node);
                 continue;
             }
             let bloom = AtomicBloom::from(Bloom::random(
@@ -163,6 +178,7 @@ impl PushActiveSetEntry {
             self.0.insert(*node, bloom);
         }
         // Drop the oldest entry while preserving the ordering of others.
+        info!("greg out of loop, self.0.len() > size. remove nodes from SAFE. self.0.len(): {}", self.0.len());
         while self.0.len() > size {
             self.0.shift_remove_index(0);
         }
@@ -172,7 +188,9 @@ impl PushActiveSetEntry {
 // Maps stake to bucket index.
 fn get_stake_bucket(stake: Option<&u64>) -> usize {
     let stake = stake.copied().unwrap_or_default() / LAMPORTS_PER_SOL;
+    // say stake is high. few leading zeros. so bucket is high.
     let bucket = u64::BITS - stake.leading_zeros();
+    // get min of 24 and bucket. higher numbered buckets are higher stake. low buckets low stake
     (bucket as usize).min(NUM_PUSH_ACTIVE_SET_ENTRIES - 1)
 }
 

@@ -212,14 +212,15 @@ impl CrdsGossipPush {
             let origin = value.pubkey();
             // this is where it starts to differ from v1.13.7
             // reminder: active_set is of type PushActiveSet. holds an array of PushActiveSetEntry entries
-            // for each entry, get the nodes we are going to push this CrdsValue to
+            // for each entry, so for this CrdsValue origin, get all the nodes in the corresponding bucket
             let nodes = active_set.get_nodes(
                 pubkey,
                 &origin,
                 |node| value.should_force_push(node),
                 stakes,
             );
-            for node in nodes.take(self.push_fanout) {
+            // now that we have all of the nodes we want to push to, only push to push_fanout of them
+            for node in nodes.take(self.push_fanout) { // if only 2 nodes, take will return 2
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
             }
