@@ -174,6 +174,7 @@ impl PushActiveSetEntry {
                 Self::BLOOM_FALSE_RATE,
                 Self::BLOOM_MAX_BITS,
             ));
+            info!("greg adding node to PASE: {:?}", node);
             bloom.add(node);
             self.0.insert(*node, bloom);
         }
