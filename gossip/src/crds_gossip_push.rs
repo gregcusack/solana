@@ -184,11 +184,14 @@ impl CrdsGossipPush {
         let mut num_pushes = 0;
         let mut num_values = 0;
         let mut total_bytes: usize = 0;
+        // push messages we create are giong to get stored here
         let mut push_messages: HashMap<Pubkey, Vec<CrdsValue>> = HashMap::new();
+        // create time window. don't send push messages with old crdsValues
         let wallclock_window = self.wallclock_window(now);
         let mut crds_cursor = self.crds_cursor.lock().unwrap();
         // crds should be locked last after self.{active_set,crds_cursor}.
         let crds = crds.read().unwrap();
+        // Then for each entry in the crds table, filter out all values that are not within the wallclock_window. Call result “entries”
         let entries = crds
             .get_entries(crds_cursor.deref_mut())
             .filter(|entry| {
@@ -198,6 +201,7 @@ impl CrdsGossipPush {
             })
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
+        // for each crds value in our CrdsValues...
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
@@ -206,6 +210,9 @@ impl CrdsGossipPush {
             }
             num_values += 1;
             let origin = value.pubkey();
+            // this is where it starts to differ from v1.13.7
+            // reminder: active_set is of type PushActiveSet. holds an array of PushActiveSetEntry entries
+            // for each entry, get the nodes we are going to push this CrdsValue to
             let nodes = active_set.get_nodes(
                 pubkey,
                 &origin,

@@ -35,7 +35,10 @@ impl PushActiveSet {
         should_force_push: impl FnMut(&Pubkey) -> bool + 'a,
         stakes: &HashMap<Pubkey, u64>,
     ) -> impl Iterator<Item = &Pubkey> + 'a {
+        // get the stake of the peer that originated this CrdsValue. 
+        // compare that origin stake to our node's stake. Take whichever is smaller.
         let stake = stakes.get(pubkey).min(stakes.get(origin));
+        
         self.get_entry(stake).get_nodes(origin, should_force_push)
     }
 
