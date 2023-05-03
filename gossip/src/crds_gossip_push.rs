@@ -104,6 +104,13 @@ impl CrdsGossipPush {
         I: IntoIterator<Item = Pubkey>,
     {
         let mut received_cache = self.received_cache.lock().unwrap();
+        //returning a hashmap (peer => Vec<origins>)
+        // so we call repeat origin on the zip because for each origin here, we are returning
+        // an iterator that iterates over a bunch of pubkeys.
+        // so we then create origin => k1, origin k2, etc.
+        // when we call itto_group_map it will aggregate the keys into a vector that
+        // have the same origin.
+        // res: HashMap<origin, Vec<peers>>
         origins
             .into_iter()
             .flat_map(|origin| {

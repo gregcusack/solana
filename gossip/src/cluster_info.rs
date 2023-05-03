@@ -2348,6 +2348,7 @@ impl ClusterInfo {
                     .into_par_iter()
                     .with_min_len(256)
                     .filter_map(|(from, prunes)| {
+                        // so we say, for this peer that sent us
                         let peer: &LegacyContactInfo = gossip_crds.get(from)?;
                         let mut prune_data = PruneData {
                             pubkey: self_pubkey,
