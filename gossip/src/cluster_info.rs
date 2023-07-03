@@ -1589,6 +1589,14 @@ impl ClusterInfo {
                 })
                 .collect()
         };
+        let signatures_to_report: Vec<_> = push_messages
+            .iter()
+            .flat_map(|(_, crds_values)| crds_values.iter().cloned())
+            .collect();
+
+        // TODO: add reporting methid using gossipstats (stats) here
+        
+
         let messages: Vec<_> = push_messages
             .into_iter()
             .flat_map(|(peer, msgs)| {

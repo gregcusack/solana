@@ -2,7 +2,7 @@ use {
     crate::crds_gossip::CrdsGossip,
     itertools::Itertools,
     solana_measure::measure::Measure,
-    solana_sdk::{clock::Slot, pubkey::Pubkey},
+    solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
     std::{
         cmp::Reverse,
         collections::HashMap,
@@ -11,6 +11,20 @@ use {
         time::Instant,
     },
 };
+
+#[derive(Default)]
+pub(crate) struct MessageSignatures {
+    pub signature: Signature,
+}
+
+impl MessageSignatures {
+    pub(crate) fn add_signature(
+        &self,
+        val: &mut Signature
+    ) {
+        
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Counter(AtomicU64);
@@ -182,6 +196,8 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    
+    pub(crate) signature_messages: 
 }
 
 pub(crate) fn submit_gossip_stats(
