@@ -113,6 +113,8 @@ pub(crate) struct CrdsDataStats {
     // don't need to create a new VecDeque for each message type
     // if we change our mind and we want to, we could create a HashMap<CrdsType, VecDeque>
     // but i think this is overkill
+    // what we could do is change it so we at least know the type of message being sent?
+    // so instead of not knowing, we could reporting the type and the signature?
     pub(crate) message_signatures: VecDeque<Signature>, //TODO: change this to fixed length
 }
 

@@ -746,7 +746,7 @@ fn submit_message_signature_stats<'a>(
     while !message_signatures.is_empty() {
         match message_signatures.pop_front() {
             Some(signature) => {
-                datapoint_trace!(name, ("signature", signature, Signature));
+                datapoint_info!(name, ("crds_signature", signature.to_string(), String));
             },
             None => {
                 error!("Error reporting submitting Crds signature. Invalid read from message signature queue");
