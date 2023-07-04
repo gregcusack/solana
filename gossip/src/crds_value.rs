@@ -556,6 +556,8 @@ impl CrdsValue {
         }
     }
 
+    // greg - did not write but this is what is called to sign
+    // a new crdsValue from CrdsData
     pub fn new_signed(data: CrdsData, keypair: &Keypair) -> Self {
         let mut value = Self::new_unsigned(data);
         value.sign(keypair);

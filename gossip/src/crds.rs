@@ -44,6 +44,7 @@ use {
         clock::Slot,
         hash::{hash, Hash},
         pubkey::Pubkey,
+        signature::Signature,
     },
     std::{
         cmp::Ordering,
@@ -96,11 +97,23 @@ pub enum GossipRoute {
 }
 
 type CrdsCountsArray = [usize; 12];
+//greg
+// type CrdsValueSignaturesArray = [Signature; 1024];
 
 pub(crate) struct CrdsDataStats {
     pub(crate) counts: CrdsCountsArray,
     pub(crate) fails: CrdsCountsArray,
     pub(crate) votes: LruCache<Slot, /*count:*/ usize>,
+    //greg
+    // pub(crate) message_signatures: CrdsValueSignaturesArray,
+    // greg: what we may want here is a circular ring buffer with fixed size.
+    // so we just overwrite and continue writing to next value
+    // shouldn't ever reallocate to grow. and should not grow
+    // since gossip message propagation is message type agnostic, we probably
+    // don't need to create a new VecDeque for each message type
+    // if we change our mind and we want to, we could create a HashMap<CrdsType, VecDeque>
+    // but i think this is overkill
+    pub(crate) message_signatures: VecDeque<Signature>, //TODO: change this to fixed length
 }
 
 #[derive(Default)]
@@ -657,6 +670,11 @@ impl Default for CrdsDataStats {
             counts: CrdsCountsArray::default(),
             fails: CrdsCountsArray::default(),
             votes: LruCache::new(VOTE_SLOTS_METRICS_CAP),
+            // greg
+            // message_signatures: CrdsValueSignaturesArray::default(),
+            // message_signatures: Vec::with_capacity(1024), // TODO change this to fixed vec len.
+            message_signatures: VecDeque::with_capacity(1024),
+
         }
     }
 }
@@ -670,6 +688,12 @@ impl CrdsDataStats {
                 self.votes.put(slot, num_nodes + 1);
             }
         }
+        // greg. TODO change this to fixed length ring buffer?
+        // can add an if statement here to check signature
+        // note it is base58 so have to think about that here
+        // if entry.value.signature % 0xFF == 0 {
+        self.message_signatures.push_back(entry.value.signature);
+        // }
     }
 
     fn record_fail(&mut self, entry: &VersionedCrdsValue) {

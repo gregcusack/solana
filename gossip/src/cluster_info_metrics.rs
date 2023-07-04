@@ -5,26 +5,27 @@ use {
     solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
     std::{
         cmp::Reverse,
-        collections::HashMap,
+        collections::{HashMap, VecDeque},
         ops::{Deref, DerefMut},
         sync::atomic::{AtomicU64, Ordering},
         time::Instant,
     },
 };
 
-#[derive(Default)]
-pub(crate) struct MessageSignatures {
-    pub signature: Signature,
-}
+// greg
+// #[derive(Default)]
+// pub(crate) struct MessageSignatures {
+//     pub signature: Signature,
+// }
 
-impl MessageSignatures {
-    pub(crate) fn add_signature(
-        &self,
-        val: &mut Signature
-    ) {
+// impl MessageSignatures {
+//     pub(crate) fn add_signatures(
+//         &self,
+//         val: &Vec<Signature>,
+//     ) {
         
-    }
-}
+//     }
+// }
 
 #[derive(Default)]
 pub(crate) struct Counter(AtomicU64);
@@ -196,16 +197,21 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
-    
-    pub(crate) signature_messages: 
+    //greg
+    // pub(crate) message_signatures: MessageSignatures,
 }
 
+// greg- didn't write this. but i think
+// this sends data to influx
 pub(crate) fn submit_gossip_stats(
     stats: &GossipStats,
     gossip: &CrdsGossip,
     stakes: &HashMap<Pubkey, u64>,
 ) {
-    let (crds_stats, table_size, num_nodes, num_pubkeys, purged_values_size, failed_inserts_size) = {
+    // greg - note i changed crds_stats to mut crds_stats. If we have a vecdeque or something that
+    // automatically overwrites itself, we do not have to make this mutable. We will simply read
+    // from the next value and write to the next value, overwritting whatever was there
+    let (mut crds_stats, table_size, num_nodes, num_pubkeys, purged_values_size, failed_inserts_size) = {
         let gossip_crds = gossip.crds.read().unwrap();
         (
             gossip_crds.take_stats(),
@@ -694,6 +700,8 @@ pub(crate) fn submit_gossip_stats(
     if !log::log_enabled!(log::Level::Trace) {
         return;
     }
+    // greg - didn't write this. but i think this is where we can learn how to submit
+    // non-Counter info to influxdb
     submit_vote_stats("cluster_info_crds_stats_votes_pull", &crds_stats.pull.votes);
     submit_vote_stats("cluster_info_crds_stats_votes_push", &crds_stats.push.votes);
     let votes: HashMap<Slot, usize> = crds_stats
@@ -704,8 +712,13 @@ pub(crate) fn submit_gossip_stats(
         .into_grouping_map()
         .aggregate(|acc, _slot, num_votes| Some(acc.unwrap_or_default() + num_votes));
     submit_vote_stats("cluster_info_crds_stats_votes", &votes);
+
+    // greg 
+    submit_message_signature_stats("cluster_info_crds_stats_message_signatures_received", &mut crds_stats.push.message_signatures);
 }
 
+// greg - didn't write this. but this is how non-counter vote stats are reported
+// can maybe learn something from this??
 fn submit_vote_stats<'a, I>(name: &'static str, votes: I)
 where
     I: IntoIterator<Item = (&'a Slot, /*num-votes:*/ &'a usize)>,
@@ -718,5 +731,26 @@ where
     }
     for (slot, num_votes) in votes.into_iter().take(NUM_SLOTS) {
         datapoint_trace!(name, ("slot", slot, i64), ("num_votes", num_votes, i64));
+    }
+}
+
+// greg
+fn submit_message_signature_stats<'a>(
+    name: &'static str, 
+    message_signatures: &mut VecDeque<Signature>
+) {
+    // we want to submit all message signatures we have here. 
+    // Need to pop them to remove them
+    // NOTE: we need to filter the signatures before we call this
+    // so only signatures with ending 0xFF or whatever end up here. 
+    while !message_signatures.is_empty() {
+        match message_signatures.pop_front() {
+            Some(signature) => {
+                datapoint_trace!(name, ("signature", signature, Signature));
+            },
+            None => {
+                error!("Error reporting submitting Crds signature. Invalid read from message signature queue");
+            }
+        }
     }
 }

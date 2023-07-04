@@ -1589,13 +1589,20 @@ impl ClusterInfo {
                 })
                 .collect()
         };
-        let signatures_to_report: Vec<_> = push_messages
-            .iter()
-            .flat_map(|(_, crds_values)| crds_values.iter().cloned())
-            .collect();
+        //greg - NOTE: i took this out because i think we did it properly 
+        // in Crds.rs in CrdsStats.record_insert()
+        // let signatures_to_report: Vec<_> = push_messages
+        //     .iter()
+        //     .flat_map(|(_, crds_values)| crds_values.iter().cloned())
+        //     .collect();
 
-        // TODO: add reporting methid using gossipstats (stats) here
-        
+        // let signatures_to_report: Vec<_> = push_messages
+        //     .iter()
+        //     .flat_map(|(_, crds_values)| crds_values.iter().map(|crds_value| crds_value.signature.clone()))
+        //     .collect();
+
+        // // TODO: add reporting methid using gossipstats (stats) here
+        // self.stats.message_signatures.add_signatures(&signatures_to_report);
 
         let messages: Vec<_> = push_messages
             .into_iter()
@@ -2655,6 +2662,8 @@ impl ClusterInfo {
             get_epoch_duration(bank_forks, &self.stats),
             should_check_duplicate_instance,
         )?;
+        // greg - i didn't write this but this is key
+        // reports all of our stats data
         if last_print.elapsed() > SUBMIT_GOSSIP_STATS_INTERVAL {
             submit_gossip_stats(&self.stats, &self.gossip, &stakes);
             *last_print = Instant::now();
