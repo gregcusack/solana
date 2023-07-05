@@ -690,11 +690,18 @@ impl CrdsDataStats {
                 self.votes.put(slot, num_nodes + 1);
             }
         }
+
         // greg. TODO change this to fixed length ring buffer?
         // can add an if statement here to check signature
         // note it is base58 so have to think about that here
-        // if entry.value.signature % 0xFF == 0 {
-        self.message_signatures.push_back(entry.value.signature);
+        let specific_ending: [u8; 1] = [01];
+        // let specific_ending: [u8; 2] = [57, 01];
+        if entry.value.signature.check_ending_characters(&specific_ending) {
+            info!("gregg signature ends in a: {:?}", entry.value.signature);
+            self.message_signatures.push_back(entry.value.signature);
+        } 
+        // else {
+        //     info!("gregg signature does not end in a: {:?}", entry.value.signature);
         // }
     }
 

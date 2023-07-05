@@ -697,6 +697,10 @@ pub(crate) fn submit_gossip_stats(
         ("all-push", crds_stats.push.fails.iter().sum::<usize>(), i64),
         ("all-pull", crds_stats.pull.fails.iter().sum::<usize>(), i64),
     );
+    
+    // greg 
+    submit_message_signature_stats("cluster_info_crds_stats_message_signatures_received", &mut crds_stats.push.message_signatures);
+    
     if !log::log_enabled!(log::Level::Trace) {
         return;
     }
@@ -712,9 +716,6 @@ pub(crate) fn submit_gossip_stats(
         .into_grouping_map()
         .aggregate(|acc, _slot, num_votes| Some(acc.unwrap_or_default() + num_votes));
     submit_vote_stats("cluster_info_crds_stats_votes", &votes);
-
-    // greg 
-    submit_message_signature_stats("cluster_info_crds_stats_message_signatures_received", &mut crds_stats.push.message_signatures);
 }
 
 // greg - didn't write this. but this is how non-counter vote stats are reported
