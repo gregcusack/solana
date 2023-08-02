@@ -739,7 +739,7 @@ impl CrdsStats {
 }
 
 /// check if first SIGNATURE_SAMPLE_LEADING_ZEROS bits of signature are 0
-fn should_report_message_signature(signature: &Signature) -> bool {
+pub fn should_report_message_signature(signature: &Signature) -> bool {
     let Some(Ok(bytes)) = signature.as_ref().get(..8).map(<[u8; 8]>::try_from) else {
         return false;
     };

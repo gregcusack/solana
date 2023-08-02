@@ -227,35 +227,21 @@ impl CrdsGossipPush {
             /*  time    origin      message     push_peers
                 0       a           b           AKP82..., bN5VC..., wE4h3..., 89n3v...
              */
-            let mut push_peers: Vec<Option<&str>> = Vec::new();
-            for node in nodes.take(self.push_fanout) {
+            // let mut push_peers: Vec<Option<&str>> = Vec::new();
+            let mut push_peers: [String; CRDS_GOSSIP_PUSH_FANOUT] = Default::default();
+            for (peer_index, node) in nodes.take(self.push_fanout).enumerate() {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
                 // greg add datapoint info here
                 // check if enough leading zeros
+                // let node_2 = node.clone().to_string().get(..8);
                 if report_message_tracking_flag {
-                    push_peers.push(node.to_string().get(..8));
+                    push_peers[peer_index] = node.to_string();
+                    // push_peers.push(node.to_string().get(..8));
                 }
             }
             if report_message_tracking_flag {
-                datapoint_info!(
-                    "gossip_crds_sample_tracking",
-                    (
-                        "origin",
-                        value.pubkey().to_string().get(..8),
-                        Option<String>
-                    ),
-                    (
-                        "signature",
-                        value.signature.to_string().get(..8),
-                        Option<String>
-                    ),
-                    (
-                        "push_peers",
-                        "hey",
-                        Option<String>
-                    )
-                );
+                report_push_peers_datapoint_info(value, &push_peers);
             }
         }
         drop(crds);
@@ -328,6 +314,66 @@ impl CrdsGossipPush {
             stakes,
         )
     }
+}
+
+#[inline]
+fn report_push_peers_datapoint_info(
+    value: &CrdsValue,
+    push_peers: &[String; CRDS_GOSSIP_PUSH_FANOUT],
+) {
+    datapoint_info!(
+        "gossip_crds_sample_tracking",
+        (
+            "origin",
+            value.pubkey().to_string().get(..8),
+            Option<String>
+        ),
+        (
+            "signature",
+            value.signature.to_string().get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer0",
+            push_peers[0].get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer1",
+            push_peers[1].get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer2",
+            push_peers[2].get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer3",
+            push_peers[3].get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer4",
+            push_peers[4].get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer5",
+            push_peers[5].get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer6",
+            push_peers[7].get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer8",
+            push_peers[8].get(..8),
+            Option<String>
+        )
+    );
 }
 
 #[cfg(test)]
