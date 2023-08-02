@@ -234,10 +234,12 @@ impl CrdsGossipPush {
                 num_pushes += 1;
                 // greg add datapoint info here
                 // check if enough leading zeros
-                // let node_2 = node.clone().to_string().get(..8);
                 if report_message_tracking_flag {
-                    push_peers[peer_index] = node.to_string();
-                    // push_peers.push(node.to_string().get(..8));
+                    if peer_index < push_peers.len() {
+                        push_peers[peer_index] = node.to_string();
+                    } else {
+                        error!("Mismatch in self.push_fanout and CRDS_GOSSIP_PUSH_FANOUT. they should be the same");
+                    }
                 }
             }
             if report_message_tracking_flag {
