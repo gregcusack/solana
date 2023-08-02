@@ -14,7 +14,7 @@
 use {
     crate::{
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
-        crds::{Crds, CrdsError, Cursor, GossipRoute},
+        crds::{Crds, CrdsError, Cursor, GossipRoute, should_report_message_signature},
         crds_gossip,
         crds_value::{CrdsData, CrdsValue},
         ping_pong::PingCache,
@@ -212,9 +212,50 @@ impl CrdsGossipPush {
                 |node| value.should_force_push(node),
                 stakes,
             );
+            let report_message_tracking_flag = should_report_message_signature(&value.signature);
+            // how do i report multiple push_peers for one datapoint?
+            // don't want:
+            /* time     origin      message     push_peer
+                0       a           b           AKP82...
+                1       a           b           bN5VC...
+                2       a           b           wE4h3...
+                ...
+                3       a           b           89n3v...
+             */
+
+            // we want:
+            /*  time    origin      message     push_peers
+                0       a           b           AKP82..., bN5VC..., wE4h3..., 89n3v...
+             */
+            let mut push_peers: Vec<Option<&str>> = Vec::new();
             for node in nodes.take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
+                // greg add datapoint info here
+                // check if enough leading zeros
+                if report_message_tracking_flag {
+                    push_peers.push(node.to_string().get(..8));
+                }
+            }
+            if report_message_tracking_flag {
+                datapoint_info!(
+                    "gossip_crds_sample_tracking",
+                    (
+                        "origin",
+                        value.pubkey().to_string().get(..8),
+                        Option<String>
+                    ),
+                    (
+                        "signature",
+                        value.signature.to_string().get(..8),
+                        Option<String>
+                    ),
+                    (
+                        "push_peers",
+                        "hey",
+                        Option<String>
+                    )
+                );
             }
         }
         drop(crds);
