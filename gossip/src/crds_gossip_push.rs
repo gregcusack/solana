@@ -367,6 +367,11 @@ fn report_push_peers_datapoint_info(
         ),
         (
             "push_peer6",
+            push_peers[6].get(..8),
+            Option<String>
+        ),
+        (
+            "push_peer7",
             push_peers[7].get(..8),
             Option<String>
         ),
