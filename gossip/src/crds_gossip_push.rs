@@ -212,7 +212,7 @@ impl CrdsGossipPush {
                 |node| value.should_force_push(node),
                 stakes,
             );
-            let report_message_tracking_flag = should_report_message_signature(&value.signature);
+            
             // how do i report multiple push_peers for one datapoint?
             // don't want:
             /* time     origin      message     push_peer
@@ -228,6 +228,7 @@ impl CrdsGossipPush {
                 0       a           b           AKP82..., bN5VC..., wE4h3..., 89n3v...
              */
             // let mut push_peers: Vec<Option<&str>> = Vec::new();
+            let report_message_tracking_flag = should_report_message_signature(&value.signature);
             let mut push_peers: [String; CRDS_GOSSIP_PUSH_FANOUT] = Default::default();
             for (peer_index, node) in nodes.take(self.push_fanout).enumerate() {
                 push_messages.entry(*node).or_default().push(value.clone());
