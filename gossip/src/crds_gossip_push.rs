@@ -14,7 +14,7 @@
 use {
     crate::{
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
-        crds::{Crds, CrdsError, Cursor, GossipRoute},
+        crds::{should_report_message_signature, Crds, CrdsError, Cursor, GossipRoute},
         crds_gossip,
         crds_value::{CrdsData, CrdsValue},
         ping_pong::PingCache,
@@ -142,6 +142,26 @@ impl CrdsGossipPush {
             for value in values {
                 if !wallclock_window.contains(&value.wallclock()) {
                     continue;
+                }
+                if should_report_message_signature(&value.signature) {
+                    datapoint_info!(
+                        "gossip_crds_sample_tracking",
+                        (
+                            "origin",
+                            value.pubkey().to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "signature",
+                            value.signature.to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "from",
+                            from.to_string().get(..8),
+                            Option<String>
+                        ),
+                    )
                 }
                 let origin = value.pubkey();
                 match crds.insert(value, now, GossipRoute::PushMessage) {
