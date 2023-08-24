@@ -6254,7 +6254,9 @@ dependencies = [
  "assert_matches",
  "bincode",
  "bv",
+ "bzip2",
  "clap 2.33.3",
+ "console",
  "crossbeam-channel",
  "flate2",
  "indexmap 2.0.0",
@@ -6300,8 +6302,11 @@ dependencies = [
  "solana-vote",
  "solana-vote-program",
  "static_assertions",
- "test-case",
+ "tar",
+ "tempfile",
  "thiserror",
+ "tokio",
+ "url 2.4.0",
 ]
 
 [[package]]
