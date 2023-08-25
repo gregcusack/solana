@@ -681,6 +681,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "asynchronous-codec"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4057f2c32adbb2fc158e22fb38433c8e9bbf76b75a4732c7c0cbaf695fb65568"
+dependencies = [
+ "bytes",
+ "futures-sink",
+ "futures-util",
+ "memchr",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4024,7 +4037,7 @@ dependencies = [
  "proc-macro-crate 2.0.0",
  "proc-macro2",
  "quote",
- "syn 2.0.52",
+ "syn 2.0.37",
 ]
 
 [[package]]
@@ -6780,7 +6793,10 @@ dependencies = [
  "chrono",
  "clap 2.33.3",
  "crossbeam-channel",
+ "docker-api",
+ "env_logger",
  "flate2",
+ "futures-util",
  "git2",
  "indexmap 2.0.0",
  "indicatif",
@@ -6791,6 +6807,7 @@ dependencies = [
  "log",
  "lru",
  "matches",
+ "nix",
  "num-traits",
  "num_cpus",
  "rand 0.8.5",
@@ -8907,16 +8924,6 @@ dependencies = [
 [[package]]
 name = "time"
 version = "0.1.43"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca8a50ef2360fbd1eeb0ecd46795a87a19024eb4b53c5dc916ca1fd95fe62438"
-dependencies = [
- "libc",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "time"
-version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fdd63d58b18d663fbdf70e049f00a22c8e42be082203be7f26589213cd75ea"
 dependencies = [
