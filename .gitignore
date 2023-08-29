@@ -11,6 +11,7 @@ target/
 .cargo
 
 /config/
+/config-k8s/
 
 .cache
 
