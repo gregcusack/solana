@@ -209,7 +209,11 @@ impl<'a> Deploy<'a> {
         Ok(())
     }
 
-    pub fn deploy(&self) -> Result<(), Box<dyn Error>> {
+
+    pub fn deploy(
+        &self,
+    ) -> Result<(), Box<dyn Error>> {
+
         Ok(())
     }
 }
