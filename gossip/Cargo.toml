@@ -1,7 +1,7 @@
 [package]
-name = "solana-gossip"
-description = "Blockchain, Rebuilt for Scale"
-documentation = "https://docs.rs/solana-gossip"
+name = "solana-k8s-cluster"
+publish = false
+description = "Kubernetes Validator Deployment for Testing"
 version = { workspace = true }
 authors = { workspace = true }
 repository = { workspace = true }
