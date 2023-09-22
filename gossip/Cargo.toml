@@ -21,7 +21,7 @@ docker-api = { workspace = true }
 env_logger = { workspace = true }
 flate2 = { workspace = true }
 futures-util = { workspace = true }
-git2 = { workspace = true } 
+git2 = { workspace = true }
 indexmap = { workspace = true, features = ["rayon"] }
 indicatif = { workspace = true }
 itertools = { workspace = true }
