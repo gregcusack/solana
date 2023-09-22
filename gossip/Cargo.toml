@@ -11,6 +11,8 @@ edition = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
+assert_matches = { workspace = true }
+base64 = { workspace = true }
 bincode = { workspace = true }
 bv = { workspace = true, features = ["serde"] }
 bzip2 = { workspace = true }
@@ -30,18 +32,18 @@ kube = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 lru = { workspace = true }
-matches = { workspace = true }
 nix = { workspace = true }
 num-traits = { workspace = true }
-reqwest = { workspace = true, features = ["blocking", "brotli", "deflate", "gzip", "rustls-tls", "json"] }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 rayon = { workspace = true }
-rustversion = { workspace = true }
+reqwest = { workspace = true, features = ["blocking", "brotli", "deflate", "gzip", "rustls-tls", "json"] }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+solana-accounts-db = { workspace = true }
 solana-bloom = { workspace = true }
 solana-clap-utils = { workspace = true }
 solana-client = { workspace = true }
@@ -67,9 +69,9 @@ static_assertions = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+anyhow = { workspace = true }
 num_cpus = { workspace = true }
 serial_test = { workspace = true }
-anyhow = { workspace = true }
 
 [build-dependencies]
 rustc_version = { workspace = true }
