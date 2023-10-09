@@ -6865,6 +6865,7 @@ dependencies = [
  "solana-clap-utils",
  "solana-clap-v3-utils",
  "solana-client",
+ "solana-core",
  "solana-entry",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
