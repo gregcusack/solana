@@ -160,6 +160,11 @@ impl<'a> Kubernetes<'a> {
             flags.push(bank_hash.to_string());
         }
 
+        if let Some(limit_ledger_size) = self.validator_config.max_ledger_size {
+            flags.push("--limit-ledger-size".to_string());
+            flags.push(limit_ledger_size.to_string());
+        }
+
         flags
     }
 
