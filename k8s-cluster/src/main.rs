@@ -16,7 +16,6 @@ use {
         release::{BuildConfig, Deploy},
         ValidatorType,
     },
-    solana_sdk::pubkey::Pubkey,
     std::{thread, time::Duration},
 };
 
