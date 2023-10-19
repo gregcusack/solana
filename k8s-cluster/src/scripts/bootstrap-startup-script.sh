@@ -6,6 +6,45 @@ set -e
 # start faucet
 nohup solana-faucet --keypair faucet.json >logs/faucet.log 2>&1 &
 
+genesis_args=()
+bootstrap_args=()
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        genesis_script)
+            shift 1
+            while [[ "$#" -gt 0 && ! "$1" == "genesis_script" && ! "$1" == "bootstrap_script" ]]; do
+                genesis_args+=("$1")
+                shift 1
+            done
+            ;;
+
+        bootstrap_script)
+            shift 1
+            while [[ "$#" -gt 0 && ! "$1" == "genesis_script" && ! "$1" == "bootstrap_script" ]]; do
+                bootstrap_args+=("$1")
+                shift 1
+            done
+            ;;
+
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+echo "Genesis Args: ${genesis_args[@]}"
+echo "Bootstrap Args: ${bootstrap_args[@]}"
+
+echo "fetching spl"
+/home/solana/fetch-spl.sh
+echo "got spl"
+
+echo "creating genesis"
+solana-genesis "${genesis_args[@]}"
+echo "done creating genesis"
+
 # Start the bootstrap validator node
 # shellcheck disable=SC1091
 source /home/solana/k8s-cluster-scripts/common.sh

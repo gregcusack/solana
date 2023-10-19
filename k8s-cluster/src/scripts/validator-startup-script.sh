@@ -45,6 +45,8 @@ EOF
   exit 1
 }
 
+echo "All arguments: $@"
+
 maybeRequireTower=true
 echo "pre positional args"
 positional_args=()

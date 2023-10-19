@@ -63,17 +63,18 @@ fn fetch_spl(fetch_spl_file: &PathBuf) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn parse_spl_genesis_file(spl_file: &PathBuf) -> Result<Vec<String>, Box<dyn Error>> {
+fn parse_spl_genesis_file(spl_file: &PathBuf) -> Result<Vec<Vec<String>>, Box<dyn Error>> {
     // Read entire file into a String
     let mut file = File::open(spl_file)?;
     let mut content = String::new();
     file.read_to_string(&mut content)?;
 
     // Split by whitespace
-    let mut args = Vec::new();
+    let mut all_args = Vec::new();
     let mut tokens_iter = content.split_whitespace();
 
     while let Some(token) = tokens_iter.next() {
+        let mut args = Vec::new();
         args.push(token.to_string());
         // Find flag delimiters
         if token.starts_with("--") {
@@ -86,9 +87,10 @@ fn parse_spl_genesis_file(spl_file: &PathBuf) -> Result<Vec<String>, Box<dyn Err
                 }
             }
         }
+        all_args.push(args);
     }
 
-    Ok(args)
+    Ok(all_args)
 }
 
 pub struct GenesisFlags {
@@ -243,78 +245,84 @@ impl Genesis {
         Ok(())
     }
 
-    fn setup_genesis_flags(&self) -> Vec<String> {
+    fn setup_genesis_flags(&self) -> Vec<Vec<String>> {
         let mut args = vec![
-            "--bootstrap-validator-lamports".to_string(),
-            sol_to_lamports(
+            vec![
+                "--bootstrap-validator-lamports".to_string(),
+                sol_to_lamports(
+                    self.flags
+                        .bootstrap_validator_sol
+                        .unwrap_or(DEFAULT_BOOTSTRAP_NODE_SOL),
+                )
+                .to_string(),
+            ],
+            vec![
+                "--bootstrap-validator-stake-lamports".to_string(),
+                sol_to_lamports(
+                    self.flags
+                        .bootstrap_validator_stake_sol
+                        .unwrap_or(DEFAULT_BOOTSTRAP_NODE_STAKE_SOL),
+                )
+                .to_string(),
+            ],
+            vec![
+                "--hashes-per-tick".to_string(),
+                self.flags.hashes_per_tick.clone(),
+            ],
+            vec![
+                "--max-genesis-archive-unpacked-size".to_string(),
                 self.flags
-                    .bootstrap_validator_sol
-                    .unwrap_or(DEFAULT_BOOTSTRAP_NODE_SOL),
-            )
-            .to_string(),
-            "--bootstrap-validator-stake-lamports".to_string(),
-            sol_to_lamports(
+                    .max_genesis_archive_unpacked_size
+                    .unwrap_or(DEFAULT_MAX_GENESIS_ARCHIVE_UNPACKED_SIZE)
+                    .to_string(),
+            ],
+            vec![
+                "--faucet-lamports".to_string(),
                 self.flags
-                    .bootstrap_validator_stake_sol
-                    .unwrap_or(DEFAULT_BOOTSTRAP_NODE_STAKE_SOL),
-            )
-            .to_string(),
-            "--hashes-per-tick".to_string(),
-            self.flags.hashes_per_tick.clone(),
-            "--max-genesis-archive-unpacked-size".to_string(),
-            self.flags
-                .max_genesis_archive_unpacked_size
-                .unwrap_or(DEFAULT_MAX_GENESIS_ARCHIVE_UNPACKED_SIZE)
-                .to_string(),
-            "--faucet-lamports".to_string(),
-            self.flags
-                .faucet_lamports
-                .unwrap_or(DEFAULT_FAUCET_LAMPORTS)
-                .to_string(),
-            "--faucet-pubkey".to_string(),
-            self.config_dir
-                .join("faucet.json")
-                .to_string_lossy()
-                .to_string(),
-            "--cluster-type".to_string(),
-            self.flags.cluster_type.to_string(),
-            "--ledger".to_string(),
-            self.config_dir
-                .join("bootstrap-validator")
-                .to_string_lossy()
-                .to_string(),
+                    .faucet_lamports
+                    .unwrap_or(DEFAULT_FAUCET_LAMPORTS)
+                    .to_string(),
+            ],
+            vec![
+                "--faucet-pubkey".to_string(),
+                "/home/solana/faucet.json".to_string(),
+            ],
+            vec![
+                "--cluster-type".to_string(),
+                self.flags.cluster_type.to_string(),
+            ],
+            vec![
+                "--ledger".to_string(),
+                "/home/solana/ledger".to_string(),
+            ],
         ];
 
         if self.flags.enable_warmup_epochs {
-            args.push("--enable-warmup-epochs".to_string());
+            args.push(vec!["--enable-warmup-epochs".to_string()]);
         }
 
-        args.push("--bootstrap-validator".to_string());
-        ["identity", "vote-account", "stake-account"]
+        let mut boostrap_accounts = vec!["--bootstrap-validator".to_string()];
+        ["identity", "vote", "stake"]
             .iter()
             .for_each(|account_type| {
-                args.push(
-                    self.config_dir
-                        .join(format!("bootstrap-validator/{}.json", account_type))
-                        .to_string_lossy()
-                        .to_string(),
+                boostrap_accounts.push(
+                    format!("/home/solana/{}.json", account_type),
                 );
             });
+        args.push(boostrap_accounts);
 
         if let Some(slots_per_epoch) = self.flags.slots_per_epoch {
-            args.push("--slots-per-epoch".to_string());
-            args.push(slots_per_epoch.to_string());
+            args.push(vec!["--slots-per-epoch".to_string(), slots_per_epoch.to_string()]);
         }
 
         if let Some(lamports_per_signature) = self.flags.target_lamports_per_signature {
-            args.push("--target-lamports-per-signature".to_string());
-            args.push(lamports_per_signature.to_string());
+            args.push(vec!["--target-lamports-per-signature".to_string(), lamports_per_signature.to_string()]);
         }
 
         args
     }
 
-    pub fn setup_spl_args(&self) -> Result<Vec<String>, Box<dyn Error>> {
+    pub fn setup_spl_args(&self) -> Result<Vec<Vec<String>>, Box<dyn Error>> {
         let fetch_spl_file = SOLANA_ROOT.join("fetch-spl.sh");
         fetch_spl(&fetch_spl_file)?;
 
@@ -323,29 +331,36 @@ impl Genesis {
         parse_spl_genesis_file(&spl_file)
     }
 
-    pub fn generate(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn get_genesis_flags(&self) -> Result<Vec<Vec<String>>, Box<dyn Error>> {
         let mut args = self.setup_genesis_flags();
-        let mut spl_args = self.setup_spl_args()?;
-        args.append(&mut spl_args);
-
-        debug!("genesis args: ");
-        for arg in &args {
-            debug!("{}", arg);
-        }
-
-        let output = Command::new("solana-genesis")
-            .args(&args)
-            .output()
-            .expect("Failed to execute solana-genesis");
-
-        if !output.status.success() {
-            return Err(boxed_error!(format!(
-                "Failed to create genesis. err: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        Ok(())
+        let spl_args = self.setup_spl_args()?;
+        args.extend(spl_args);
+        Ok(args)
     }
+
+    // pub fn generate(&mut self) -> Result<(), Box<dyn Error>> {
+    //     let mut args = self.setup_genesis_flags();
+    //     let mut spl_args = self.setup_spl_args()?;
+    //     args.append(&mut spl_args);
+
+    //     debug!("genesis args: ");
+    //     for arg in &args {
+    //         debug!("{}", arg);
+    //     }
+
+    //     let output = Command::new("solana-genesis")
+    //         .args(&args)
+    //         .output()
+    //         .expect("Failed to execute solana-genesis");
+
+    //     if !output.status.success() {
+    //         return Err(boxed_error!(format!(
+    //             "Failed to create genesis. err: {}",
+    //             String::from_utf8_lossy(&output.stderr)
+    //         )));
+    //     }
+    //     Ok(())
+    // }
 
     pub fn load_genesis_to_base64_from_file(&self) -> Result<String, Box<dyn Error>> {
         let path = self

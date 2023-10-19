@@ -521,48 +521,56 @@ async fn main() {
         }
     }
 
-    // creates genesis and writes to binary file
-    match genesis.generate() {
-        Ok(_) => (),
+    let genesis_flags = match genesis.get_genesis_flags() {
+        Ok(flags) => flags,
         Err(err) => {
-            error!("generate genesis error! {}", err);
+            error!("failed getting genesis flags! {}", err);
             return;
         }
-    }
-
-    match LedgerHelper::get_shred_version() {
-        Ok(shred_version) => kub_controller.set_shred_version(shred_version),
-        Err(err) => {
-            error!("{}", err);
-            return;
-        }
-    }
-
-    let actual_warp_slot = if warp_slot.is_none() && wait_for_supermajority.is_some() {
-        wait_for_supermajority
-    } else {
-        warp_slot
     };
 
-    if let Some(warp_slot) = actual_warp_slot {
-        match LedgerHelper::create_snapshot(warp_slot) {
-            Ok(_) => (),
-            Err(err) => {
-                error!("Failed to create snapshot: {}", err);
-                return;
-            }
-        }
-    }
+    // // creates genesis and writes to binary file
+    // match genesis.generate() {
+    //     Ok(_) => (),
+    //     Err(err) => {
+    //         error!("generate genesis error! {}", err);
+    //         return;
+    //     }
+    // }
 
-    if wait_for_supermajority.is_some() {
-        match LedgerHelper::create_bank_hash() {
-            Ok(bank_hash) => kub_controller.set_bank_hash(bank_hash),
-            Err(err) => {
-                error!("Failed to get bank hash: {}", err);
-                return;
-            }
-        };
-    }
+    // match LedgerHelper::get_shred_version() {
+    //     Ok(shred_version) => kub_controller.set_shred_version(shred_version),
+    //     Err(err) => {
+    //         error!("{}", err);
+    //         return;
+    //     }
+    // }
+
+    // let actual_warp_slot = if warp_slot.is_none() && wait_for_supermajority.is_some() {
+    //     wait_for_supermajority
+    // } else {
+    //     warp_slot
+    // };
+
+    // if let Some(warp_slot) = actual_warp_slot {
+    //     match LedgerHelper::create_snapshot(warp_slot) {
+    //         Ok(_) => (),
+    //         Err(err) => {
+    //             error!("Failed to create snapshot: {}", err);
+    //             return;
+    //         }
+    //     }
+    // }
+
+    // if wait_for_supermajority.is_some() {
+    //     match LedgerHelper::create_bank_hash() {
+    //         Ok(bank_hash) => kub_controller.set_bank_hash(bank_hash),
+    //         Err(err) => {
+    //             error!("Failed to get bank hash: {}", err);
+    //             return;
+    //         }
+    //     };
+    // }
 
     match genesis.package_up() {
         Ok(_) => (),
@@ -623,6 +631,7 @@ async fn main() {
             config_map.metadata.name.clone(),
             bootstrap_secret.metadata.name.clone(),
             &label_selector,
+            genesis_flags,
         )
         .await
     {

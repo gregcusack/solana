@@ -1,5 +1,5 @@
 use {
-    crate::{boxed_error, SOLANA_ROOT},
+    crate::{boxed_error, SOLANA_ROOT, genesis},
     base64::{engine::general_purpose, Engine as _},
     k8s_openapi::{
         api::{
@@ -102,62 +102,56 @@ impl<'a> Kubernetes<'a> {
         self.validator_config.bank_hash = Some(bank_hash);
     }
 
-    fn generate_command_flags(&mut self) -> Vec<String> {
+    fn generate_command_flags(&mut self) -> Vec<Vec<String>> {
         let mut flags = Vec::new();
 
         if self.validator_config.tpu_enable_udp {
-            flags.push("--tpu-enable-udp".to_string());
+            flags.push(vec!["--tpu-enable-udp".to_string()]);
         }
         if self.validator_config.tpu_disable_quic {
-            flags.push("--tpu-disable-quic".to_string());
+            flags.push(vec!["--tpu-disable-quic".to_string()]);
         }
         if self.validator_config.skip_poh_verify {
-            flags.push("--skip-poh-verify".to_string());
+            flags.push(vec!["--skip-poh-verify".to_string()]);
         }
         if self.validator_config.no_snapshot_fetch {
-            flags.push("--no-snapshot-fetch".to_string());
+            flags.push(vec!["--no-snapshot-fetch".to_string()]);
         }
         if self.validator_config.skip_require_tower {
-            flags.push("--skip-require-tower".to_string());
+            flags.push(vec!["--skip-require-tower".to_string()]);
         }
         if self.validator_config.enable_full_rpc {
-            flags.push("--enable-rpc-transaction-history".to_string());
-            flags.push("--enable-extended-tx-metadata-storage".to_string());
+            flags.push(vec!["--enable-rpc-transaction-history".to_string()]);
+            flags.push(vec!["--enable-extended-tx-metadata-storage".to_string()]);
         }
 
         if let Some(slot) = self.validator_config.wait_for_supermajority {
-            flags.push("--wait-for-supermajority".to_string());
-            flags.push(slot.to_string());
+            flags.push(vec!["--wait-for-supermajority".to_string(), slot.to_string()]);
         }
 
         if let Some(bank_hash) = self.validator_config.bank_hash {
-            flags.push("--expected-bank-hash".to_string());
-            flags.push(bank_hash.to_string());
+            flags.push(vec!["--expected-bank-hash".to_string(), bank_hash.to_string()]);
         }
 
         if let Some(limit_ledger_size) = self.validator_config.max_ledger_size {
-            flags.push("--limit-ledger-size".to_string());
-            flags.push(limit_ledger_size.to_string());
+            flags.push(vec!["--limit-ledger-size".to_string(), limit_ledger_size.to_string()]);
         }
 
         flags
     }
 
-    fn generate_bootstrap_command_flags(&mut self) -> Vec<String> {
+    fn generate_bootstrap_command_flags(&mut self) -> Vec<Vec<String>> {
         self.generate_command_flags()
     }
 
-    fn generate_validator_command_flags(&mut self) -> Vec<String> {
+    fn generate_validator_command_flags(&mut self) -> Vec<Vec<String>> {
         let mut flags = self.generate_command_flags();
 
-        flags.push("--internal-node-stake-sol".to_string());
-        flags.push(self.validator_config.internal_node_stake_sol.to_string());
-        flags.push("--internal-node-sol".to_string());
-        flags.push(self.validator_config.internal_node_sol.to_string());
+        flags.push(vec!["--internal-node-stake-sol".to_string(), self.validator_config.internal_node_stake_sol.to_string()]);
+        flags.push(vec!["--internal-node-sol".to_string(), self.validator_config.internal_node_sol.to_string()]);
 
         if let Some(shred_version) = self.validator_config.shred_version {
-            flags.push("--expected-shred-version".to_string());
-            flags.push(shred_version.to_string());
+            flags.push(vec!["--expected-shred-version".to_string(), shred_version.to_string()]);
         }
 
         flags
@@ -222,6 +216,7 @@ impl<'a> Kubernetes<'a> {
         config_map_name: Option<String>,
         secret_name: Option<String>,
         label_selector: &BTreeMap<String, String>,
+        genesis_flags: Vec<Vec<String>>,
     ) -> Result<ReplicaSet, Box<dyn Error>> {
         let env_var = vec![EnvVar {
             name: "MY_POD_IP".to_string(),
@@ -250,12 +245,24 @@ impl<'a> Kubernetes<'a> {
             ..Default::default()
         };
 
-        let mut command =
+        let command =
             vec!["/home/solana/k8s-cluster-scripts/bootstrap-startup-script.sh".to_string()];
-        command.extend(self.generate_bootstrap_command_flags());
 
-        for c in command.iter() {
-            debug!("bootstrap command: {}", c);
+        let bootstrap_command_flags = self.generate_bootstrap_command_flags();
+
+        let mut all_args = Vec::new();
+        for flags in genesis_flags.iter() {
+            all_args.push("genesis_script".to_string());
+            all_args.extend(flags.iter().cloned().map(String::from));
+        }
+        
+        for flags in bootstrap_command_flags.iter() {
+            all_args.push("bootstrap_script".to_string());
+            all_args.extend(flags.iter().cloned().map(String::from));
+        }
+    
+        for c in all_args.iter() {
+            info!("all_args command: {}", c);
         }
 
         self.create_replicas_set(
@@ -266,9 +273,11 @@ impl<'a> Kubernetes<'a> {
             num_bootstrap_validators,
             env_var,
             &command,
+            &all_args,
             config_map_name,
             accounts_volume,
             accounts_volume_mount,
+            
         )
         .await
     }
@@ -285,6 +294,7 @@ impl<'a> Kubernetes<'a> {
         num_validators: i32,
         env_vars: Vec<EnvVar>,
         command: &[String],
+        script_args: &[String],
         config_map_name: Option<String>,
         accounts_volume: Volume,
         accounts_volume_mount: VolumeMount,
@@ -292,7 +302,6 @@ impl<'a> Kubernetes<'a> {
         let mut volumes = vec![accounts_volume];
         let mut volume_mounts = vec![accounts_volume_mount];
         if app_name == "bootstrap-validator" {
-            info!("bootstrap create replicaset");
             let Some(config_map_name) = config_map_name else {
                 return Err(boxed_error!("config_map_name is None!"));
             };
@@ -328,6 +337,7 @@ impl<'a> Kubernetes<'a> {
                     image_pull_policy: Some("Always".to_string()),
                     env: Some(env_vars),
                     command: Some(command.to_owned()),
+                    args: Some(script_args.to_owned()),
                     volume_mounts: Some(volume_mounts),
                     ..Default::default()
                 }],
@@ -609,12 +619,18 @@ impl<'a> Kubernetes<'a> {
             ..Default::default()
         };
 
-        let mut command =
+        let command =
             vec!["/home/solana/k8s-cluster-scripts/validator-startup-script.sh".to_string()];
-        command.extend(self.generate_validator_command_flags());
+        
+        let validator_args = self.generate_validator_command_flags();
 
+        let mut all_args = Vec::new();
+        for flags in validator_args.iter() {
+            all_args.extend(flags.iter().cloned().map(String::from));
+        }
+        
         for c in command.iter() {
-            debug!("validator command: {}", c);
+            info!("validator command: {}", c);
         }
 
         self.create_replicas_set(
@@ -625,6 +641,7 @@ impl<'a> Kubernetes<'a> {
             num_validators,
             env_vars,
             &command,
+            &all_args,
             config_map_name,
             accounts_volume,
             accounts_volume_mount,
