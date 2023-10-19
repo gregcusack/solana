@@ -84,6 +84,84 @@ impl<'a> DockerConfig<'a> {
         }
     }
 
+    fn get_docker_contents(
+        &self,
+        validator_type: &ValidatorType,
+        solana_build_directory: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        if validator_type == &ValidatorType::Bootstrap {
+            let dockerfile = format!(
+            r#"
+FROM {}
+RUN apt-get update
+RUN apt-get install -y iputils-ping curl vim bzip2 openssh-server rsync
+
+RUN useradd -ms /bin/bash solana
+RUN adduser solana sudo
+USER solana
+
+RUN mkdir -p /home/solana/.ssh && chmod 700 /home/solana/.ssh
+RUN touch /home/solana/.ssh/authorized_keys
+RUN ssh-keygen -t rsa -f /home/solana/ssh_host_rsa_key -N ""
+RUN ssh-keygen -t ecdsa -f /home/solana/ssh_host_ecdsa_key -N ""
+RUN ssh-keygen -t ed25519 -f /home/solana/ssh_host_ed25519_key -N ""
+COPY ./k8s-cluster/src/scripts/sshd_config /etc/ssh/sshd_config
+# Optional: Setup your SSHD config by adding or replacing the config
+
+COPY ./fetch-perf-libs.sh ./fetch-spl.sh ./scripts /home/solana/
+COPY ./net ./multinode-demo /home/solana/
+
+RUN mkdir -p /home/solana/k8s-cluster-scripts
+COPY ./k8s-cluster/src/scripts /home/solana/k8s-cluster-scripts
+
+RUN mkdir -p /home/solana/.cargo/bin
+
+COPY ./{solana_build_directory}/bin/* /home/solana/.cargo/bin/
+COPY ./{solana_build_directory}/version.yml /home/solana/
+
+RUN mkdir -p /home/solana/config
+ENV PATH="/home/solana/.cargo/bin:${{PATH}}"
+
+
+WORKDIR /home/solana
+"#,
+                self.image_config.base_image
+            );
+            Ok(dockerfile)
+        } else {
+            let dockerfile = format!(
+            r#"
+FROM {}
+RUN apt-get update
+RUN apt-get install -y iputils-ping curl vim bzip2 openssh-server rsync
+
+RUN useradd -ms /bin/bash solana
+RUN adduser solana sudo
+USER solana
+
+COPY ./fetch-perf-libs.sh ./fetch-spl.sh ./scripts /home/solana/
+COPY ./net ./multinode-demo /home/solana/
+
+RUN mkdir -p /home/solana/k8s-cluster-scripts
+COPY ./k8s-cluster/src/scripts /home/solana/k8s-cluster-scripts
+
+RUN mkdir -p /home/solana/.cargo/bin
+
+COPY ./{solana_build_directory}/bin/* /home/solana/.cargo/bin/
+COPY ./{solana_build_directory}/version.yml /home/solana/
+
+RUN mkdir -p /home/solana/config
+ENV PATH="/home/solana/.cargo/bin:${{PATH}}"
+
+
+WORKDIR /home/solana
+"#,
+                    self.image_config.base_image
+                );
+            Ok(dockerfile)
+        }
+    }
+
     pub fn create_dockerfile(
         &self,
         validator_type: &ValidatorType,
@@ -111,35 +189,7 @@ impl<'a> DockerConfig<'a> {
         };
 
         //TODO: implement SKIP
-        let dockerfile = format!(
-            r#"
-FROM {}
-RUN apt-get update
-RUN apt-get install -y iputils-ping curl vim bzip2
-
-RUN useradd -ms /bin/bash solana
-RUN adduser solana sudo
-USER solana
-
-COPY ./fetch-perf-libs.sh ./fetch-spl.sh ./scripts /home/solana/
-COPY ./net ./multinode-demo /home/solana/
-
-RUN mkdir -p /home/solana/k8s-cluster-scripts
-COPY ./k8s-cluster/src/scripts /home/solana/k8s-cluster-scripts
-
-RUN mkdir -p /home/solana/.cargo/bin
-
-COPY ./{solana_build_directory}/bin/* /home/solana/.cargo/bin/
-COPY ./{solana_build_directory}/version.yml /home/solana/
-
-RUN mkdir -p /home/solana/config
-ENV PATH="/home/solana/.cargo/bin:${{PATH}}"
-
-
-WORKDIR /home/solana
-"#,
-            self.image_config.base_image
-        );
+        let dockerfile = self.get_docker_contents(validator_type, solana_build_directory)?;
 
         info!("dockerfile: {}", dockerfile);
 

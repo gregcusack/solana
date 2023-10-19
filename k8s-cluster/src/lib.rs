@@ -4,10 +4,19 @@ use {
     indicatif::{ProgressBar, ProgressStyle},
     lazy_static::lazy_static,
     log::*,
+    rsa::{
+        RsaPrivateKey, 
+        RsaPublicKey, 
+        pkcs1::{
+            EncodeRsaPrivateKey, 
+            EncodeRsaPublicKey, 
+            LineEnding
+        }
+    },
     std::{
         env,
         fs::{self, File},
-        io::{self, BufReader, Cursor, Read},
+        io::{self, BufReader, Cursor, Read, Write},
         path::{Path, PathBuf},
         time::Duration,
     },
@@ -147,6 +156,26 @@ pub fn cat_file(path: &PathBuf) -> io::Result<()> {
     file.read_to_string(&mut contents)?;
 
     info!("{}", contents);
+
+    Ok(())
+}
+
+
+pub fn generate_ssh_key(outfile_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let output_dir = SOLANA_ROOT.join("config-k8s");
+
+    let mut rng = rand::thread_rng();
+    let private_key = RsaPrivateKey::new(&mut rng, 512)?;
+    let private_key_pem = private_key.to_pkcs1_pem(LineEnding::LF)?;
+    let private_key_file_path: PathBuf = output_dir.join(outfile_name); //id_rsa_i
+    let mut private_key_file = File::create(private_key_file_path)?;
+    private_key_file.write_all(&private_key_pem.as_bytes())?;
+
+    let public_key = RsaPublicKey::from(&private_key);
+    let public_key_pem = public_key.to_pkcs1_pem(LineEnding::LF)?;
+    let pubkey_file_path = output_dir.join(format!("{}.pub", outfile_name));
+    let mut pubkey_file = File::create(pubkey_file_path)?;
+    pubkey_file.write_all(&public_key_pem.as_bytes())?;
 
     Ok(())
 }

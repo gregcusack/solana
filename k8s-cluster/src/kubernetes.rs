@@ -1,5 +1,5 @@
 use {
-    crate::{boxed_error, SOLANA_ROOT, genesis},
+    crate::{boxed_error, SOLANA_ROOT},
     base64::{engine::general_purpose, Engine as _},
     k8s_openapi::{
         api::{
@@ -262,7 +262,7 @@ impl<'a> Kubernetes<'a> {
         }
     
         for c in all_args.iter() {
-            info!("all_args command: {}", c);
+            debug!("all_args command: {}", c);
         }
 
         self.create_replicas_set(
@@ -630,7 +630,7 @@ impl<'a> Kubernetes<'a> {
         }
         
         for c in command.iter() {
-            info!("validator command: {}", c);
+            debug!("validator command: {}", c);
         }
 
         self.create_replicas_set(
@@ -708,4 +708,5 @@ impl<'a> Kubernetes<'a> {
 
         Ok(())
     }
+
 }

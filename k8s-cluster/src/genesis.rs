@@ -2,7 +2,7 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use {
-    crate::{boxed_error, initialize_globals, ValidatorType, LEDGER_DIR, SOLANA_ROOT},
+    crate::{boxed_error, initialize_globals, ValidatorType, LEDGER_DIR, SOLANA_ROOT, generate_ssh_key},
     base64::{engine::general_purpose, Engine as _},
     bip39::{Language, Mnemonic, MnemonicType, Seed},
     bzip2::{write::BzEncoder, Compression},
@@ -201,6 +201,7 @@ impl Genesis {
 
         for i in 0..number_of_accounts {
             self.generate_account(validator_type, &filename_prefix, i)?;
+            generate_ssh_key(&format!("id_rsa_{}", i))?;
         }
 
         Ok(())
@@ -337,30 +338,6 @@ impl Genesis {
         args.extend(spl_args);
         Ok(args)
     }
-
-    // pub fn generate(&mut self) -> Result<(), Box<dyn Error>> {
-    //     let mut args = self.setup_genesis_flags();
-    //     let mut spl_args = self.setup_spl_args()?;
-    //     args.append(&mut spl_args);
-
-    //     debug!("genesis args: ");
-    //     for arg in &args {
-    //         debug!("{}", arg);
-    //     }
-
-    //     let output = Command::new("solana-genesis")
-    //         .args(&args)
-    //         .output()
-    //         .expect("Failed to execute solana-genesis");
-
-    //     if !output.status.success() {
-    //         return Err(boxed_error!(format!(
-    //             "Failed to create genesis. err: {}",
-    //             String::from_utf8_lossy(&output.stderr)
-    //         )));
-    //     }
-    //     Ok(())
-    // }
 
     pub fn load_genesis_to_base64_from_file(&self) -> Result<String, Box<dyn Error>> {
         let path = self

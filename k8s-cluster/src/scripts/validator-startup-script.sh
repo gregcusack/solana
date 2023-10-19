@@ -2,6 +2,10 @@
 
 /home/solana/k8s-cluster-scripts/decode-accounts.sh -t "validator"
 
+mkdir -p /home/solana/ledger/
+curl -o /home/solana/ledger/genesis.tar.bz2 http://$BOOTSTRAP_RPC_ADDRESS/genesis.tar.bz2
+tar -xjf /home/solana/ledger/genesis.tar.bz2 -C /home/solana/ledger/
+
 # Start Validator
 # shellcheck disable=SC1091
 source /home/solana/k8s-cluster-scripts/common.sh

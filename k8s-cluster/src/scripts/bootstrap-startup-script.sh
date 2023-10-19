@@ -6,6 +6,9 @@ set -e
 # start faucet
 nohup solana-faucet --keypair faucet.json >logs/faucet.log 2>&1 &
 
+# run ssh so we can copy over files
+/usr/sbin/sshd -D -f /etc/ssh/sshd_config &
+
 genesis_args=()
 bootstrap_args=()
 
@@ -45,6 +48,9 @@ echo "creating genesis"
 solana-genesis "${genesis_args[@]}"
 echo "done creating genesis"
 
+# END GENESIS
+
+# START BOOTSTRAP
 # Start the bootstrap validator node
 # shellcheck disable=SC1091
 source /home/solana/k8s-cluster-scripts/common.sh
@@ -157,6 +163,11 @@ while [[ -n $1 ]]; do
     exit 1
   fi
 done
+
+solana-ledger-tool -l /home/solana/ledger/ shred-version --max-genesis-archive-unpacked-size 1073741824 | tee /home/solana/ledger/shred-version
+
+# a little hack here since bootstrap rpc only serves /genesis.tar.bz2
+# tar -czf /home/solana/ledger/genesis.tar.bz2 -C /home/solana /home/solana/ledger/
 
 # These keypairs are created by ./setup.sh and included in the genesis config
 identity=identity.json
