@@ -10,6 +10,7 @@ use {
             Genesis, GenesisFlags, SetupConfig, DEFAULT_INTERNAL_NODE_SOL,
             DEFAULT_INTERNAL_NODE_STAKE_SOL,
         },
+        append_pubkeys_to_authorized_keys,
         initialize_globals,
         kubernetes::{Kubernetes, ValidatorConfig},
         ledger_helper::LedgerHelper,
@@ -529,6 +530,17 @@ async fn main() {
         }
     };
 
+    match append_pubkeys_to_authorized_keys(setup_config.num_validators) {
+        Ok(_) => (),
+        Err(err) => {
+            error!("append auth keys error: {}", err);
+            return;
+        }
+    }
+
+    
+    // std::process::exit(-1);
+
     // // creates genesis and writes to binary file
     // match genesis.generate() {
     //     Ok(_) => (),
@@ -582,17 +594,29 @@ async fn main() {
 
     // std::process::exit(-1);
 
+    let mut bootstrap_config_maps = vec![];
     // Begin Kubernetes Setup and Deployment
-    let config_map = match kub_controller.create_genesis_config_map().await {
+    match kub_controller.create_genesis_config_map().await {
         Ok(config_map) => {
             info!("successfully deployed config map");
-            config_map
+            bootstrap_config_maps.push(config_map.metadata.name.clone());
         }
         Err(err) => {
-            error!("Failed to deploy config map: {}", err);
+            error!("Failed to deploy genesis config map: {}", err);
             return;
         }
-    };
+    }
+
+    match kub_controller.create_authorized_keys_config_map().await {
+        Ok(config_map) => {
+            info!("successfully deployed config map");
+            bootstrap_config_maps.push(config_map.metadata.name.clone());
+        }
+        Err(err) => {
+            error!("Failed to deploy authorized_keys_config_map: {}", err);
+            return;
+        }
+    }
 
     let bootstrap_container_name = matches
         .value_of("bootstrap_container_name")
@@ -630,7 +654,7 @@ async fn main() {
             bootstrap_container_name,
             bootstrap_image_name,
             BOOTSTRAP_VALIDATOR_REPLICAS,
-            config_map.metadata.name.clone(),
+            bootstrap_config_maps,
             bootstrap_secret.metadata.name.clone(),
             &label_selector,
             genesis_flags,
@@ -702,6 +726,14 @@ async fn main() {
             }
         }
 
+        let ssh_key_config_map = match kub_controller.create_validator_ssh_key_config_map(validator_index).await {
+            Ok(config_map) => config_map,
+            Err(err) => {
+                error!("Failed to create validator ssh_key config_map! {}", err);
+                return;
+            }
+        };
+
         let label_selector = kub_controller.create_selector(
             "app.kubernetes.io/name",
             format!("validator-{}", validator_index).as_str(),
@@ -713,7 +745,7 @@ async fn main() {
                 validator_index,
                 validator_image_name,
                 1,
-                config_map.metadata.name.clone(),
+                vec![ssh_key_config_map.metadata.name.clone()],
                 validator_secret.metadata.name.clone(),
                 &label_selector,
             )

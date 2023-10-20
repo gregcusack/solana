@@ -188,6 +188,81 @@ impl<'a> Kubernetes<'a> {
         api.create(&PostParams::default(), &config_map).await
     }
 
+    pub async fn create_authorized_keys_config_map(&self) -> Result<ConfigMap, kube::Error> {
+        let metadata = ObjectMeta {
+            name: Some("authorized-keys-config".to_string()),
+            ..Default::default()
+        };
+        // let genesis_tar_path = LEDGER_DIR.join("genesis-package.tar.bz2");
+        let authorized_keys_path = SOLANA_ROOT.join("config-k8s/authorized_keys");
+
+        let mut authorized_keys_file = File::open(authorized_keys_path).unwrap();
+        let mut buffer = Vec::new();
+
+        match authorized_keys_file.read_to_end(&mut buffer) {
+            Ok(_) => (),
+            Err(err) => panic!("failed to read authorized_keys: {}", err),
+        }
+
+        // Define the data for the ConfigMap
+        let mut data = BTreeMap::<String, ByteString>::new();
+        data.insert("authorized_keys".to_string(), ByteString(buffer));
+
+        // Create the ConfigMap
+        let config_map = ConfigMap {
+            metadata,
+            binary_data: Some(data),
+            ..Default::default()
+        };
+
+        let api: Api<ConfigMap> = Api::namespaced(self.client.clone(), self.namespace);
+        api.create(&PostParams::default(), &config_map).await
+    }
+
+    pub async fn create_validator_ssh_key_config_map(&self, index: i32) -> Result<ConfigMap, kube::Error> {
+        let metadata = ObjectMeta {
+            name: Some(format!("ssh-id-rsa-{}-config", index)),
+            ..Default::default()
+        };
+        // let genesis_tar_path = LEDGER_DIR.join("genesis-package.tar.bz2");
+        let id_rsa = SOLANA_ROOT.join(format!("config-k8s/id_rsa_{}", index));
+        let id_rsa_pub = SOLANA_ROOT.join(format!("config-k8s/id_rsa_{}.pub", index));
+
+        let mut id_rsa_file = File::open(id_rsa).unwrap();
+        let mut buffer = Vec::new();
+
+        match id_rsa_file.read_to_end(&mut buffer) {
+            Ok(_) => (),
+            Err(err) => panic!("failed to read id_rsa_file: {}", err),
+        }
+
+        // Define the data for the ConfigMap
+        let mut data = BTreeMap::<String, ByteString>::new();
+        data.insert("id_rsa".to_string(), ByteString(buffer));
+
+
+        let mut id_rsa_pub_file = File::open(id_rsa_pub).unwrap();
+        let mut buffer = Vec::new();
+
+        match id_rsa_pub_file.read_to_end(&mut buffer) {
+            Ok(_) => (),
+            Err(err) => panic!("failed to read id_rsa_pub_file: {}", err),
+        }
+
+        // Define the data for the ConfigMap
+        data.insert("id_rsa_pub".to_string(), ByteString(buffer));
+
+        // Create the ConfigMap
+        let config_map = ConfigMap {
+            metadata,
+            binary_data: Some(data),
+            ..Default::default()
+        };
+
+        let api: Api<ConfigMap> = Api::namespaced(self.client.clone(), self.namespace);
+        api.create(&PostParams::default(), &config_map).await
+    } 
+
     pub async fn namespace_exists(&self) -> Result<bool, kube::Error> {
         let namespaces: Api<Namespace> = Api::all(self.client.clone());
         let namespace_list = namespaces.list(&ListParams::default()).await?;
@@ -213,7 +288,7 @@ impl<'a> Kubernetes<'a> {
         container_name: &str,
         image_name: &str,
         num_bootstrap_validators: i32,
-        config_map_name: Option<String>,
+        config_map_names: Vec<Option<String>>,
         secret_name: Option<String>,
         label_selector: &BTreeMap<String, String>,
         genesis_flags: Vec<Vec<String>>,
@@ -274,7 +349,7 @@ impl<'a> Kubernetes<'a> {
             env_var,
             &command,
             &all_args,
-            config_map_name,
+            config_map_names,
             accounts_volume,
             accounts_volume_mount,
             
@@ -295,34 +370,91 @@ impl<'a> Kubernetes<'a> {
         env_vars: Vec<EnvVar>,
         command: &[String],
         script_args: &[String],
-        config_map_name: Option<String>,
+        config_map_names: Vec<Option<String>>,
         accounts_volume: Volume,
         accounts_volume_mount: VolumeMount,
     ) -> Result<ReplicaSet, Box<dyn Error>> {
         let mut volumes = vec![accounts_volume];
         let mut volume_mounts = vec![accounts_volume_mount];
         if app_name == "bootstrap-validator" {
-            let Some(config_map_name) = config_map_name else {
+            for config_map_name in config_map_names.iter() {
+                let Some(name) = config_map_name else {
+                    return Err(boxed_error!("config_map_name is None!"));
+                };
+                match name.as_str() {
+                    "genesis-config" => {
+                        let genesis_volume = Volume {
+                            name: "genesis-config-volume".into(),
+                            config_map: Some(ConfigMapVolumeSource {
+                                name: Some(name.clone()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        };
+            
+                        let genesis_volume_mount = VolumeMount {
+                            name: "genesis-config-volume".to_string(),
+                            mount_path: "/home/solana/genesis".to_string(),
+                            ..Default::default()
+                        };
+            
+                        volumes.push(genesis_volume);
+                        volume_mounts.push(genesis_volume_mount);
+                    }
+                    "authorized-keys-config" => {
+                        let authorized_keys_volume = Volume {
+                            name: "authorized-keys-config-volume".into(),
+                            config_map: Some(ConfigMapVolumeSource {
+                                name: Some(name.clone()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        };
+            
+                        let authorized_keys_volume_mount = VolumeMount {
+                            name: "authorized-keys-config-volume".to_string(),
+                            mount_path: "/home/solana/.ssh".to_string(),
+                            ..Default::default()
+                        };
+            
+                        volumes.push(authorized_keys_volume);
+                        volume_mounts.push(authorized_keys_volume_mount);
+                    }
+                    _ => return Err(boxed_error!("unknown genesis config map name!"))
+                }
+            }
+            
+        } else {
+            let Some(name) = config_map_names[0].clone() else {
                 return Err(boxed_error!("config_map_name is None!"));
             };
 
-            let genesis_volume = Volume {
-                name: "genesis-config-volume".into(),
+            let ssh_key_volume = Volume {
+                name: "ssh-config-volume".into(),
                 config_map: Some(ConfigMapVolumeSource {
-                    name: Some(config_map_name.clone()),
+                    name: Some(name),
                     ..Default::default()
                 }),
                 ..Default::default()
             };
 
-            let genesis_volume_mount = VolumeMount {
-                name: "genesis-config-volume".to_string(),
-                mount_path: "/home/solana/genesis".to_string(),
+            let ssh_key_volume_mount = VolumeMount {
+                name: "ssh-config-volume".to_string(),
+                mount_path: "/home/solana/.ssh/id_rsa".to_string(),
+                sub_path: Some("id_rsa".to_string()),
+                ..Default::default()
+            };
+            let ssh_pub_key_volume_mount = VolumeMount {
+                name: "ssh-config-volume".to_string(),
+                mount_path: "/home/solana/.ssh/id_rsa.pub".to_string(),
+                sub_path: Some("id_rsa_pub".to_string()),
                 ..Default::default()
             };
 
-            volumes.push(genesis_volume);
-            volume_mounts.push(genesis_volume_mount);
+            volumes.push(ssh_key_volume);
+            volume_mounts.push(ssh_key_volume_mount);
+            volume_mounts.push(ssh_pub_key_volume_mount);
+
         }
         // Define the pod spec
         let pod_spec = PodTemplateSpec {
@@ -565,7 +697,7 @@ impl<'a> Kubernetes<'a> {
         validator_index: i32,
         image_name: &str,
         num_validators: i32,
-        config_map_name: Option<String>,
+        config_map_names: Vec<Option<String>>,
         secret_name: Option<String>,
         label_selector: &BTreeMap<String, String>,
     ) -> Result<ReplicaSet, Box<dyn Error>> {
@@ -599,6 +731,13 @@ impl<'a> Kubernetes<'a> {
                 name: "BOOTSTRAP_FAUCET_ADDRESS".to_string(),
                 value: Some(
                     "bootstrap-validator-service.$(NAMESPACE).svc.cluster.local:9900".to_string(),
+                ),
+                ..Default::default()
+            },
+            EnvVar {
+                name: "BOOTSTRAP_ADDRESS".to_string(),
+                value: Some(
+                    "bootstrap-validator-service.$(NAMESPACE).svc.cluster.local".to_string(),
                 ),
                 ..Default::default()
             },
@@ -642,7 +781,7 @@ impl<'a> Kubernetes<'a> {
             env_vars,
             &command,
             &all_args,
-            config_map_name,
+            config_map_names,
             accounts_volume,
             accounts_volume_mount,
         )

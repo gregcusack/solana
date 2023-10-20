@@ -16,8 +16,9 @@ use {
     std::{
         env,
         fs::{self, File},
-        io::{self, BufReader, Cursor, Read, Write},
+        io::{self, BufRead, BufReader, Cursor, Read, Write},
         path::{Path, PathBuf},
+        process::Stdio,
         time::Duration,
     },
     tar::Archive,
@@ -69,7 +70,7 @@ pub fn get_solana_root() -> PathBuf {
 #[macro_export]
 macro_rules! boxed_error {
     ($message:expr) => {
-        Box::new(std::io::Error::new(std::io::ErrorKind::Other, $message)) as Box<dyn Error>
+        Box::new(std::io::Error::new(std::io::ErrorKind::Other, $message)) as Box<dyn std::error::Error>
     };
 }
 
@@ -161,21 +162,83 @@ pub fn cat_file(path: &PathBuf) -> io::Result<()> {
 }
 
 
+// pub fn generate_ssh_key(outfile_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+//     let output_dir = SOLANA_ROOT.join("config-k8s");
+
+//     let mut rng = rand::thread_rng();
+//     let private_key = RsaPrivateKey::new(&mut rng, 512)?;
+//     let private_key_pem = private_key.to_pkcs1_pem(LineEnding::LF)?;
+//     let private_key_file_path: PathBuf = output_dir.join(outfile_name); //id_rsa_i
+//     let mut private_key_file = File::create(private_key_file_path)?;
+//     private_key_file.write_all(&private_key_pem.as_bytes())?;
+
+//     let public_key = RsaPublicKey::from(&private_key);
+//     let public_key_pem = public_key.to_pkcs1_pem(LineEnding::LF)?;
+//     let pubkey_file_path = output_dir.join(format!("{}.pub", outfile_name));
+//     let mut pubkey_file = File::create(pubkey_file_path)?;
+//     pubkey_file.write_all(&public_key_pem.as_bytes())?;
+
+//     Ok(())
+// }
+
 pub fn generate_ssh_key(outfile_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let output_dir = SOLANA_ROOT.join("config-k8s");
 
-    let mut rng = rand::thread_rng();
-    let private_key = RsaPrivateKey::new(&mut rng, 512)?;
-    let private_key_pem = private_key.to_pkcs1_pem(LineEnding::LF)?;
-    let private_key_file_path: PathBuf = output_dir.join(outfile_name); //id_rsa_i
-    let mut private_key_file = File::create(private_key_file_path)?;
-    private_key_file.write_all(&private_key_pem.as_bytes())?;
+    let yes = std::process::Command::new("yes")
+        .arg("")
+        .stdout(Stdio::piped())
+        .spawn()?;
 
-    let public_key = RsaPublicKey::from(&private_key);
-    let public_key_pem = public_key.to_pkcs1_pem(LineEnding::LF)?;
-    let pubkey_file_path = output_dir.join(format!("{}.pub", outfile_name));
-    let mut pubkey_file = File::create(pubkey_file_path)?;
-    pubkey_file.write_all(&public_key_pem.as_bytes())?;
+    let yes_stdout = yes.stdout.unwrap();
 
+    let _ = std::process::Command::new("ssh-keygen")
+        .arg("-f")
+        .arg(output_dir.join(outfile_name))
+        .arg("-t")
+        .arg("rsa")
+        .arg("-b")
+        .arg("1024")
+        .arg("-N")
+        .arg("")
+        .arg("-C")
+        .arg(outfile_name)
+        .stdin(Stdio::from(yes_stdout))
+        .output()?;
+
+    // let mut rng = rand::thread_rng();
+    // let private_key = RsaPrivateKey::new(&mut rng, 512)?;
+    // let private_key_pem = private_key.to_pkcs1_pem(LineEnding::LF)?;
+    // let private_key_file_path: PathBuf = output_dir.join(outfile_name); //id_rsa_i
+    // let mut private_key_file = File::create(private_key_file_path)?;
+    // private_key_file.write_all(&private_key_pem.as_bytes())?;
+
+    // let public_key = RsaPublicKey::from(&private_key);
+    // let public_key_pem = public_key.to_pkcs1_pem(LineEnding::LF)?;
+    // let pubkey_file_path = output_dir.join(format!("{}.pub", outfile_name));
+    // let mut pubkey_file = File::create(pubkey_file_path)?;
+    // pubkey_file.write_all(&public_key_pem.as_bytes())?;
+
+    Ok(())
+}
+
+pub fn append_pubkeys_to_authorized_keys(
+    num_files: i32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let outfile_path: PathBuf = SOLANA_ROOT.join("config-k8s/authorized_keys");
+    if Path::new(&outfile_path).exists() {
+        std::fs::remove_file(&outfile_path)?;
+    }
+
+    let mut outfile = File::create(&outfile_path)?;
+
+    for i in 0..num_files {
+        let filename = SOLANA_ROOT.join(format!("config-k8s/id_rsa_{}.pub", i));
+        
+        let file = File::open(&filename)?;
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            writeln!(outfile, "{}", line?)?;
+        }
+    }
     Ok(())
 }

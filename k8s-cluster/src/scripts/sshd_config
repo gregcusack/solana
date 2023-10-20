@@ -2,3 +2,5 @@ Port 2222
 HostKey /home/solana/ssh_host_rsa_key
 HostKey /home/solana/ssh_host_ecdsa_key
 HostKey /home/solana/ssh_host_ed25519_key
+PasswordAuthentication no
+PermitRootLogin no

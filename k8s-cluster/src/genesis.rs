@@ -201,7 +201,9 @@ impl Genesis {
 
         for i in 0..number_of_accounts {
             self.generate_account(validator_type, &filename_prefix, i)?;
-            generate_ssh_key(&format!("id_rsa_{}", i))?;
+            if validator_type == ValidatorType::Standard {
+                generate_ssh_key(&format!("id_rsa_{}", i))?;
+            }
         }
 
         Ok(())
