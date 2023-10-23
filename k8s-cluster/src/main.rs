@@ -587,44 +587,49 @@ async fn main() {
         }
     }
 
-    if !setup_config.skip_genesis_build {
-        info!("Creating Genesis");
-        let mut genesis = Genesis::new(genesis_flags);
-        match genesis.generate_faucet() {
-            Ok(_) => (),
-            Err(err) => {
-                error!("generate faucet error! {}", err);
-                return;
-            }
-        }
-        match genesis.generate_accounts(ValidatorType::Bootstrap, 1) {
-            Ok(_) => (),
-            Err(err) => {
-                error!("generate accounts error! {}", err);
-                return;
-            }
-        }
+    // Download validator version and Build docker image
+    let docker_image_config = if build_config.docker_build {
+        Some(DockerImageConfig {
+            base_image: matches.value_of("base_image").unwrap_or_default(),
+            image_name: matches.value_of("image_name").unwrap(),
+            tag: matches.value_of("image_tag").unwrap_or_default(),
+            registry: matches.value_of("registry_name").unwrap(),
+        })
+    } else {
+        None
+    };
 
-        match genesis.generate_accounts(ValidatorType::Standard, setup_config.num_validators) {
-            Ok(_) => (),
-            Err(err) => {
-                error!("generate accounts error! {}", err);
-                return;
-            }
+    let deploy = Deploy::new(build_config.clone());
+    match deploy.prepare().await {
+        Ok(_) => info!("Validator setup prepared successfully"),
+        Err(err) => {
+            error!("Exiting........ {}", err);
+            return;
         }
+    }
 
-        if client_config.num_clients > 0 && client_config.client_to_run == "bench-tps".to_string() {
-            match genesis.create_client_accounts(
-                client_config.num_clients,
-                DEFAULT_CLIENT_LAMPORTS_PER_SIGNATURE,
-                client_config.bench_tps_args,
-            ) {
-                Ok(_) => (),
-                Err(err) => {
-                    error!("generate client accounts error! {}", err);
-                    return;
-                }
-            }
+    info!("Creating Genesis");
+    let mut genesis = Genesis::new(genesis_flags);
+    match genesis.generate_faucet() {
+        Ok(_) => (),
+        Err(err) => {
+            error!("generate faucet error! {}", err);
+            return;
+        }
+    }
+    match genesis.generate_accounts(ValidatorType::Bootstrap, 1) {
+        Ok(_) => (),
+        Err(err) => {
+            error!("generate accounts error! {}", err);
+            return;
+        }
+    }
+
+    match genesis.generate_accounts(ValidatorType::Standard, setup_config.num_validators) {
+        Ok(_) => (),
+        Err(err) => {
+            error!("generate accounts error! {}", err);
+            return;
         }
 
         // creates genesis and writes to binary file
@@ -671,32 +676,26 @@ async fn main() {
         };
     }
 
-    // Download validator version and Build docker image
-    let docker_image_config = if build_config.docker_build && !setup_config.skip_genesis_build {
-        Some(DockerImageConfig {
-            base_image: matches.value_of("base_image").unwrap_or_default(),
-            image_name: matches.value_of("image_name").unwrap(),
-            tag: matches.value_of("image_tag").unwrap_or_default(),
-            registry: matches.value_of("registry_name").unwrap(),
-        })
-    } else {
-        None
-    };
-
-    let deploy = Deploy::new(build_config.clone());
-    match deploy.prepare().await {
-        Ok(_) => info!("Validator setup prepared successfully"),
-        Err(err) => {
-            error!("Exiting........ {}", err);
-            return;
+    if let Some(config) = docker_image_config {
+        let docker = DockerConfig::new(config, build_config.deploy_method);
+        let image_types = vec![ValidatorType::Bootstrap, ValidatorType::Standard];
+        for image_type in &image_types {
+            match docker.build_image(image_type) {
+                Ok(_) => info!("Docker image built successfully"),
+                Err(err) => {
+                    error!("Exiting........ {}", err);
+                    return;
+                }
+            }
         }
-    }
 
-    // Begin Kubernetes Setup and Deployment
-    let config_map = match kub_controller.create_genesis_config_map().await {
-        Ok(config_map) => {
-            info!("successfully deployed config map");
-            config_map
+        // Need to push image to registry so Monogon nodes can pull image from registry to local
+        match docker.push_image(&ValidatorType::Bootstrap) {
+            Ok(_) => info!("Bootstrap Image pushed successfully to registry"),
+            Err(err) => {
+                error!("{}", err);
+                return;
+            }
         }
 
         // Need to push image to registry so Monogon nodes can pull image from registry to local
@@ -708,6 +707,26 @@ async fn main() {
             }
         }
     }
+
+    // match genesis.package_up() {
+    //     Ok(_) => (),
+    //     Err(err) => {
+    //         error!("package genesis error! {}", err);
+    //         return;
+    //     }
+    // }
+
+    // // Begin Kubernetes Setup and Deployment
+    // let config_map = match kub_controller.create_genesis_config_map().await {
+    //     Ok(config_map) => {
+    //         info!("successfully deployed config map");
+    //         config_map
+    //     }
+    //     Err(err) => {
+    //         error!("Failed to deploy config map: {}", err);
+    //         return;
+    //     }
+    // };
 
     let bootstrap_container_name = matches
         .value_of("bootstrap_container_name")
@@ -753,6 +772,7 @@ async fn main() {
             bootstrap_container_name,
             bootstrap_image_name,
             BOOTSTRAP_VALIDATOR_REPLICAS,
+            None,
             bootstrap_secret.metadata.name.clone(),
             &label_selector,
         )
@@ -834,6 +854,7 @@ async fn main() {
                 validator_index,
                 validator_image_name,
                 1,
+                None,
                 validator_secret.metadata.name.clone(),
                 &label_selector,
             )
