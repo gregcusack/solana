@@ -179,32 +179,6 @@ impl<'a> Kubernetes<'a> {
         flags
     }
 
-    fn generate_client_command_flags(&self) -> Vec<String> {
-        let mut flags = vec![];
-
-        flags.push(self.client_config.client_to_run.clone()); //client to run
-        let bench_tps_args = self.client_config.bench_tps_args.join(" ");
-        flags.push(bench_tps_args);
-        flags.push(self.client_config.client_type.clone());
-
-        if let Some(target_node) = self.client_config.target_node {
-            flags.push("--target-node".to_string());
-            flags.push(target_node.to_string());
-        }
-
-        flags.push("--duration".to_string());
-        flags.push(self.client_config.duration.to_string());
-        info!("greg duration: {}", self.client_config.duration);
-
-        if let Some(num_nodes) = self.client_config.num_nodes {
-            flags.push("--num-nodes".to_string());
-            flags.push(num_nodes.to_string());
-            info!("greg num nodes: {}", num_nodes);
-        }
-
-        flags
-    }
-
     pub async fn namespace_exists(&self) -> Result<bool, kube::Error> {
         let namespaces: Api<Namespace> = Api::all(self.client.clone());
         let namespace_list = namespaces.list(&ListParams::default()).await?;
@@ -299,30 +273,30 @@ impl<'a> Kubernetes<'a> {
     ) -> Result<ReplicaSet, Box<dyn Error>> {
         let mut volumes = vec![accounts_volume];
         let mut volume_mounts = vec![accounts_volume_mount];
-        if app_name == "bootstrap-validator" {
-            info!("bootstrap create replicaset");
-            let Some(config_map_name) = config_map_name else {
-                return Err(boxed_error!("config_map_name is None!"));
-            };
+        // if app_name == "bootstrap-validator" {
+        //     info!("bootstrap create replicaset");
+        //     // let Some(config_map_name) = config_map_name else {
+        //     //     return Err(boxed_error!("config_map_name is None!"));
+        //     // };
 
-            let genesis_volume = Volume {
-                name: "genesis-config-volume".into(),
-                config_map: Some(ConfigMapVolumeSource {
-                    name: Some(config_map_name.clone()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
+        //     let genesis_volume = Volume {
+        //         name: "genesis-config-volume".into(),
+        //         config_map: Some(ConfigMapVolumeSource {
+        //             name: Some(config_map_name.clone()),
+        //             ..Default::default()
+        //         }),
+        //         ..Default::default()
+        //     };
 
-            let genesis_volume_mount = VolumeMount {
-                name: "genesis-config-volume".to_string(),
-                mount_path: "/home/solana/genesis".to_string(),
-                ..Default::default()
-            };
+        //     let genesis_volume_mount = VolumeMount {
+        //         name: "genesis-config-volume".to_string(),
+        //         mount_path: "/home/solana/genesis".to_string(),
+        //         ..Default::default()
+        //     };
 
-            volumes.push(genesis_volume);
-            volume_mounts.push(genesis_volume_mount);
-        }
+        //     volumes.push(genesis_volume);
+        //     volume_mounts.push(genesis_volume_mount);
+        // }
         // Define the pod spec
         let pod_spec = PodTemplateSpec {
             metadata: Some(ObjectMeta {
