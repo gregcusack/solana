@@ -143,8 +143,7 @@ fn parse_matches() -> ArgMatches<'static> {
         .arg(
             Arg::with_name("skip_genesis_build")
                 .long("skip-genesis-build")
-                .help("skip genesis build. Don't generate a new genesis and associated validator accounts.
-                    really just for testing. can rerun a basic test without having to build and push a new docker container"),
+                .help("NOT SUPPORTED! TODO: skip genesis build. Don't generate a new genesis and associated validator accounts"),
         )
         .arg(
             Arg::with_name("hashes_per_tick")
@@ -387,58 +386,6 @@ async fn main() {
         skip_genesis_build: matches.is_present("skip_genesis_build"),
     };
 
-    if setup_config.skip_genesis_build
-        && !get_solana_root()
-            .join("config-k8s/bootstrap-validator")
-            .exists()
-    {
-        error!("Skipping genesis build but there is not previous genesis to use. exiting...");
-    }
-
-    let client_config = ClientConfig {
-        num_clients: value_t_or_exit!(matches, "number_of_clients", i32),
-        client_delay_start: matches
-            .value_of("client_delay_start")
-            .unwrap()
-            .parse()
-            .expect("Failed to parse client_delay_start into u64"),
-        client_type: matches
-            .value_of("client_type")
-            .unwrap_or_default()
-            .to_string(),
-        client_to_run: matches
-            .value_of("client_to_run")
-            .unwrap_or_default()
-            .to_string(),
-        bench_tps_args: matches
-            .values_of("bench_tps_args")
-            .unwrap_or_default()
-            .flat_map(|arg| {
-                arg.split('=')
-                    .enumerate()
-                    .map(|(idx, s)| {
-                        if idx == 0 {
-                            format!("--{}", s) // prepend '--' to the flag
-                        } else {
-                            s.to_string()
-                        }
-                    })
-                    .collect::<Vec<String>>()
-            })
-            .collect(),
-        target_node: match matches.value_of("target_node") {
-            Some(s) => match s.parse::<Pubkey>() {
-                Ok(pubkey) => Some(pubkey),
-                Err(e) => return error!("failed to parse pubkey in target_node: {}", e),
-            },
-            None => None,
-        },
-        duration: value_t_or_exit!(matches, "duration", u64),
-        num_nodes: matches
-            .value_of("num_nodes")
-            .map(|value_str| value_str.parse().expect("Invalid value for num_nodes")),
-    };
-
     let build_config = BuildConfig {
         release_channel: matches.value_of("release_channel").unwrap_or_default(),
         deploy_method: matches.value_of("deploy_method").unwrap(),
@@ -587,27 +534,6 @@ async fn main() {
         }
     }
 
-    // Download validator version and Build docker image
-    let docker_image_config = if build_config.docker_build {
-        Some(DockerImageConfig {
-            base_image: matches.value_of("base_image").unwrap_or_default(),
-            image_name: matches.value_of("image_name").unwrap(),
-            tag: matches.value_of("image_tag").unwrap_or_default(),
-            registry: matches.value_of("registry_name").unwrap(),
-        })
-    } else {
-        None
-    };
-
-    let deploy = Deploy::new(build_config.clone());
-    match deploy.prepare().await {
-        Ok(_) => info!("Validator setup prepared successfully"),
-        Err(err) => {
-            error!("Exiting........ {}", err);
-            return;
-        }
-    }
-
     info!("Creating Genesis");
     let mut genesis = Genesis::new(genesis_flags);
     match genesis.generate_faucet() {
@@ -676,6 +602,27 @@ async fn main() {
         };
     }
 
+    // Download validator version and Build docker image
+    let docker_image_config = if build_config.docker_build {
+        Some(DockerImageConfig {
+            base_image: matches.value_of("base_image").unwrap_or_default(),
+            image_name: matches.value_of("image_name").unwrap(),
+            tag: matches.value_of("image_tag").unwrap_or_default(),
+            registry: matches.value_of("registry_name").unwrap(),
+        })
+    } else {
+        None
+    };
+
+    let deploy = Deploy::new(build_config.clone());
+    match deploy.prepare().await {
+        Ok(_) => info!("Validator setup prepared successfully"),
+        Err(err) => {
+            error!("Exiting........ {}", err);
+            return;
+        }
+    }
+
     if let Some(config) = docker_image_config {
         let docker = DockerConfig::new(config, build_config.deploy_method);
         let image_types = vec![ValidatorType::Bootstrap, ValidatorType::Standard];
@@ -707,26 +654,6 @@ async fn main() {
             }
         }
     }
-
-    // match genesis.package_up() {
-    //     Ok(_) => (),
-    //     Err(err) => {
-    //         error!("package genesis error! {}", err);
-    //         return;
-    //     }
-    // }
-
-    // // Begin Kubernetes Setup and Deployment
-    // let config_map = match kub_controller.create_genesis_config_map().await {
-    //     Ok(config_map) => {
-    //         info!("successfully deployed config map");
-    //         config_map
-    //     }
-    //     Err(err) => {
-    //         error!("Failed to deploy config map: {}", err);
-    //         return;
-    //     }
-    // };
 
     let bootstrap_container_name = matches
         .value_of("bootstrap_container_name")

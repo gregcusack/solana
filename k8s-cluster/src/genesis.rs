@@ -166,6 +166,13 @@ impl std::fmt::Display for GenesisFlags {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct SetupConfig<'a> {
+    pub namespace: &'a str,
+    pub num_validators: i32,
+    pub skip_genesis_build: bool,
+}
+
 pub struct ValidatorAccountKeypairs {
     pub vote_account: Keypair,
     pub identity: Keypair,
