@@ -18,7 +18,7 @@ use {
         Client,
     },
     log::*,
-    solana_sdk::{hash::Hash, pubkey::Pubkey},
+    solana_sdk::hash::Hash,
     std::{collections::BTreeMap, error::Error},
 };
 
@@ -268,35 +268,12 @@ impl<'a> Kubernetes<'a> {
         num_validators: i32,
         env_vars: Vec<EnvVar>,
         command: &[String],
-        volumes: Option<Vec<Volume>>,
-        volume_mounts: Option<Vec<VolumeMount>>,
+        accounts_volume: Volume,
+        accounts_volume_mount: VolumeMount,
     ) -> Result<ReplicaSet, Box<dyn Error>> {
-        let mut volumes = vec![accounts_volume];
-        let mut volume_mounts = vec![accounts_volume_mount];
-        // if app_name == "bootstrap-validator" {
-        //     info!("bootstrap create replicaset");
-        //     // let Some(config_map_name) = config_map_name else {
-        //     //     return Err(boxed_error!("config_map_name is None!"));
-        //     // };
+        let volumes = vec![accounts_volume];
+        let volume_mounts = vec![accounts_volume_mount];
 
-        //     let genesis_volume = Volume {
-        //         name: "genesis-config-volume".into(),
-        //         config_map: Some(ConfigMapVolumeSource {
-        //             name: Some(config_map_name.clone()),
-        //             ..Default::default()
-        //         }),
-        //         ..Default::default()
-        //     };
-
-        //     let genesis_volume_mount = VolumeMount {
-        //         name: "genesis-config-volume".to_string(),
-        //         mount_path: "/home/solana/genesis".to_string(),
-        //         ..Default::default()
-        //     };
-
-        //     volumes.push(genesis_volume);
-        //     volume_mounts.push(genesis_volume_mount);
-        // }
         // Define the pod spec
         let pod_spec = PodTemplateSpec {
             metadata: Some(ObjectMeta {
@@ -562,8 +539,16 @@ impl<'a> Kubernetes<'a> {
         Ok(available_validators >= desired_validators)
     }
 
-    fn set_non_bootstrap_environment_variables(&self) -> Vec<EnvVar> {
-        vec![
+    pub async fn create_validator_replicas_set(
+        &mut self,
+        container_name: &str,
+        validator_index: i32,
+        image_name: &str,
+        num_validators: i32,
+        secret_name: Option<String>,
+        label_selector: &BTreeMap<String, String>,
+    ) -> Result<ReplicaSet, Box<dyn Error>> {
+        let env_vars = vec![
             EnvVar {
                 name: "NAMESPACE".to_string(),
                 value_from: Some(EnvVarSource {
@@ -639,54 +624,6 @@ impl<'a> Kubernetes<'a> {
             container_name,
             image_name,
             num_validators,
-            env_vars,
-            &command,
-            accounts_volume,
-            accounts_volume_mount,
-        )
-        .await
-    }
-
-    pub async fn create_client_replica_set(
-        &mut self,
-        container_name: &str,
-        client_index: i32,
-        image_name: &str,
-        num_clients: i32,
-        secret_name: Option<String>,
-        label_selector: &BTreeMap<String, String>,
-    ) -> Result<ReplicaSet, Box<dyn Error>> {
-        let env_vars = self.set_non_bootstrap_environment_variables();
-
-        let accounts_volume = Some(vec![Volume {
-            name: format!("client-accounts-volume-{}", client_index),
-            secret: Some(SecretVolumeSource {
-                secret_name,
-                ..Default::default()
-            }),
-            ..Default::default()
-        }]);
-
-        let accounts_volume_mount = Some(vec![VolumeMount {
-            name: format!("client-accounts-volume-{}", client_index),
-            mount_path: "/home/solana/client-accounts".to_string(),
-            ..Default::default()
-        }]);
-
-        let mut command =
-            vec!["/home/solana/k8s-cluster-scripts/client-startup-script.sh".to_string()];
-        command.extend(self.generate_client_command_flags());
-
-        for c in command.iter() {
-            debug!("client command: {}", c);
-        }
-
-        self.create_replicas_set(
-            format!("client-{}", client_index).as_str(),
-            label_selector,
-            container_name,
-            image_name,
-            num_clients,
             env_vars,
             &command,
             accounts_volume,
