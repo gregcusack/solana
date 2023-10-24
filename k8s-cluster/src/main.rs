@@ -699,7 +699,6 @@ async fn main() {
             bootstrap_container_name,
             bootstrap_image_name,
             BOOTSTRAP_VALIDATOR_REPLICAS,
-            None,
             bootstrap_secret.metadata.name.clone(),
             &label_selector,
         )
@@ -781,7 +780,6 @@ async fn main() {
                 validator_index,
                 validator_image_name,
                 1,
-                None,
                 validator_secret.metadata.name.clone(),
                 &label_selector,
             )
