@@ -296,6 +296,10 @@ SOLANA_RPC_URL="http://$BOOTSTRAP_RPC_ADDRESS"
 # Identity file
 IDENTITY_FILE=$identity
 
+# sleep 3600
+
+vote_account_already_exists=false
+
 # Function to run a Solana command with retries. need reties because sometimes dns resolver fails
 # if pod dies and starts up again it may try to create a vote account or something that already exists
 run_solana_command() {
@@ -304,18 +308,49 @@ run_solana_command() {
 
     for ((retry_count = 1; retry_count <= MAX_RETRIES; retry_count++)); do
       echo "Attempt $retry_count for: $description"
-
-      if $command; then
+      
+      output=$($command 2>&1)
+      status=$?
+      if [ $status -eq 0 ]; then
         echo "Command succeeded: $description"
         return 0
       else
-        echo "Command failed for: $description (Exit status $?)"
+        echo "Command failed for: $description (Exit status $status)"
+        echo "$output" # Print the output which includes the error
+
+        # Check for specific error message vote account exists
+        if [[ "$output" == *"Vote account"*"already exists"* ]]; then
+          echo "Vote account already exists. Assume pod was restarted...Continuing without exiting."
+          vote_account_already_exists=true
+          return 0
+        fi
+
+        # # Check for specific error message for stake account exists
+        # if [[ "$output" == *"Stake account"*"already exists"* ]]; then
+        #     echo "Stake account already exists. Assume pod was restarted...Continuing without exiting."
+        #     return 0
+        # fi
+        
         if [ "$retry_count" -lt $MAX_RETRIES ]; then
           echo "Retrying in $RETRY_DELAY seconds..."
           sleep $RETRY_DELAY
         fi
       fi
     done
+
+    #   #########
+
+    #   if $command; then
+    #     echo "Command succeeded: $description"
+    #     return 0
+    #   else
+    #     echo "Command failed for: $description (Exit status $?)"
+    #     if [ "$retry_count" -lt $MAX_RETRIES ]; then
+    #       echo "Retrying in $RETRY_DELAY seconds..."
+    #       sleep $RETRY_DELAY
+    #     fi
+    #   fi
+    # done
 
     echo "Max retry limit reached. Command still failed for: $description"
     return 1
@@ -332,14 +367,16 @@ if ! run_solana_command "solana -u $SOLANA_RPC_URL create-vote-account --allow-u
   exit 1
 fi
 
-if ! run_solana_command "solana -u $SOLANA_RPC_URL create-stake-account stake.json $stake_sol -k $IDENTITY_FILE" "Create Stake Account"; then
-  echo "Create stake account failed."
-  exit 1
-fi
+if [ "$vote_account_already_exists" != true ]; then
+  if ! run_solana_command "solana -u $SOLANA_RPC_URL create-stake-account stake.json $stake_sol -k $IDENTITY_FILE" "Create Stake Account"; then
+    echo "Create stake account failed."
+    exit 1
+  fi
 
-if ! run_solana_command "solana -u $SOLANA_RPC_URL delegate-stake stake.json vote.json --force -k $IDENTITY_FILE" "Delegate Stake"; then
-  echo "Delegate stake command failed."
-  exit 1
+  if ! run_solana_command "solana -u $SOLANA_RPC_URL delegate-stake stake.json vote.json --force -k $IDENTITY_FILE" "Delegate Stake"; then
+    echo "Delegate stake command failed."
+    exit 1
+  fi
 fi
 
 echo "All commands succeeded. Running solana-validator next..."
