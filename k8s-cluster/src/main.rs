@@ -551,11 +551,18 @@ async fn main() {
         }
     }
 
-    match genesis.generate_accounts(ValidatorType::Standard, setup_config.num_validators) {
-        Ok(_) => (),
-        Err(err) => {
-            error!("generate accounts error! {}", err);
-            return;
+        if client_config.num_clients > 0 && client_config.client_to_run == "bench-tps" {
+            match genesis.create_client_accounts(
+                client_config.num_clients,
+                DEFAULT_CLIENT_LAMPORTS_PER_SIGNATURE,
+                client_config.bench_tps_args,
+            ) {
+                Ok(_) => (),
+                Err(err) => {
+                    error!("generate client accounts error! {}", err);
+                    return;
+                }
+            }
         }
 
         // creates genesis and writes to binary file
