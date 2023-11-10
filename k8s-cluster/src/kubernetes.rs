@@ -287,7 +287,7 @@ impl<'a> Kubernetes<'a> {
                     image_pull_policy: Some("Always".to_string()),
                     env: Some(env_vars),
                     command: Some(command.to_owned()),
-                    volume_mounts: Some(volume_mounts),
+                    volume_mounts,
                     ..Default::default()
                 }],
                 volumes: Some(volumes),
