@@ -364,6 +364,7 @@ fn parse_matches() -> ArgMatches<'static> {
                 .takes_value(true)
                 .help("Client Config. Optional: Wait for NUM nodes to converge: --num-nodes <NUM> "),
         )
+        //Metrics Config
         .arg(
             Arg::with_name("metrics_host")
                 .long("metrics-host")
@@ -375,25 +376,37 @@ fn parse_matches() -> ArgMatches<'static> {
             Arg::with_name("metrics_port")
                 .long("metrics-port")
                 .takes_value(true)
-                .help("Client Config. Optional: specify metrics port. e.g. 8086"),
+                .help("Metrics Config. Optional: specify metrics port. e.g. 8086"),
         )
         .arg(
             Arg::with_name("metrics_db")
                 .long("metrics-db")
                 .takes_value(true)
-                .help("Client Config. Optional: specify metrics database. e.g. k8s-cluster-<your name>"),
+                .help("Metrics Config. Optional: specify metrics database. e.g. k8s-cluster-<your name>"),
         )
         .arg(
             Arg::with_name("metrics_username")
                 .long("metrics-username")
                 .takes_value(true)
-                .help("Client Config. Optional: specify metrics username"),
+                .help("Metrics Config. Optional: specify metrics username"),
         )
         .arg(
             Arg::with_name("metrics_password")
                 .long("metrics-password")
                 .takes_value(true)
-                .help("Client Config. Optional: Specify metrics password"),
+                .help("Metrics Config. Optional: Specify metrics password"),
+        )
+        //Faucet config
+        .arg(
+            Arg::with_name("number_of_faucets")
+                .long("num-faucets")
+                .takes_value(true)
+                .default_value("0")
+                .help("Number of faucets ")
+                .validator(|s| match s.parse::<i32>() {
+                    Ok(n) if n >= 0 => Ok(()),
+                    _ => Err(String::from("number_of_faucets should be >= 0")),
+                }),
         )
         .get_matches()
 }
@@ -417,6 +430,60 @@ async fn main() {
         namespace: matches.value_of("cluster_namespace").unwrap_or_default(),
         num_validators: value_t_or_exit!(matches, "number_of_validators", i32),
         skip_genesis_build: matches.is_present("skip_genesis_build"),
+    };
+
+    if setup_config.skip_genesis_build
+        && !get_solana_root()
+            .join("config-k8s/bootstrap-validator")
+            .exists()
+    {
+        error!("Skipping genesis build but there is not previous genesis to use. exiting...");
+    }
+
+    let num_faucets = value_t_or_exit!(matches, "number_of_faucets", i32);
+
+    let client_config = ClientConfig {
+        num_clients: value_t_or_exit!(matches, "number_of_clients", i32),
+        client_delay_start: matches
+            .value_of("client_delay_start")
+            .unwrap()
+            .parse()
+            .expect("Failed to parse client_delay_start into u64"),
+        client_type: matches
+            .value_of("client_type")
+            .unwrap_or_default()
+            .to_string(),
+        client_to_run: matches
+            .value_of("client_to_run")
+            .unwrap_or_default()
+            .to_string(),
+        bench_tps_args: matches
+            .values_of("bench_tps_args")
+            .unwrap_or_default()
+            .flat_map(|arg| {
+                arg.split('=')
+                    .enumerate()
+                    .map(|(idx, s)| {
+                        if idx == 0 {
+                            format!("--{}", s) // prepend '--' to the flag
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .collect::<Vec<String>>()
+            })
+            .collect(),
+        target_node: match matches.value_of("target_node") {
+            Some(s) => match s.parse::<Pubkey>() {
+                Ok(pubkey) => Some(pubkey),
+                Err(e) => return error!("failed to parse pubkey in target_node: {}", e),
+            },
+            None => None,
+        },
+        duration: value_t_or_exit!(matches, "duration", u64),
+        num_nodes: matches
+            .value_of("num_nodes")
+            .map(|value_str| value_str.parse().expect("Invalid value for num_nodes")),
     };
 
     let build_config = BuildConfig {
@@ -562,6 +629,7 @@ async fn main() {
         &mut validator_config,
         client_config.clone(),
         metrics,
+        num_faucets,
     )
     .await;
     match kub_controller.namespace_exists().await {
@@ -596,6 +664,14 @@ async fn main() {
             return;
         }
     }
+
+        match genesis.generate_accounts(ValidatorType::NonVoting, num_faucets) {
+            Ok(_) => (),
+            Err(err) => {
+                error!("generate non voting accounts for faucet error! {}", err);
+                return;
+            }
+        }
 
         if client_config.num_clients > 0 && client_config.client_to_run == "bench-tps" {
             match genesis.create_client_accounts(
@@ -678,7 +754,7 @@ async fn main() {
 
     if let Some(config) = docker_image_config {
         let docker = DockerConfig::new(config, build_config.deploy_method);
-        let image_types = vec![ValidatorType::Bootstrap, ValidatorType::Standard];
+        let image_types = vec![ValidatorType::Bootstrap, ValidatorType::Standard, ValidatorType::NonVoting];
         for image_type in &image_types {
             match docker.build_image(image_type) {
                 Ok(_) => info!("Docker image built successfully"),
@@ -726,6 +802,14 @@ async fn main() {
         .value_of("validator_container_name")
         .unwrap_or_default();
     let client_image_name = matches
+        .value_of("validator_image_name")
+        .expect("Validator image name is required");
+
+    // Just using validator container for faucet right now. they're all the same image
+    let faucet_container_name = matches
+        .value_of("validator_container_name")
+        .unwrap_or_default();
+    let faucet_image_name = matches
         .value_of("validator_image_name")
         .expect("Validator image name is required");
 
@@ -821,6 +905,116 @@ async fn main() {
         thread::sleep(Duration::from_secs(1));
     }
     info!("replica set: {} Ready!", bootstrap_replica_set_name);
+
+    //Create and deploy non-voting validators and faucet behind a load balancer
+
+    if num_faucets > 0 {
+        // we need one load balancer for all of these faucets...
+        let label_selector = kub_controller.create_selector(
+            "app.kubernetes.io/name",
+            "faucet-lb-selector",
+        );
+        let mut faucets = vec![];
+        for faucet_index in 0..num_faucets {
+            let faucet_secret = match kub_controller.create_faucet_secret(faucet_index)
+            {
+                Ok(secret) => secret,
+                Err(err) => {
+                    error!("Failed to create faucet secret! {}", err);
+                    return;
+                }
+            };
+            match kub_controller.deploy_secret(&faucet_secret).await {
+                Ok(_) => (),
+                Err(err) => {
+                    error!("{}", err);
+                    return;
+                }
+            }
+
+            let faucet_replica_set = match kub_controller
+                .create_faucet_replica_set(
+                    faucet_container_name,
+                    faucet_index,
+                    faucet_image_name,
+                    1,
+                    faucet_secret.metadata.name.clone(),
+                    &label_selector,
+                )
+                .await
+            {
+                Ok(replica_set) => replica_set,
+                Err(err) => {
+                    error!("Error creating faucet replicas_set: {}", err);
+                    return;
+                }
+            };
+
+            // deploy replica set
+            let faucet_replica_set_name = match kub_controller
+                .deploy_replicas_set(&faucet_replica_set)
+                .await {
+                    Ok(rs) => {
+                        info!(
+                            "faucet replica set ({}) deployed successfully",
+                            faucet_index
+                        );
+                        rs.metadata.name.unwrap()
+                    }
+                    Err(err) => {
+                        error!(
+                            "Error! Failed to deploy faucet replica set: {}. err: {:?}",
+                            faucet_index, err
+                        );
+                        return;
+                    }
+            };
+            faucets.push(faucet_replica_set_name);
+
+        }
+
+        //create load balancer
+        let faucet_load_balancer = kub_controller.create_faucet_load_balancer(
+            "faucet-lb-service",
+            &label_selector,
+        );
+
+        //deploy load balancer
+        match kub_controller.deploy_service(&faucet_load_balancer).await {
+            Ok(_) => info!("faucet load balancer service deployed successfully"),
+            Err(err) => error!("Error! Failed to deploy faucet loadbalancer service. err: {:?}", err),
+        }
+
+        // wait for faucet replicaset to deploy
+        loop {
+            let mut one_faucet_ready = false;
+            for faucet in &faucets {
+                match kub_controller
+                    .check_replica_set_ready(faucet.as_str())
+                    .await {
+                        Ok(ready) => {
+                            if ready {
+                                one_faucet_ready = true;
+                                break;
+                            }
+                        }, // Continue the loop if replica set is not ready: Ok(false)
+                        Err(_) => panic!("Error occurred while checking faucet replica set readiness"),
+                }
+            }
+
+            if one_faucet_ready { break; }
+
+            info!("no faucet replica sets ready");
+            thread::sleep(Duration::from_secs(1));
+
+        }
+        info!("faucet replica set: {} Ready!", bootstrap_replica_set_name);
+
+        thread::sleep(Duration::from_secs(120));
+    }
+
+
+
 
     // Create and deploy validators
     for validator_index in 0..setup_config.num_validators {
