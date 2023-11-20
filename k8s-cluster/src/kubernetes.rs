@@ -18,7 +18,12 @@ use {
         Client,
     },
     log::*,
-    solana_sdk::{hash::Hash, pubkey::Pubkey},
+    solana_sdk::{hash::Hash, pubkey::Pubkey, signer::keypair,
+        signature::{
+            Signer,
+            read_keypair_file,
+        },
+    },
     std::{collections::BTreeMap, error::Error},
 };
 
@@ -37,10 +42,18 @@ pub struct ValidatorConfig<'a> {
     pub no_snapshot_fetch: bool,
     pub require_tower: bool,
     pub enable_full_rpc: bool,
+    pub known_validators: Option<Vec<Pubkey>>,
 }
 
 impl<'a> std::fmt::Display for ValidatorConfig<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let known_validators_str = match &self.known_validators {
+            Some(validators) => validators.iter()
+                                          .map(|v| v.to_string()) // Assuming Pubkey has Display implemented
+                                          .collect::<Vec<_>>()
+                                          .join(", "),
+            None => "None".to_string(),
+        };
         write!(
             f,
             "Runtime Config\n\
@@ -57,7 +70,8 @@ impl<'a> std::fmt::Display for ValidatorConfig<'a> {
              skip_poh_verify: {}\n\
              no_snapshot_fetch: {}\n\
              require_tower: {}\n\
-             enable_full_rpc: {}",
+             enable_full_rpc: {}\n\
+             known_validators: {:?}",
             self.tpu_enable_udp,
             self.tpu_disable_quic,
             self.gpu_mode,
@@ -72,6 +86,7 @@ impl<'a> std::fmt::Display for ValidatorConfig<'a> {
             self.no_snapshot_fetch,
             self.require_tower,
             self.enable_full_rpc,
+            known_validators_str,
         )
     }
 }
@@ -212,6 +227,13 @@ impl<'a> Kubernetes<'a> {
             flags.push(shred_version.to_string());
         }
 
+        if let Some(known_validators) = &self.validator_config.known_validators {
+            for key in known_validators.iter() {
+                flags.push("--known-validator".to_string());
+                flags.push(key.to_string());
+            }
+        }
+
         flags
     }
 
@@ -230,12 +252,10 @@ impl<'a> Kubernetes<'a> {
 
         flags.push("--duration".to_string());
         flags.push(self.client_config.duration.to_string());
-        info!("greg duration: {}", self.client_config.duration);
 
         if let Some(num_nodes) = self.client_config.num_nodes {
             flags.push("--num-nodes".to_string());
             flags.push(num_nodes.to_string());
-            info!("greg num nodes: {}", num_nodes);
         }
 
         flags
@@ -429,7 +449,19 @@ impl<'a> Kubernetes<'a> {
         }
     }
 
-    pub fn create_bootstrap_secret(&self, secret_name: &str) -> Result<Secret, Box<dyn Error>> {
+    pub fn add_known_validator(&mut self, pubkey: Pubkey) {
+        if let Some(ref mut known_validators ) = self.validator_config.known_validators {
+            known_validators.push(pubkey);
+        } else {
+            let mut new_known_validators = Vec::new();
+            new_known_validators.push(pubkey);
+            self.validator_config.known_validators = Some(new_known_validators);
+        }
+
+        info!("pubkey added to known validators: {:?}", pubkey);
+    }
+
+    pub fn create_bootstrap_secret(&mut self, secret_name: &str) -> Result<Secret, Box<dyn Error>> {
         let faucet_key_path = SOLANA_ROOT.join("config-k8s");
         let faucet_keypair =
             std::fs::read(faucet_key_path.join("faucet.json")).unwrap_or_else(|_| {
@@ -447,6 +479,11 @@ impl<'a> Kubernetes<'a> {
             std::fs::read(key_path.join("stake-account.json")).unwrap_or_else(|_| {
                 panic!("Failed to read stake-account.json file! at: {:?}", key_path)
             });
+
+
+        //TODO: need to fix and not read the json path twice
+        let id_kp = read_keypair_file(key_path.join("identity.json"))?;
+        self.add_known_validator(id_kp.pubkey());
 
         let mut data = BTreeMap::new();
         data.insert(

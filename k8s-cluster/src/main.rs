@@ -576,6 +576,7 @@ async fn main() {
         no_snapshot_fetch: matches.is_present("no_snapshot_fetch"),
         require_tower: matches.is_present("require_tower"),
         enable_full_rpc: matches.is_present("enable_full_rpc"),
+        known_validators: None,
     };
 
     let wait_for_supermajority: Option<u64> = validator_config.wait_for_supermajority;

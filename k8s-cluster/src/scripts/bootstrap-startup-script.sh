@@ -3,6 +3,8 @@ set -e
 
 /home/solana/k8s-cluster-scripts/decode-accounts.sh -t "bootstrap"
 
+# solana-ledger-tool -l ledger/ create-snapshot 0 ledger/
+
 # start faucet
 nohup solana-faucet --keypair faucet.json >logs/faucet.log 2>&1 &
 
