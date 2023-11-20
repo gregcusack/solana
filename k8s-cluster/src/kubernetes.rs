@@ -18,7 +18,7 @@ use {
         Client,
     },
     log::*,
-    solana_sdk::{hash::Hash, pubkey::Pubkey, signer::keypair,
+    solana_sdk::{hash::Hash, pubkey::Pubkey,
         signature::{
             Signer,
             read_keypair_file,
