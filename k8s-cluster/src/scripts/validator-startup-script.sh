@@ -343,7 +343,7 @@ if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL airdrop $node_sol $IDE
   exit 1
 fi
 
-if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-vote-account --allow-unsafe-authorized-withdrawer validator-accounts/vote.json $IDENTITY_FILE $IDENTITY_FILE -k $IDENTITY_FILE" "Create Vote Account"; then
+if ! run_solana_command "solana -u $SOLANA_RPC_URL create-vote-account --allow-unsafe-authorized-withdrawer vote.json $IDENTITY_FILE $IDENTITY_FILE -k $IDENTITY_FILE" "Create Vote Account"; then
   if $vote_account_already_exists; then
     echo "Vote account already exists. Skipping remaining commands."
   else
@@ -353,12 +353,12 @@ if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-vote-account --
 fi
 
 if [ "$vote_account_already_exists" != true ]; then
-  if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-stake-account validator-accounts/stake.json $stake_sol -k $IDENTITY_FILE" "Create Stake Account"; then
+  if ! run_solana_command "solana -u $SOLANA_RPC_URL create-stake-account stake.json $stake_sol -k $IDENTITY_FILE" "Create Stake Account"; then
     echo "Create stake account failed."
     exit 1
   fi
 
-  if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL delegate-stake validator-accounts/stake.json validator-accounts/vote.json --force -k $IDENTITY_FILE" "Delegate Stake"; then
+  if ! run_solana_command "solana -u $SOLANA_RPC_URL delegate-stake stake.json vote.json --force -k $IDENTITY_FILE" "Delegate Stake"; then
     echo "Delegate stake command failed."
     exit 1
   fi
