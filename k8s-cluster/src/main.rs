@@ -647,13 +647,32 @@ async fn main() {
         }
     }
 
-    info!("Creating Genesis");
-    let mut genesis = Genesis::new(genesis_flags);
-    match genesis.generate_faucet() {
+    match kub_controller.set_nodes().await {
         Ok(_) => (),
         Err(err) => {
-            error!("generate faucet error! {}", err);
+            error!("{}", err);
             return;
+        }
+    }
+
+    info!("{} nodes available for deployment", kub_controller.node_count());
+
+    if !setup_config.skip_genesis_build {
+        info!("Creating Genesis");
+        let mut genesis = Genesis::new(genesis_flags);
+        match genesis.generate_faucet() {
+            Ok(_) => (),
+            Err(err) => {
+                error!("generate faucet error! {}", err);
+                return;
+            }
+        }
+        match genesis.generate_accounts(ValidatorType::Bootstrap, 1) {
+            Ok(_) => (),
+            Err(err) => {
+                error!("generate accounts error! {}", err);
+                return;
+            }
         }
     }
     match genesis.generate_accounts(ValidatorType::Bootstrap, 1) {
