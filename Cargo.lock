@@ -2435,7 +2435,7 @@ dependencies = [
  "log",
  "openssl-probe",
  "openssl-sys",
- "url 2.4.1",
+ "url 2.5.0",
 ]
 
 [[package]]
@@ -3159,11 +3159,11 @@ dependencies = [
  "bytes",
  "chrono",
  "http",
- "percent-encoding 2.3.0",
+ "percent-encoding 2.3.1",
  "serde",
  "serde-value",
  "serde_json",
- "url 2.4.1",
+ "url 2.5.0",
 ]
 
 [[package]]
@@ -6587,7 +6587,7 @@ dependencies = [
  "thiserror",
  "tiny-bip39",
  "tokio",
- "url 2.4.1",
+ "url 2.5.0",
 ]
 
 [[package]]
@@ -7403,7 +7403,7 @@ dependencies = [
  "bincode",
  "log",
  "rand 0.8.5",
- "rustc_version 0.4.0",
+ "rustc_version",
  "solana-program",
  "solana-program-runtime",
  "solana-sdk",
