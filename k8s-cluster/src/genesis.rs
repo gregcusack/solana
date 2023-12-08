@@ -6,12 +6,12 @@ use {
     base64::{engine::general_purpose, Engine as _},
     bip39::{Language, Mnemonic, MnemonicType, Seed},
     log::*,
+    rayon::prelude::*,
     solana_clap_v3_utils::{input_parsers::STDOUT_OUTFILE_TOKEN, keygen},
     solana_sdk::{
         genesis_config::{GenesisConfig, DEFAULT_GENESIS_FILE},
         native_token::sol_to_lamports,
-        pubkey::Pubkey,
-        signature::{keypair_from_seed, write_keypair, write_keypair_file, Keypair, Signer},
+        signature::{keypair_from_seed, write_keypair, write_keypair_file, Keypair},
     },
     std::{
         error::Error,
@@ -32,23 +32,23 @@ pub const DEFAULT_BOOTSTRAP_NODE_STAKE_SOL: f64 = 10.0;
 pub const DEFAULT_BOOTSTRAP_NODE_SOL: f64 = 500.0;
 pub const DEFAULT_CLIENT_LAMPORTS_PER_SIGNATURE: u64 = 42;
 
-fn output_keypair(keypair: &Keypair, outfile: &str) -> Result<(), Box<dyn Error>> {
+fn output_keypair(keypair: &Keypair, outfile: &str) -> Result<(), ThreadSafeError> {
     if outfile == STDOUT_OUTFILE_TOKEN {
         let mut stdout = std::io::stdout();
-        write_keypair(keypair, &mut stdout)?;
+        write_keypair(keypair, &mut stdout).map_err(ThreadSafeError::from)?;
     } else {
-        write_keypair_file(keypair, outfile)?;
-        // println!("Wrote {source} keypair to {outfile}");
+        write_keypair_file(keypair, outfile).map_err(ThreadSafeError::from)?;
     }
     Ok(())
 }
 
-fn generate_keypair() -> Result<Keypair, Box<dyn Error>> {
+fn generate_keypair() -> Result<Keypair, ThreadSafeError> {
     let (passphrase, _) = keygen::mnemonic::no_passphrase_and_message();
     let mnemonic_type = MnemonicType::for_word_count(DEFAULT_WORD_COUNT).unwrap();
     let mnemonic = Mnemonic::new(mnemonic_type, Language::English);
     let seed = Seed::new(&mnemonic, &passphrase);
-    keypair_from_seed(seed.as_bytes())
+    // keypair_from_seed(seed.as_bytes())
+    keypair_from_seed(seed.as_bytes()).map_err(ThreadSafeError::from)
 }
 
 fn fetch_spl(fetch_spl_file: &PathBuf) -> Result<(), Box<dyn Error>> {
@@ -124,6 +124,27 @@ fn append_client_accounts_to_file(
     Ok(())
 }
 
+#[derive(Debug)]
+struct ThreadSafeError {
+    inner: String,
+}
+
+impl std::fmt::Display for ThreadSafeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl std::error::Error for ThreadSafeError {}
+
+impl From<Box<dyn Error>> for ThreadSafeError {
+    fn from(err: Box<dyn Error>) -> Self {
+        ThreadSafeError {
+            inner: err.to_string(),
+        }
+    }
+}
+
 pub struct GenesisFlags {
     pub hashes_per_tick: String,
     pub slots_per_epoch: Option<u64>,
@@ -183,7 +204,6 @@ pub struct Genesis {
     pub validator_keypairs: Vec<ValidatorAccountKeypairs>,
     pub faucet_keypair: Option<Keypair>,
     pub genesis_config: Option<GenesisConfig>,
-    pub all_pubkeys: Vec<Pubkey>,
     pub primordial_accounts_files: Vec<PathBuf>,
 }
 
@@ -201,7 +221,6 @@ impl Genesis {
             validator_keypairs: Vec::default(),
             faucet_keypair: None,
             genesis_config: None,
-            all_pubkeys: Vec::default(),
             primordial_accounts_files: Vec::default(),
         }
     }
@@ -211,7 +230,7 @@ impl Genesis {
         let outfile = self.config_dir.join("faucet.json");
         let keypair = match generate_keypair() {
             Ok(keypair) => keypair,
-            Err(err) => return Err(err),
+            Err(err) => return Err(boxed_error!(err)),
         };
 
         if let Some(outfile) = outfile.to_str() {
@@ -223,30 +242,33 @@ impl Genesis {
     }
 
     pub fn generate_accounts(
-        &mut self,
+        &self,
         validator_type: ValidatorType,
         number_of_accounts: i32,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send>> {
         let filename_prefix = match validator_type {
             ValidatorType::Bootstrap => format!("{}-validator", validator_type),
             ValidatorType::Standard => "validator".to_string(),
             ValidatorType::NonVoting => format!("{}-validator", validator_type),
         };
 
-        for i in 0..number_of_accounts {
-            self.generate_account(validator_type, &filename_prefix, i)?;
-        }
+        info!(
+            "generating {} {} accounts...",
+            number_of_accounts, validator_type
+        );
+        (0..number_of_accounts)
+            .into_par_iter()
+            .try_for_each(|i| self.generate_account(validator_type, &filename_prefix, i))?;
 
         Ok(())
     }
 
     // TODO: only supports one client right now.
-    // append all t
     pub fn create_client_accounts(
         &mut self,
         number_of_clients: i32,
         target_lamports_per_signature: u64,
-        bench_tps_args: Vec<String>, //todo: need to set this up from argmatches in main.rs
+        bench_tps_args: Vec<String>,
     ) -> Result<(), Box<dyn Error>> {
         let client_accounts_file = SOLANA_ROOT.join("config-k8s/client-accounts.yml");
         for i in 0..number_of_clients {
@@ -289,18 +311,11 @@ impl Genesis {
 
     // Create identity, stake, and vote accounts
     fn generate_account(
-        &mut self,
+        &self,
         validator_type: ValidatorType,
         filename_prefix: &str,
         i: i32,
-    ) -> Result<(), Box<dyn Error>> {
-        let log_msg = match validator_type {
-            ValidatorType::Bootstrap => format!("generating {} account", validator_type),
-            ValidatorType::Standard => format!("generating {} account: {}", validator_type, i),
-            ValidatorType::NonVoting => format!("generating {} account: {}", validator_type, i),
-        };
-        info!("{}", log_msg);
-
+    ) -> Result<(), Box<dyn Error + Send>> {
         let account_types = vec!["identity", "vote-account", "stake-account"];
         for account in account_types {
             if validator_type == ValidatorType::NonVoting && account == "vote-account" {
@@ -316,16 +331,11 @@ impl Genesis {
             let outfile = self.config_dir.join(&filename);
             trace!("outfile: {:?}", outfile);
 
-            let keypair = generate_keypair()?;
-            self.all_pubkeys.push(keypair.pubkey());
-
-            if account == "identity" {
-                info!("identity: {:?}", keypair.pubkey());
-            }
+            let keypair = generate_keypair().map_err(|err| boxed_error!(err))?;
 
             if let Some(outfile) = outfile.to_str() {
                 output_keypair(&keypair, outfile)
-                    .map_err(|err| format!("Unable to write {outfile}: {err}"))?;
+                    .map_err(|err| boxed_error!(format!("Unable to write {outfile}: {err}")))?;
             }
         }
 
@@ -464,32 +474,6 @@ impl Genesis {
             Some(config) => assert_eq!(config.hash(), loaded_config.hash()),
             None => return Err(boxed_error!("No genesis config set in Genesis struct")),
         };
-        Ok(())
-    }
-
-    pub fn ensure_no_dup_pubkeys(&self) {
-        // Ensure there are no duplicated pubkeys
-        info!("len of pubkeys: {}", self.all_pubkeys.len());
-        let mut v = self.all_pubkeys.clone();
-        v.sort();
-        v.dedup();
-        if v.len() != self.all_pubkeys.len() {
-            panic!("Error: validator pubkeys have duplicates!");
-        }
-    }
-
-    // solana-genesis creates a genesis.tar.bz2 but if we need to create snapshots, these
-    // are not included in the genesis.tar.bz2. So we package everything including genesis.tar.bz2,
-    // snapshots, etc into genesis-package.tar.bz2 and we use this as our genesis in the
-    // bootstrap validator
-    pub fn package_up(&mut self) -> Result<(), Box<dyn Error>> {
-        info!("Packaging genesis");
-        let folder_to_tar = LEDGER_DIR.join("");
-        let tar_bz2_file = File::create(SOLANA_ROOT.join("config-k8s/genesis-package.tar.bz2"))?;
-        let encoder = BzEncoder::new(tar_bz2_file, Compression::best());
-        let mut tar_builder = Builder::new(encoder);
-        tar_builder.append_dir_all("ledger", folder_to_tar)?;
-
         Ok(())
     }
 }
