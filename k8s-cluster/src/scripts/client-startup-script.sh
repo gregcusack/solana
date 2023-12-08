@@ -18,7 +18,7 @@ else
     echo "Secret file not found at $SECRET_FILE"
 fi
 
-mkdir -p /home/solana/logs
+# mkdir -p /home/solana/logs
 
 clientToRun="$1"
 benchTpsExtraArgs="$2"
@@ -30,7 +30,8 @@ runtime_args=()
 while [[ -n $1 ]]; do
   if [[ ${1:0:1} = - ]]; then
     if [[ $1 = --target-node ]]; then
-      echo "--target-node not supported yet...not including" >> logs/client.log 2>&1
+      # echo "--target-node not supported yet...not including" >> logs/client.log 2>&1
+      echo "--target-node not supported yet...not including"
       # runtime_args+=("$1" "$2")
       shift 2
     elif [[ $1 = --duration ]]; then
@@ -120,6 +121,10 @@ idle)
   exit 1
 esac
 
-echo "client command to run: $clientCommand" >> logs/client.log 2>&1
+# echo "client command to run: $clientCommand" >> logs/client.log 2>&1
 
-$clientCommand >> logs/client.log 2>&1
+# $clientCommand >> logs/client.log 2>&1
+
+echo "client command to run: $clientCommand" #>> logs/client.log 2>&1
+
+$clientCommand & #>> logs/client.log 2>&1

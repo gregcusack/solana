@@ -1,6 +1,6 @@
 #!/bin/bash
 
-mkdir -p /home/solana/logs
+# mkdir -p /home/solana/logs
 
 # Start Validator
 # shellcheck disable=SC1091
@@ -243,7 +243,8 @@ echo "post entrypoint arg"
 default_arg --identity "$identity"
 default_arg --vote-account "$vote_account"
 default_arg --ledger "$ledger_dir"
-default_arg --log logs/solana-validator.log
+# default_arg --log logs/solana-validator.log
+default_arg --log -
 default_arg --full-rpc-api
 default_arg --no-incremental-snapshots
 default_arg --allow-private-addr

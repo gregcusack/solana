@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-mkdir -p /home/solana/logs
+# mkdir -p /home/solana/logs
 
 # start faucet
-nohup solana-faucet --keypair bootstrap-accounts/faucet.json >logs/faucet.log 2>&1 &
+nohup solana-faucet --keypair bootstrap-accounts/faucet.json & #>logs/faucet.log 2>&1 &
 
 # Start the bootstrap validator node
 # shellcheck disable=SC1091
@@ -137,7 +137,7 @@ args+=(
   --identity "$identity" \
   --vote-account "$vote_account" \
   --ledger ledger \
-  --log logs/solana-validator.log \
+  --log -
   --gossip-host "$MY_POD_IP" \
   --gossip-port 8001 \
   --rpc-port 8899 \
