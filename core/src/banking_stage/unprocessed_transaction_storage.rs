@@ -845,7 +845,7 @@ impl ThreadLocalUnprocessedPackets {
         bank: &Bank,
         banking_stage_stats: &BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
-        mut processing_function: F,
+        mut  processing_function: F,
     ) -> bool
     where
         F: FnMut(
