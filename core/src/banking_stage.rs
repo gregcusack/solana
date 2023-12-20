@@ -337,6 +337,7 @@ impl BankingStage {
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
     ) -> Self {
+        info!("greg: banking_stage new");
         Self::new_num_threads(
             block_production_method,
             cluster_info,
@@ -419,6 +420,7 @@ impl BankingStage {
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
     ) -> Self {
+        info!("greg: new_thread_local_multi_iterator");
         assert!(num_threads >= MIN_TOTAL_THREADS);
         // Single thread to generate entries from many banks.
         // This thread talks to poh_service and broadcasts the entries once they have been recorded.
@@ -654,6 +656,7 @@ impl BankingStage {
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
         tracer_packet_stats: &mut TracerPacketStats,
     ) {
+        info!("greg: banking_stage.rs process_buffered_packets");
         if unprocessed_transaction_storage.should_not_process() {
             return;
         }
@@ -718,6 +721,7 @@ impl BankingStage {
         id: u32,
         mut unprocessed_transaction_storage: UnprocessedTransactionStorage,
     ) {
+        info!("greg: banking_stage process_loop()");
         let mut banking_stage_stats = BankingStageStats::new(id);
         let mut tracer_packet_stats = TracerPacketStats::new(id);
 
@@ -728,6 +732,7 @@ impl BankingStage {
             if !unprocessed_transaction_storage.is_empty()
                 || last_metrics_update.elapsed() >= SLOT_BOUNDARY_CHECK_PERIOD
             {
+                info!("greg: going to process_buffered_packets()");
                 let (_, process_buffered_packets_time) = measure!(
                     Self::process_buffered_packets(
                         decision_maker,
@@ -743,6 +748,8 @@ impl BankingStage {
                 slot_metrics_tracker
                     .increment_process_buffered_packets_us(process_buffered_packets_time.as_us());
                 last_metrics_update = Instant::now();
+            } else {
+                info!("greg: skipping process_buffered_packets()");
             }
 
             tracer_packet_stats.report(1000);

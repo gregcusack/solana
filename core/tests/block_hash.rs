@@ -2,7 +2,7 @@
 
 use {
     crate::snapshot_utils::create_tmp_accounts_dir_for_tests,
-    crossbeam_channel::unbounded,
+    crossbeam_channel::{Receiver, unbounded},
     fs_extra::dir::CopyOptions,
     itertools::Itertools,
     log::{info, trace},
@@ -15,9 +15,21 @@ use {
     solana_core::{
         accounts_hash_verifier::AccountsHashVerifier,
         snapshot_packager_service::SnapshotPackagerService,
-        tpu::Tpu,
+        banking_stage::BankingStage,
+        validator::BlockProductionMethod,
+        banking_trace::BankingTracer,
+        banking_stage::unprocessed_transaction_storage::{UnprocessedTransactionStorage, ThreadType},
+        banking_stage::unprocessed_packet_batches::UnprocessedPacketBatches,
     },
+    solana_client::connection_cache::ConnectionCache,
+    solana_entry::entry::EntrySlice,
     solana_gossip::{cluster_info::{ClusterInfo, Node}, contact_info::ContactInfo},
+    solana_ledger::{
+        blockstore::Blockstore,
+        genesis_utils::{create_genesis_config, create_genesis_config_with_leader},
+        get_tmp_ledger_path_auto_delete,
+        leader_schedule_cache::LeaderScheduleCache,
+    },
     solana_runtime::{
         accounts_background_service::{
             AbsRequestHandlers, AbsRequestSender, AccountsBackgroundService,
@@ -25,7 +37,7 @@ use {
         },
         bank::Bank,
         bank_forks::BankForks,
-        genesis_utils::{create_genesis_config_with_leader, GenesisConfigInfo},
+        genesis_utils::{create_genesis_config_with_leader, GenesisConfigInfo, bootstrap_validator_stake_lamports},
         runtime_config::RuntimeConfig,
         snapshot_archive_info::FullSnapshotArchiveInfo,
         snapshot_bank_utils::{self, DISABLED_SNAPSHOT_ARCHIVE_INTERVAL},
@@ -37,6 +49,7 @@ use {
             SnapshotVersion::{self, V1_2_0},
         },
         status_cache::MAX_CACHE_ENTRIES,
+        prioritization_fee_cache::PrioritizationFeeCache,
     },
     solana_sdk::{
         clock::Slot,
@@ -49,18 +62,23 @@ use {
         signature::{Keypair, Signer},
         system_transaction,
         timing::timestamp,
+        poh_config::PohConfig,
+        transaction::Transaction,
+        ba
     },
+    solana_poh::poh_recorder::{create_test_recorder, TransactionRecorder, PohRecorder, WorkingBankEntry},
     solana_streamer::socket::SocketAddrSpace,
     std::{
         collections::HashSet,
         fs,
         io::{Error, ErrorKind},
-        path::PathBuf,
+        path::{PathBuf, Path},
         sync::{
             atomic::{AtomicBool, Ordering},
             Arc, RwLock,
         },
         time::{Duration, Instant},
+        thread::JoinHandle,
     },
     tempfile::TempDir,
     test_case::test_case,
@@ -296,60 +314,272 @@ fn run_bank_forks_snapshot_n<F>(
     );
 }
 
-#[test_case(V1_2_0, Development)]
-fn run_tpu(snapshot_version: SnapshotVersion, cluster_type: ClusterType) {
-    solana_logger::setup();
-    let leader_keypair = Arc::new(Keypair::new());
-    let leader_info = Node::new_localhost_with_pubkey(&leader_keypair.pubkey());
-    let cluster_info = ClusterInfo::new(
-        leader_info.info,
-        leader_keypair,
-        SocketAddrSpace::Unspecified,
+pub(crate) fn new_test_cluster_info(keypair: Option<Arc<Keypair>>) -> (Node, ClusterInfo) {
+    let keypair = keypair.unwrap_or_else(|| Arc::new(Keypair::new()));
+    let node = Node::new_localhost_with_pubkey(&keypair.pubkey());
+    let cluster_info =
+        ClusterInfo::new(node.info.clone(), keypair, SocketAddrSpace::Unspecified);
+    (node, cluster_info)
+}
+
+#[allow(clippy::type_complexity)]
+fn setup_conflicting_transactions(
+    ledger_path: &Path,
+) -> (
+    Vec<Transaction>,
+    Arc<Bank>,
+    Arc<RwLock<PohRecorder>>,
+    Receiver<WorkingBankEntry>,
+    GenesisConfigInfo,
+    JoinHandle<()>,
+) {
+    Blockstore::destroy(ledger_path).unwrap();
+
+    let mut config_info = create_genesis_config_with_leader(
+        lamports,
+        validator_pubkey,
+        // See solana_ledger::genesis_utils::create_genesis_config.
+        bootstrap_validator_stake_lamports(),
     );
 
-    // let (tpu, mut key_notifies) = Tpu::new(
-    //     &cluster_info,
-    //     // &poh_recorder,
-    //     // entry_receiver,
-    //     // retransmit_slots_receiver,
-    //     // TpuSockets {
-    //     //     transactions: node.sockets.tpu,
-    //     //     transaction_forwards: node.sockets.tpu_forwards,
-    //     //     vote: node.sockets.tpu_vote,
-    //     //     broadcast: node.sockets.broadcast,
-    //     //     transactions_quic: node.sockets.tpu_quic,
-    //     //     transactions_forwards_quic: node.sockets.tpu_forwards_quic,
-    //     // },
-    //     // &rpc_subscriptions,
-    //     // transaction_status_sender,
-    //     // entry_notification_sender,
-    //     // blockstore.clone(),
-    //     // &config.broadcast_stage_type,
-    //     // exit,
-    //     // node.info.shred_version(),
-    //     // vote_tracker,
-    //     // bank_forks.clone(),
-    //     // verified_vote_sender,
-    //     // gossip_verified_vote_hash_sender,
-    //     // replay_vote_receiver,
-    //     // replay_vote_sender,
-    //     // bank_notification_sender.map(|sender| sender.sender),
-    //     // config.tpu_coalesce,
-    //     // duplicate_confirmed_slot_sender,
-    //     // &connection_cache,
-    //     // turbine_quic_endpoint_sender,
-    //     // &identity_keypair,
-    //     // config.runtime_config.log_messages_bytes_limit,
-    //     // &staked_nodes,
-    //     // config.staked_nodes_overrides.clone(),
-    //     // banking_tracer,
-    //     // tracer_thread,
-    //     // tpu_enable_udp,
-    //     // &prioritization_fee_cache,
-    //     // config.block_production_method.clone(),
-    //     // config.generator_config.clone(),
-    // );
+    // For these tests there's only 1 slot, don't want to run out of ticks
+    config_info.genesis_config.ticks_per_slot *= 8;
+
+
+    let genesis_config_info = create_slow_genesis_config(100_000_000);
+
+    let GenesisConfigInfo {
+        genesis_config,
+        mint_keypair,
+        ..
+    } = &genesis_config_info;
+    let blockstore =
+        Blockstore::open(ledger_path).expect("Expected to be able to open database ledger");
+    let bank = Bank::new_no_wallclock_throttle_for_tests(genesis_config).0;
+    let exit = Arc::new(AtomicBool::default());
+    let (poh_recorder, entry_receiver, record_receiver) = PohRecorder::new(
+        bank.tick_height(),
+        bank.last_blockhash(),
+        bank.clone(),
+        Some((4, 4)),
+        bank.ticks_per_slot(),
+        &solana_sdk::pubkey::new_rand(),
+        Arc::new(blockstore),
+        &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
+        &PohConfig::default(),
+        exit,
+    );
+    let poh_recorder = Arc::new(RwLock::new(poh_recorder));
+
+    // Set up unparallelizable conflicting transactions
+    let pubkey0 = solana_sdk::pubkey::new_rand();
+    let pubkey1 = solana_sdk::pubkey::new_rand();
+    let pubkey2 = solana_sdk::pubkey::new_rand();
+    let transactions = vec![
+        system_transaction::transfer(mint_keypair, &pubkey0, 1, genesis_config.hash()),
+        system_transaction::transfer(mint_keypair, &pubkey1, 1, genesis_config.hash()),
+        system_transaction::transfer(mint_keypair, &pubkey2, 1, genesis_config.hash()),
+    ];
+    let poh_simulator = simulate_poh(record_receiver, &poh_recorder);
+
+    (
+        transactions,
+        bank,
+        poh_recorder,
+        entry_receiver,
+        genesis_config_info,
+        poh_simulator,
+    )
 }
+
+// #[test_case(V1_2_0, Development)]
+
+#[test]
+fn run_tpu_3() {
+    solana_logger::setup();
+    info!("greg: running run_tpu_2");
+    let GenesisConfigInfo {
+        mut genesis_config,
+        mint_keypair, ..
+    } = create_genesis_config(2);
+    genesis_config.ticks_per_slot = 4;
+    let num_extra_ticks = 2;
+    let (bank, bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
+    let start_hash = bank.last_blockhash();
+    let banking_tracer = BankingTracer::new_disabled();
+    let (non_vote_sender, non_vote_receiver) = banking_tracer.create_channel_non_vote();
+    let (tpu_vote_sender, tpu_vote_receiver) = banking_tracer.create_channel_tpu_vote();
+    let (gossip_vote_sender, gossip_vote_receiver) =
+        banking_tracer.create_channel_gossip_vote();
+    let ledger_path = get_tmp_ledger_path_auto_delete!();
+
+    let (transactions, bank, poh_recorder, _entry_receiver, _, poh_simulator) =
+        setup_conflicting_transactions(ledger_path.path());
+    let recorder: TransactionRecorder = poh_recorder.read().unwrap().new_recorder();
+    let num_conflicting_transactions = transactions.len();
+    let deserialized_packets = transactions_to_deserialized_packets(&transactions).unwrap();
+    assert_eq!(deserialized_packets.len(), num_conflicting_transactions);
+    let mut buffered_packet_batches =
+        UnprocessedTransactionStorage::new_transaction_storage(
+            UnprocessedPacketBatches::from_iter(
+                deserialized_packets,
+                num_conflicting_transactions,
+            ),
+            ThreadType::Transactions,
+        );
+
+
+}
+
+#[test]
+fn run_tpu_2() {
+    solana_logger::setup();
+    info!("greg: running run_tpu_2");
+    let GenesisConfigInfo {
+        mut genesis_config,
+        mint_keypair, ..
+    } = create_genesis_config(2);
+    genesis_config.ticks_per_slot = 4;
+    let num_extra_ticks = 2;
+    let (bank, bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
+    let start_hash = bank.last_blockhash();
+    let banking_tracer = BankingTracer::new_disabled();
+    let (non_vote_sender, non_vote_receiver) = banking_tracer.create_channel_non_vote();
+    let (tpu_vote_sender, tpu_vote_receiver) = banking_tracer.create_channel_tpu_vote();
+    let (gossip_vote_sender, gossip_vote_receiver) =
+        banking_tracer.create_channel_gossip_vote();
+    let ledger_path = get_tmp_ledger_path_auto_delete!();
+
+    let slot = 1;
+    let bank = {
+        let parent = bank_forks.read().unwrap().get(slot - 1).unwrap();
+        let bank = Bank::new_from_parent(parent, &Pubkey::default(), slot);
+        let bank_scheduler = bank_forks.write().unwrap().insert(bank);
+        let bank = bank_scheduler.clone_without_scheduler();
+        let key = solana_sdk::pubkey::new_rand();
+        let tx = system_transaction::transfer(&mint_keypair, &key, 1, bank.last_blockhash());
+        assert_eq!(bank.process_transaction(&tx), Ok(()));
+
+        let key = solana_sdk::pubkey::new_rand();
+        let tx = system_transaction::transfer(&mint_keypair, &key, 0, bank.last_blockhash());
+        assert_eq!(bank.process_transaction(&tx), Ok(()));
+
+        while !bank.is_complete() {
+            bank.register_unique_tick();
+        }
+
+        bank_scheduler
+    };
+
+    let bank = bank.clone_without_scheduler();
+
+
+    {
+        let blockstore = Arc::new(
+            Blockstore::open(ledger_path.path())
+                .expect("Expected to be able to open database ledger"),
+        );
+        let poh_config = PohConfig {
+            target_tick_count: Some(bank.max_tick_height() + num_extra_ticks),
+            ..PohConfig::default()
+        };
+        let (exit, poh_recorder, poh_service, entry_receiver) =
+            create_test_recorder(bank.clone(), blockstore, Some(poh_config), None);
+        let (_, cluster_info) = new_test_cluster_info(/*keypair:*/ None);
+        let cluster_info = Arc::new(cluster_info);
+        let (replay_vote_sender, _replay_vote_receiver) = unbounded();
+
+        let banking_stage = BankingStage::new(
+            BlockProductionMethod::ThreadLocalMultiIterator,
+            &cluster_info,
+            &poh_recorder,
+            non_vote_receiver,
+            tpu_vote_receiver,
+            gossip_vote_receiver,
+            None,
+            replay_vote_sender,
+            None,
+            Arc::new(ConnectionCache::new("connection_cache_test")),
+            bank_forks,
+            &Arc::new(PrioritizationFeeCache::new(0u64)),
+        );
+        info!("sending bank");
+        drop(non_vote_sender);
+        drop(tpu_vote_sender);
+        drop(gossip_vote_sender);
+        exit.store(true, Ordering::Relaxed);
+        poh_service.join().unwrap();
+        drop(poh_recorder);
+
+        info!("getting entries");
+        let entries: Vec<_> = entry_receiver
+            .iter()
+            .map(|(_bank, (entry, _tick_height))| entry)
+            .collect();
+        info!("done");
+        assert_eq!(entries.len(), genesis_config.ticks_per_slot as usize);
+        assert!(entries.verify(&start_hash));
+        assert_eq!(entries[entries.len() - 1].hash, bank.last_blockhash());
+        banking_stage.join().unwrap();
+    }
+    Blockstore::destroy(ledger_path.path()).unwrap();
+}
+
+
+// #[test_case(V1_2_0, Development)]
+// fn run_tpu(snapshot_version: SnapshotVersion, cluster_type: ClusterType) {
+//     solana_logger::setup();
+//     let leader_keypair = Arc::new(Keypair::new());
+//     let leader_info = Node::new_localhost_with_pubkey(&leader_keypair.pubkey());
+//     let cluster_info = ClusterInfo::new(
+//         leader_info.info,
+//         leader_keypair,
+//         SocketAddrSpace::Unspecified,
+//     );
+
+//     // let (tpu, mut key_notifies) = Tpu::new(
+//     //     &cluster_info,
+//     //     // &poh_recorder,
+//     //     // entry_receiver,
+//     //     // retransmit_slots_receiver,
+//     //     // TpuSockets {
+//     //     //     transactions: node.sockets.tpu,
+//     //     //     transaction_forwards: node.sockets.tpu_forwards,
+//     //     //     vote: node.sockets.tpu_vote,
+//     //     //     broadcast: node.sockets.broadcast,
+//     //     //     transactions_quic: node.sockets.tpu_quic,
+//     //     //     transactions_forwards_quic: node.sockets.tpu_forwards_quic,
+//     //     // },
+//     //     // &rpc_subscriptions,
+//     //     // transaction_status_sender,
+//     //     // entry_notification_sender,
+//     //     // blockstore.clone(),
+//     //     // &config.broadcast_stage_type,
+//     //     // exit,
+//     //     // node.info.shred_version(),
+//     //     // vote_tracker,
+//     //     // bank_forks.clone(),
+//     //     // verified_vote_sender,
+//     //     // gossip_verified_vote_hash_sender,
+//     //     // replay_vote_receiver,
+//     //     // replay_vote_sender,
+//     //     // bank_notification_sender.map(|sender| sender.sender),
+//     //     // config.tpu_coalesce,
+//     //     // duplicate_confirmed_slot_sender,
+//     //     // &connection_cache,
+//     //     // turbine_quic_endpoint_sender,
+//     //     // &identity_keypair,
+//     //     // config.runtime_config.log_messages_bytes_limit,
+//     //     // &staked_nodes,
+//     //     // config.staked_nodes_overrides.clone(),
+//     //     // banking_tracer,
+//     //     // tracer_thread,
+//     //     // tpu_enable_udp,
+//     //     // &prioritization_fee_cache,
+//     //     // config.block_production_method.clone(),
+//     //     // config.generator_config.clone(),
+//     // );
+// }
 
 #[test_case(V1_2_0, Development)]
 #[test_case(V1_2_0, Devnet)]

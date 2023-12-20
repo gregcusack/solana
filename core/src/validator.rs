@@ -1302,7 +1302,7 @@ impl Validator {
                 transactions_forwards_quic: node.sockets.tpu_forwards_quic,
             },
             &rpc_subscriptions,
-            transaction_statu s_sender,
+            transaction_status_sender,
             entry_notification_sender,
             blockstore.clone(),
             &config.broadcast_stage_type,

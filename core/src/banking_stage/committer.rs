@@ -77,6 +77,7 @@ impl Committer {
         executed_non_vote_transactions_count: usize,
         executed_with_successful_result_count: usize,
     ) -> (u64, Vec<CommitTransactionDetails>) {
+        info!("greg: commit_transaction");
         let executed_transactions = execution_results
             .iter()
             .zip(batch.sanitized_transactions())

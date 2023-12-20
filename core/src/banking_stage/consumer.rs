@@ -152,6 +152,7 @@ impl Consumer {
         rebuffered_packet_count: &mut usize,
         packets_to_process: &Vec<Arc<ImmutableDeserializedPacket>>,
     ) -> Option<Vec<usize>> {
+        info!("greg: consumer.rs do_process_packets()");
         if payload.reached_end_of_slot {
             return None;
         }

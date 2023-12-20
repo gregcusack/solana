@@ -1,6 +1,7 @@
 #[allow(deprecated)]
 use solana_sdk::sysvar::recent_blockhashes;
 use {
+    log::*,
     serde::{Deserialize, Serialize},
     solana_sdk::{
         clock::MAX_RECENT_BLOCKHASHES, fee_calculator::FeeCalculator, hash::Hash, timing::timestamp,
@@ -94,6 +95,7 @@ impl BlockhashQueue {
     }
 
     pub fn register_hash(&mut self, hash: &Hash, lamports_per_signature: u64) {
+        info!("greg: register_hash");
         self.last_hash_index += 1;
         if self.ages.len() >= self.max_age {
             self.ages.retain(|_, age| {
