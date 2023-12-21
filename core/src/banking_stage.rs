@@ -63,7 +63,7 @@ mod decision_maker;
 mod forward_packet_batches_by_accounts;
 mod forward_worker;
 mod forwarder;
-mod immutable_deserialized_packet;
+pub mod immutable_deserialized_packet;
 mod latest_unprocessed_votes;
 mod leader_slot_timing_metrics;
 mod multi_iterator_scanner;
@@ -96,8 +96,8 @@ pub struct BankingStageStats {
     newly_buffered_packets_count: AtomicUsize,
     newly_buffered_forwarded_packets_count: AtomicUsize,
     current_buffered_packets_count: AtomicUsize,
-    rebuffered_packets_count: AtomicUsize,
-    consumed_buffered_packets_count: AtomicUsize,
+    pub rebuffered_packets_count: AtomicUsize,
+    pub consumed_buffered_packets_count: AtomicUsize,
     forwarded_transaction_count: AtomicUsize,
     forwarded_vote_count: AtomicUsize,
     batch_packet_indexes_len: Histogram,

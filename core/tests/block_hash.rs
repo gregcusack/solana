@@ -20,13 +20,16 @@ use {
         banking_trace::BankingTracer,
         banking_stage::unprocessed_transaction_storage::{UnprocessedTransactionStorage, ThreadType},
         banking_stage::unprocessed_packet_batches::UnprocessedPacketBatches,
+        banking_stage::unprocessed_packet_batches::DeserializedPacket,
+        banking_stage::immutable_deserialized_packet::DeserializedPacketError,
+        banking_stage::{committer::Committer, consumer::Consumer, qos_service::QosService, leader_slot_metrics::LeaderSlotMetricsTracker, BankingStageStats},
     },
     solana_client::connection_cache::ConnectionCache,
     solana_entry::entry::EntrySlice,
     solana_gossip::{cluster_info::{ClusterInfo, Node}, contact_info::ContactInfo},
     solana_ledger::{
         blockstore::Blockstore,
-        genesis_utils::{create_genesis_config, create_genesis_config_with_leader},
+        genesis_utils::create_genesis_config,
         get_tmp_ledger_path_auto_delete,
         leader_schedule_cache::LeaderScheduleCache,
     },
@@ -64,9 +67,13 @@ use {
         timing::timestamp,
         poh_config::PohConfig,
         transaction::Transaction,
-        ba
+        packet::Packet,
+        sanitize::SanitizeError,
     },
-    solana_poh::poh_recorder::{create_test_recorder, TransactionRecorder, PohRecorder, WorkingBankEntry},
+    solana_poh::{
+        poh_recorder::{create_test_recorder, TransactionRecorder, PohRecorder, WorkingBankEntry, Record},
+        poh_service::PohService,
+    },
     solana_streamer::socket::SocketAddrSpace,
     std::{
         collections::HashSet,
@@ -78,7 +85,7 @@ use {
             Arc, RwLock,
         },
         time::{Duration, Instant},
-        thread::JoinHandle,
+        thread::{JoinHandle, Builder},
     },
     tempfile::TempDir,
     test_case::test_case,
@@ -322,6 +329,39 @@ pub(crate) fn new_test_cluster_info(keypair: Option<Arc<Keypair>>) -> (Node, Clu
     (node, cluster_info)
 }
 
+fn simulate_poh(
+    record_receiver: Receiver<Record>,
+    poh_recorder: &Arc<RwLock<PohRecorder>>,
+) -> JoinHandle<()> {
+    let poh_recorder = poh_recorder.clone();
+    let is_exited = poh_recorder.read().unwrap().is_exited.clone();
+    let tick_producer = Builder::new()
+        .name("solana-simulate_poh".to_string())
+        .spawn(move || loop {
+            PohService::read_record_receiver_and_process(
+                &poh_recorder,
+                &record_receiver,
+                Duration::from_millis(10),
+            );
+            if is_exited.load(Ordering::Relaxed) {
+                break;
+            }
+        });
+    tick_producer.unwrap()
+}
+
+fn transactions_to_deserialized_packets(
+    transactions: &[Transaction],
+) -> Result<Vec<DeserializedPacket>, DeserializedPacketError> {
+    transactions
+        .iter()
+        .map(|transaction| {
+            let packet = Packet::from_data(None, transaction)?;
+            DeserializedPacket::new(packet)
+        })
+        .collect()
+}
+
 #[allow(clippy::type_complexity)]
 fn setup_conflicting_transactions(
     ledger_path: &Path,
@@ -334,19 +374,21 @@ fn setup_conflicting_transactions(
     JoinHandle<()>,
 ) {
     Blockstore::destroy(ledger_path).unwrap();
+    let lamports = 100_000_000;
+    let validator_pubkey = solana_sdk::pubkey::new_rand();
 
-    let mut config_info = create_genesis_config_with_leader(
+    let mut genesis_config_info = create_genesis_config_with_leader(
         lamports,
-        validator_pubkey,
+        &validator_pubkey,
         // See solana_ledger::genesis_utils::create_genesis_config.
         bootstrap_validator_stake_lamports(),
     );
 
     // For these tests there's only 1 slot, don't want to run out of ticks
-    config_info.genesis_config.ticks_per_slot *= 8;
+    genesis_config_info.genesis_config.ticks_per_slot *= 8;
 
 
-    let genesis_config_info = create_slow_genesis_config(100_000_000);
+    // let genesis_config_info = create_slow_genesis_config(100_000_000);
 
     let GenesisConfigInfo {
         genesis_config,
@@ -355,7 +397,7 @@ fn setup_conflicting_transactions(
     } = &genesis_config_info;
     let blockstore =
         Blockstore::open(ledger_path).expect("Expected to be able to open database ledger");
-    let bank = Bank::new_no_wallclock_throttle_for_tests(genesis_config).0;
+    let bank = Bank::new_no_wallclock_throttle_for_tests(&genesis_config).0;
     let exit = Arc::new(AtomicBool::default());
     let (poh_recorder, entry_receiver, record_receiver) = PohRecorder::new(
         bank.tick_height(),
@@ -376,9 +418,9 @@ fn setup_conflicting_transactions(
     let pubkey1 = solana_sdk::pubkey::new_rand();
     let pubkey2 = solana_sdk::pubkey::new_rand();
     let transactions = vec![
-        system_transaction::transfer(mint_keypair, &pubkey0, 1, genesis_config.hash()),
-        system_transaction::transfer(mint_keypair, &pubkey1, 1, genesis_config.hash()),
-        system_transaction::transfer(mint_keypair, &pubkey2, 1, genesis_config.hash()),
+        system_transaction::transfer(&mint_keypair, &pubkey0, 1, genesis_config.hash()),
+        system_transaction::transfer(&mint_keypair, &pubkey1, 1, genesis_config.hash()),
+        system_transaction::transfer(&mint_keypair, &pubkey2, 1, genesis_config.hash()),
     ];
     let poh_simulator = simulate_poh(record_receiver, &poh_recorder);
 
@@ -427,6 +469,59 @@ fn run_tpu_3() {
             ),
             ThreadType::Transactions,
         );
+
+    let (replay_vote_sender, _replay_vote_receiver) = unbounded();
+    let committer = Committer::new(
+        None,
+        replay_vote_sender,
+        Arc::new(PrioritizationFeeCache::new(0u64)),
+    );
+    let consumer = Consumer::new(committer, recorder, QosService::new(1), None);
+
+    // When the working bank in poh_recorder is None, no packets should be processed (consume will not be called)
+    assert!(!poh_recorder.read().unwrap().has_bank());
+    assert_eq!(buffered_packet_batches.len(), num_conflicting_transactions);
+    // When the working bank in poh_recorder is Some, all packets should be processed.
+    // Multi-Iterator will process them 1-by-1 if all txs are conflicting.
+    poh_recorder.write().unwrap().set_bank_for_test(bank);
+    let bank_start = poh_recorder.read().unwrap().bank_start().unwrap();
+    let banking_stage_stats = BankingStageStats::default();
+    consumer.consume_buffered_packets(
+        &bank_start,
+        &mut buffered_packet_batches,
+        &banking_stage_stats,
+        &mut LeaderSlotMetricsTracker::new(0),
+    );
+
+    // Check that all packets were processed without retrying
+    assert!(buffered_packet_batches.is_empty());
+    assert_eq!(
+        banking_stage_stats
+            .consumed_buffered_packets_count
+            .load(Ordering::Relaxed),
+        num_conflicting_transactions
+    );
+    assert_eq!(
+        banking_stage_stats
+            .rebuffered_packets_count
+            .load(Ordering::Relaxed),
+        0
+    );
+    // Use bank to check the number of entries (batches)
+    assert_eq!(bank_start.working_bank.transactions_per_entry_max(), 1);
+    assert_eq!(
+        bank_start.working_bank.transaction_entries_count(),
+        num_conflicting_transactions as u64
+    );
+
+    poh_recorder
+        .read()
+        .unwrap()
+        .is_exited
+        .store(true, Ordering::Relaxed);
+    let _ = poh_simulator.join();
+
+    Blockstore::destroy(ledger_path.path()).unwrap();
 
 
 }
