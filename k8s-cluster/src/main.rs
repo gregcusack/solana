@@ -2,6 +2,7 @@ use {
     clap::{crate_description, crate_name, value_t_or_exit, App, Arg, ArgMatches},
     log::*,
     solana_k8s_cluster::{
+        calculate_stake_allocations,
         docker::{DockerConfig, DockerImageConfig},
         genesis::{
             Genesis, GenesisFlags, DEFAULT_CLIENT_LAMPORTS_PER_SIGNATURE,
@@ -455,20 +456,25 @@ async fn main() {
         skip_genesis_build: matches.is_present("skip_genesis_build"),
     };
 
-    let stake_distribution: Option<Vec<u8>> = matches.values_of("internal_node_stake_distribution")
-        .map(|values| values.map(|s| s.parse::<u8>().expect("Invalid percentage in distribution")).collect());
+    let stake_distribution: Option<Vec<u8>> = matches
+        .values_of("internal_node_stake_distribution")
+        .map(|values| {
+            values
+                .map(|s| s.parse::<u8>().expect("Invalid percentage in distribution"))
+                .collect()
+        });
 
     let (stake_per_bucket, stake_allocations) = match stake_distribution {
         Some(mut dist) => {
-            match calculate_stake_allocations(TOTAL_SOL,  setup_config.num_validators, &mut dist) {
+            match calculate_stake_allocations(TOTAL_SOL, setup_config.num_validators, &mut dist) {
                 Ok((stake_per_bucket, alloc)) => (Some(stake_per_bucket), Some(alloc)),
                 Err(err) => {
                     error!("{}", err);
                     std::process::exit(1);
                 }
             }
-        },
-        None => (None, None)
+        }
+        None => (None, None),
     };
 
     if let (Some(_), Some(allocations)) = (&stake_per_bucket, &stake_allocations) {
