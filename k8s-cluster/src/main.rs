@@ -140,6 +140,11 @@ fn parse_matches() -> ArgMatches<'static> {
                 .default_value_if("docker_build", None, "latest")
                 .help("Docker image tag."),
         )
+        .arg(
+            Arg::with_name("no_bootstrap")
+                .long("no-bootstrap")
+                .help("Do not deploy a bootstrap validator. Used when deploying multiple clusters"),
+        )
         // Genesis config
         .arg(
             Arg::with_name("skip_genesis_build")
@@ -676,6 +681,7 @@ async fn main() {
     };
 
     info!("Node Type: {}", node_type);
+    let no_bootstrap = matches.is_present("no_bootstrap");
 
     // Check if namespace exists
     let mut kub_controller = Kubernetes::new(
@@ -718,20 +724,59 @@ async fn main() {
 
     if !setup_config.skip_genesis_build {
         info!("Creating Genesis");
-        let mut genesis = Genesis::new(genesis_flags);
-        match genesis.generate_faucet() {
-            Ok(_) => (),
-            Err(err) => {
-                error!("generate faucet error! {}", err);
-                return;
+        // let mut genesis = Genesis::new(genesis_flags);
+        // match genesis.generate_faucet() {
+        //     Ok(_) => (),
+        //     Err(err) => {
+        //         error!("generate faucet error! {}", err);
+        //         return;
+        //     }
+        // }
+         // if we are not deploying a bootstrap, we need to use the previous
+        // genesis as the genesis for new validators, so do not delete genesis directory
+        let retain_previous_genesis = no_bootstrap;
+        let mut genesis: Genesis = Genesis::new(genesis_flags, retain_previous_genesis);
+        if !no_bootstrap {
+            info!("Creating Genesis");
+            match genesis.generate_faucet() {
+                Ok(_) => (),
+                Err(err) => {
+                    error!("generate faucet error! {}", err);
+                    return;
+                }
             }
-        }
-        match genesis.generate_accounts(ValidatorType::Bootstrap, 1) {
-            Ok(_) => (),
-            Err(err) => {
-                error!("generate accounts error! {}", err);
-                return;
+
+            match genesis.generate_accounts(ValidatorType::Bootstrap, 1) {
+                Ok(_) => (),
+                Err(err) => {
+                    error!("generate accounts error! {}", err);
+                    return;
+                }
             }
+
+            if client_config.num_clients > 0 && client_config.client_to_run == "bench-tps" {
+                match genesis.create_client_accounts(
+                    client_config.num_clients,
+                    DEFAULT_CLIENT_LAMPORTS_PER_SIGNATURE,
+                    client_config.bench_tps_args,
+                ) {
+                    Ok(_) => (),
+                    Err(err) => {
+                        error!("generate client accounts error! {}", err);
+                        return;
+                    }
+                }
+            }
+
+             // creates genesis and writes to binary file
+             match genesis.generate() {
+                Ok(_) => (),
+                Err(err) => {
+                    error!("generate genesis error! {}", err);
+                    return;
+                }
+            }
+
         }
 
         match genesis.generate_accounts(ValidatorType::Standard, setup_config.num_validators) {
@@ -750,28 +795,6 @@ async fn main() {
             }
         }
 
-        if client_config.num_clients > 0 && client_config.client_to_run == "bench-tps" {
-            match genesis.create_client_accounts(
-                client_config.num_clients,
-                DEFAULT_CLIENT_LAMPORTS_PER_SIGNATURE,
-                client_config.bench_tps_args,
-            ) {
-                Ok(_) => (),
-                Err(err) => {
-                    error!("generate client accounts error! {}", err);
-                    return;
-                }
-            }
-        }
-
-        // creates genesis and writes to binary file
-        match genesis.generate() {
-            Ok(_) => (),
-            Err(err) => {
-                error!("generate genesis error! {}", err);
-                return;
-            }
-        }
     }
 
     match LedgerHelper::get_shred_version() {

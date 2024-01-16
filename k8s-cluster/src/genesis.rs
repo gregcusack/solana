@@ -202,13 +202,19 @@ pub struct Genesis {
 }
 
 impl Genesis {
-    pub fn new(flags: GenesisFlags) -> Self {
+    pub fn new(flags: GenesisFlags, retain_previous_genesis_directory: bool) -> Self {
         initialize_globals();
         let config_dir = SOLANA_ROOT.join("config-k8s");
-        if config_dir.exists() {
-            std::fs::remove_dir_all(&config_dir).unwrap();
+        // if config_dir.exists() {
+        //     std::fs::remove_dir_all(&config_dir).unwrap();
+        // }
+        // std::fs::create_dir_all(&config_dir).unwrap();
+        if !retain_previous_genesis_directory {
+            if config_dir.exists() {
+                std::fs::remove_dir_all(&config_dir).unwrap();
+            }
+            std::fs::create_dir_all(&config_dir).unwrap();
         }
-        std::fs::create_dir_all(&config_dir).unwrap();
         Genesis {
             flags,
             config_dir,
