@@ -799,6 +799,7 @@ mod tests {
             thread::{Builder, JoinHandle},
             time::Duration,
         },
+        log::*,
     };
 
     fn execute_transactions_with_dummy_poh_service(
@@ -1155,7 +1156,9 @@ mod tests {
                     .spawn(move || loop {
                         let timeout = Duration::from_millis(10);
                         let record = record_receiver.recv_timeout(timeout);
+                        info!("about to enter record check");
                         if let Ok(record) = record {
+                            info!("record OK");
                             let record_response = poh_recorder.write().unwrap().record(
                                 record.slot,
                                 record.mixin,
