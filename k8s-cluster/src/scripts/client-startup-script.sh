@@ -15,6 +15,9 @@ else
     # Convert string to array
     IFS=' ' read -r -a argsArray <<< "$benchTpsExtraArgs"
 
+    # Initialize clientType with a default value
+    clientType="thin-client"
+
     # Loop through the array and check for the specific flag
     for arg in "${argsArray[@]}"; do
         if [ "$arg" == "--use-rpc-client" ]; then
