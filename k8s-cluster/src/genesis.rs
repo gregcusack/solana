@@ -326,6 +326,7 @@ impl Genesis {
             }
             let executable_path = build_path.join("solana-bench-tps");
             info!("args: {:?}", args);
+            info!("executable_path: {:?}", executable_path);
 
             Self::create_client_account(&args, &executable_path)
         });
