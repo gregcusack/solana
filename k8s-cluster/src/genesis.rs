@@ -325,6 +325,7 @@ impl Genesis {
                 args.extend(list_of_bench_tps_args.clone()); //can unwrap since we checked is_some()
             }
             let executable_path = build_path.join("solana-bench-tps");
+            info!("args: {:?}", args);
 
             Self::create_client_account(&args, &executable_path)
         });
