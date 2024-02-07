@@ -233,6 +233,7 @@ echo "gossip entrypoint: $gossip_entrypoint"
 default_arg --entrypoint "$gossip_entrypoint"
 if ((airdrops_enabled)); then
   default_arg --rpc-faucet-address "$faucet_address"
+  echo "greg airdrops enabled adding rpc-faucet-address: $faucet_address"
 fi
 
 default_arg --identity "$identity"
@@ -330,6 +331,9 @@ run_solana_command() {
     return 1
 }
 
+# catchup before running stuff:
+
+
 echo "requesting $node_sol sol from the faucet..."
 
 # Run Solana commands with retries
@@ -347,6 +351,9 @@ if ! run_solana_command "solana -u $SOLANA_RPC_URL create-vote-account --allow-u
   fi
 fi
 
+# wait for catchup
+solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE vote-account validator-accounts/vote.json
+
 if [ "$vote_account_already_exists" != true ]; then
   echo "stake sol for account: $stake_sol"
   if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-stake-account validator-accounts/stake.json $stake_sol -k $IDENTITY_FILE" "Create Stake Account"; then
@@ -359,6 +366,9 @@ if [ "$vote_account_already_exists" != true ]; then
     exit 1
   fi
 fi
+
+# call stakes
+solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE stakes validator-accounts/stake.json
 
 echo "All commands succeeded. Running solana-validator next..."
 

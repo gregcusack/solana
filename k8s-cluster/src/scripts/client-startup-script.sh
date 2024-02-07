@@ -12,6 +12,7 @@ if [[ "$benchTpsExtraArgs" == "thin-client" || "$benchTpsExtraArgs" == "tpu-clie
 else
     clientType="${3:-thin-client}"
     shift 3
+
     # Convert string to array
     IFS=' ' read -r -a argsArray <<< "$benchTpsExtraArgs"
 
@@ -29,6 +30,32 @@ else
         fi
     done
 fi
+
+
+runtime_args=()
+while [[ -n $1 ]]; do
+  if [[ ${1:0:1} = - ]]; then
+    if [[ $1 = --target-node ]]; then
+      echo "WARNING: --target-node not supported yet...not included"
+      shift 2
+    elif [[ $1 = --duration ]]; then
+      runtime_args+=("$1" "$2")
+      shift 2
+    elif [[ $1 = --num-nodes ]]; then
+      runtime_args+=("$1" "$2")
+      shift 2
+    else
+      echo "Unknown argument: $1"
+      solana-bench-tps --help
+      exit 1
+    fi
+  else
+    echo "Unknown argument: $1"
+    solana-bench-tps --help
+    exit 1
+  fi
+done
+
 
 
 missing() {
@@ -98,4 +125,5 @@ idle)
 esac
 
 echo "client command to run: $clientCommand"
+# sleep 3600
 $clientCommand
