@@ -481,6 +481,7 @@ impl<'a> Kubernetes<'a> {
     }
 
     pub fn create_validator_secret(&self, validator_index: i32) -> Result<Secret, Box<dyn Error>> {
+        let faucet_key_path = SOLANA_ROOT.join("config-k8s/faucet.json");
         let mut secret_name_with_optional_tag =
             format!("validator-accounts-secret-{}", validator_index);
         if let Some(tag) = &self.deployment_tag {
@@ -491,7 +492,7 @@ impl<'a> Kubernetes<'a> {
         let key_path = SOLANA_ROOT.join("config-k8s");
 
         let accounts = ["identity", "vote", "stake"];
-        let key_files: Vec<(PathBuf, &str)> = accounts
+        let mut key_files: Vec<(PathBuf, &str)> = accounts
             .iter()
             .map(|&account| {
                 let mut validator_with_optional_tag = "validator".to_string();
@@ -514,6 +515,8 @@ impl<'a> Kubernetes<'a> {
                 (key_path.join(file_name), account)
             })
             .collect();
+
+        key_files.push((faucet_key_path, "faucet"));
 
         k8s_helpers::create_secret_from_files(&secret_name_with_optional_tag, &key_files)
     }

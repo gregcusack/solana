@@ -292,6 +292,7 @@ LOAD_BALANCER_RPC_URL="http://$LOAD_BALANCER_RPC_ADDRESS"
 IDENTITY_FILE=$identity
 
 vote_account_already_exists=false
+stake_account_already_exists=false
 
 # Function to run a Solana command with retries. need reties because sometimes dns resolver fails
 # if pod dies and starts up again it may try to create a vote account or something that already exists
@@ -319,6 +320,11 @@ run_solana_command() {
             vote_account_already_exists=true
             return 0
         fi
+        if [[ "$output" == *"Stake account"*"already exists"* ]]; then
+            echo "Stake account already exists. Continuing without exiting."
+            stake_account_already_exists=true
+            return 0
+        fi
 
         if [ "$retry_count" -lt $MAX_RETRIES ]; then
           echo "Retrying in $RETRY_DELAY seconds..."
@@ -331,46 +337,84 @@ run_solana_command() {
     return 1
 }
 
-# catchup before running stuff:
+run_validator() {
+  # node_sol=$1
+  # LOAD_BALANCER_RPC_URL=$2
+  # IDENTITY_FILE=$3
+  # vote_account_already_exists=$4
+  # program=$5
+  # PS4=$6
+  # args=$7
 
+  # echo "requesting $node_sol sol from the faucet..."
 
-echo "requesting $node_sol sol from the faucet..."
+  # # Run Solana commands with retries
+  # if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL airdrop $node_sol $IDENTITY_FILE" "Airdrop"; then
+  #   echo "Aidrop command failed."
+  #   exit 1
+  # fi
 
-# Run Solana commands with retries
-if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL airdrop $node_sol $IDENTITY_FILE" "Airdrop"; then
-  echo "Aidrop command failed."
-  exit 1
-fi
+  echo "Adding $node_sol to validator identity account:"
+  solana --keypair validator-accounts/faucet.json --url $LOAD_BALANCER_RPC_URL transfer --allow-unfunded-recipient $IDENTITY_FILE $node_sol
+  # $solana_cli \
+  #   --keypair "$SOLANA_CONFIG_DIR/faucet.json" --url "$rpc_url" \
+  #   transfer --allow-unfunded-recipient "$identity" "$node_sol"
 
-if ! run_solana_command "solana -u $SOLANA_RPC_URL create-vote-account --allow-unsafe-authorized-withdrawer vote.json $IDENTITY_FILE $IDENTITY_FILE -k $IDENTITY_FILE" "Create Vote Account"; then
-  if $vote_account_already_exists; then
-    echo "Vote account already exists. Skipping remaining commands."
-  else
-    echo "Create vote account failed."
-    exit 1
+  if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-vote-account --allow-unsafe-authorized-withdrawer validator-accounts/vote.json $IDENTITY_FILE $IDENTITY_FILE -k $IDENTITY_FILE" "Create Vote Account"; then
+    if $vote_account_already_exists; then
+      echo "Vote account already exists. Skipping remaining commands."
+    else
+      echo "Create vote account failed."
+      exit 1
+    fi
   fi
-fi
 
-# wait for catchup
-solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE vote-account validator-accounts/vote.json
+  echo "created vote account"
+}
 
-if [ "$vote_account_already_exists" != true ]; then
+run_delegate_stake() {
+  # LOAD_BALANCER_RPC_URL=$1
+  # IDENTITY_FILE=$2
+
+  # catchup before running stuff:
+  echo "going to try and catchup before running anything"
+  solana --url $LOAD_BALANCER_RPC_URL catchup $IDENTITY_FILE
+
+  solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE vote-account validator-accounts/vote.json
+
+  # if [ "$vote_account_already_exists" != true ]; then
   echo "stake sol for account: $stake_sol"
   if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-stake-account validator-accounts/stake.json $stake_sol -k $IDENTITY_FILE" "Create Stake Account"; then
-    echo "Create stake account failed."
-    exit 1
+    if $stake_account_already_exists; then
+      echo "Stake account already exists. Skipping remaining commands."
+    else
+      echo "Create stake account failed."
+      exit 1
+    fi
+  fi
+  echo "created stake account"
+
+  if [ "$stake_account_already_exists" != true ]; then
+    echo "stake account does not exist. so lets deligate"
+    if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL delegate-stake validator-accounts/stake.json validator-accounts/vote.json --force -k $IDENTITY_FILE" "Delegate Stake"; then
+      echo "Delegate stake command failed."
+      exit 1
+    fi
+    echo "delegated stake"
   fi
 
-  if ! run_solana_command "solana -u $SOLANA_RPC_URL delegate-stake stake.json vote.json --force -k $IDENTITY_FILE" "Delegate Stake"; then
-    echo "Delegate stake command failed."
-    exit 1
-  fi
-fi
+  # call stakes
+  echo "call stakes"
+  solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE stakes validator-accounts/stake.json
+  echo "done calling stakes"
+}
 
-# call stakes
-solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE stakes validator-accounts/stake.json
+echo "greg run validator"
+run_validator & #$node_sol $LOAD_BALANCER_RPC_URL $IDENTITY_FILE $vote_account_already_exists $program $PS4 $args &
+echo "greg run run delegate stake"
+run_delegate_stake &
 
-echo "All commands succeeded. Running solana-validator next..."
+echo running validator:
 
 echo "Validator Args"
 for arg in "${args[@]}"; do
@@ -399,3 +443,75 @@ while true; do
 
   kill_node
 done
+
+
+# catchup before running stuff:
+# echo "going to try and catchup before running anything"
+# solana --url $LOAD_BALANCER_RPC_URL catchup $IDENTITY_FILE
+
+
+# echo "requesting $node_sol sol from the faucet..."
+
+# # Run Solana commands with retries
+# if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL airdrop $node_sol $IDENTITY_FILE" "Airdrop"; then
+#   echo "Aidrop command failed."
+#   exit 1
+# fi
+
+# if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-vote-account --allow-unsafe-authorized-withdrawer validator-accounts/vote.json $IDENTITY_FILE $IDENTITY_FILE -k $IDENTITY_FILE" "Create Vote Account"; then
+#   if $vote_account_already_exists; then
+#     echo "Vote account already exists. Skipping remaining commands."
+#   else
+#     echo "Create vote account failed."
+#     exit 1
+#   fi
+# fi
+
+# wait for catchup
+# solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE vote-account validator-accounts/vote.json
+
+# if [ "$vote_account_already_exists" != true ]; then
+#   echo "stake sol for account: $stake_sol"
+#   if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-stake-account validator-accounts/stake.json $stake_sol -k $IDENTITY_FILE" "Create Stake Account"; then
+#     echo "Create stake account failed."
+#     exit 1
+#   fi
+
+#   if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL delegate-stake validator-accounts/stake.json validator-accounts/vote.json --force -k $IDENTITY_FILE" "Delegate Stake"; then
+#     echo "Delegate stake command failed."
+#     exit 1
+#   fi
+# fi
+
+# # call stakes
+# solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE stakes validator-accounts/stake.json
+
+# echo "All commands succeeded. Running solana-validator next..."
+
+# echo "Validator Args"
+# for arg in "${args[@]}"; do
+#   echo "$arg"
+# done
+
+# while true; do
+#   echo "$PS4$program ${args[*]}"
+
+#   $program "${args[@]}" &
+#   pid=$!
+#   echo "pid: $pid"
+
+#   if ((no_restart)); then
+#     wait "$pid"
+#     exit $?
+#   fi
+
+#   while true; do
+#     if [[ -z $pid ]] || ! kill -0 "$pid"; then
+#       echo "############## validator exited, restarting ##############"
+#       break
+#     fi
+#     sleep 1
+#   done
+
+#   kill_node
+# done
