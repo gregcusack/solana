@@ -13,22 +13,19 @@ else
     clientType="${3:-thin-client}"
     shift 3
 
-    # Convert string to array
-    IFS=' ' read -r -a argsArray <<< "$benchTpsExtraArgs"
+    # # Convert string to array
+    # IFS=' ' read -r -a argsArray <<< "$benchTpsExtraArgs"
 
-    # Initialize clientType with a default value
-    clientType="thin-client"
-
-    # Loop through the array and check for the specific flag
-    for arg in "${argsArray[@]}"; do
-        if [ "$arg" == "--use-rpc-client" ]; then
-            clientType="rpc-client"
-            break
-        elif [ "$arg" == "--use-tpu-client" ]; then
-            clientType="tpu-client"
-            break
-        fi
-    done
+    # # Loop through the array and check for the specific flag
+    # for arg in "${argsArray[@]}"; do
+    #     if [ "$arg" == "--use-rpc-client" ]; then
+    #         clientType="rpc-client"
+    #         break
+    #     elif [ "$arg" == "--use-tpu-client" ]; then
+    #         clientType="tpu-client"
+    #         break
+    #     fi
+    # done
 fi
 
 
@@ -56,6 +53,9 @@ while [[ -n $1 ]]; do
   fi
 done
 
+echo "get airdrop for client"
+solana airdrop 5000000 -k ./client-accounts/identity.json  -u "http://$LOAD_BALANCER_RPC_ADDRESS"
+
 
 
 missing() {
@@ -67,6 +67,7 @@ threadCount=$(nproc)
 if [[ $threadCount -gt 4 ]]; then
   threadCount=4
 fi
+# threadCount=20
 
 echo "threadCount: $threadCount"
 
@@ -96,12 +97,27 @@ bench-tps)
   args=()
 
   if ${TPU_CLIENT}; then
-    args+=(--url "http://$LOAD_BALANCER_RPC_ADDRESS")
+    args+=(--use-tpu-client)
   elif ${RPC_CLIENT}; then
-    args+=(--url "http://$LOAD_BALANCER_RPC_ADDRESS")
+    args+=(--use-rpc-client)
   else
     args+=(--entrypoint "$BOOTSTRAP_GOSSIP_ADDRESS")
   fi
+
+  # if ${TPU_CLIENT}; then
+  #   args+=(--url "http://$LOAD_BALANCER_RPC_ADDRESS")
+  # elif ${RPC_CLIENT}; then
+  #   args+=(--url "http://$LOAD_BALANCER_RPC_ADDRESS")
+  # else
+  #   args+=(--entrypoint "$BOOTSTRAP_GOSSIP_ADDRESS")
+  # fi
+
+  entrypointIp="${BOOTSTRAP_GOSSIP_ADDRESS:0:-5}"
+  test_rpc="$entrypointIp:8899"
+  # this could also be $LOAD_BALANCER_RPC_ADDRESS but I am not sure
+
+  args+=(--bind-address "$entrypointIp")
+  args+=(--client-node-id ./client-accounts/identity.json)
 
   clientCommand="\
     solana-bench-tps \
@@ -109,6 +125,7 @@ bench-tps)
       --threads $threadCount \
       $benchTpsExtraArgs \
       --read-client-keys ./client-accounts.yml \
+      --url "http://$test_rpc"
       ${args[*]} \
       ${runtime_args[*]} \
   "
