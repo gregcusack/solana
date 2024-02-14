@@ -864,7 +864,7 @@ impl RpcClient {
     /// )?;
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn send_transaction_with_config(
+    pub fn send_transaction_with_config( // greg: Need to call this function from bench-tps
         &self,
         transaction: &impl SerializableTransaction,
         config: RpcSendTransactionConfig,

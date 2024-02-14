@@ -937,7 +937,7 @@ impl RpcClient {
     /// # })?;
     /// # Ok::<(), Error>(())
     /// ```
-    pub async fn send_transaction_with_config(
+    pub async fn send_transaction_with_config( //greg: NEED to call this function from rpc_client
         &self,
         transaction: &impl SerializableTransaction,
         config: RpcSendTransactionConfig,
