@@ -141,6 +141,7 @@ args+=(
   --no-poh-speed-test \
   --no-incremental-snapshots \
   --full-rpc-api \
+  --enable-rpc-transaction-history \
   --allow-private-addr
 )
 

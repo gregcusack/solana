@@ -245,6 +245,7 @@ default_arg --no-incremental-snapshots
 default_arg --allow-private-addr
 default_arg --gossip-port 8001
 default_arg --rpc-port 8899
+default_arg --enable-rpc-transaction-history
 
 program=
 if [[ -n $SOLANA_CUDA ]]; then
