@@ -176,6 +176,7 @@ where
     /// generate transactions to transfer lamports from source to destination accounts
     /// if durable nonce is used, blockhash is None
     fn generate(&mut self, blockhash: Option<&Hash>) -> Vec<TimestampedTransaction> {
+        let greg_ts_start = timestamp();
         let tx_count = self.account_chunks.source.len();
         info!(
             "Signing transactions... {} (reclaim={}, blockhash={:?})",
@@ -188,6 +189,7 @@ where
         let transactions = if let Some(nonce_chunks) = &self.nonce_chunks {
             let source_nonce_chunk = &nonce_chunks.source[self.chunk_index];
             let dest_nonce_chunk: &VecDeque<&Keypair> = &nonce_chunks.dest[self.chunk_index];
+            info!("greg time to be printed is for generate_nonced_system_txs");
             generate_nonced_system_txs(
                 self.client.clone(),
                 source_chunk,
@@ -199,6 +201,7 @@ where
             )
         } else {
             assert!(blockhash.is_some());
+            info!("greg time to be printed is for generate_system_txs");
             generate_system_txs(
                 source_chunk,
                 dest_chunk,
@@ -208,6 +211,8 @@ where
                 &self.compute_unit_price,
             )
         };
+        info!("greg generate tx time: {}ms", timestamp() - greg_ts_start);
+
 
         let duration = signing_start.elapsed();
         let ns = duration.as_secs() * 1_000_000_000 + u64::from(duration.subsec_nanos());
@@ -224,7 +229,6 @@ where
             "bench-tps-generate_txs",
             ("duration", duration_as_us(&duration), i64)
         );
-
         transactions
     }
 
@@ -479,7 +483,7 @@ where
         exit_signal.clone(),
         &shared_tx_active_thread_count,
     );
-    info!("greg: create_sender_threads duration: {}", timestamp() - greg_ts_start);
+    info!("greg: create_sender_threads duration: {}", timestamp() - greg_ts_start); // ends up as 0
 
     let greg_ts_start: u64 = timestamp();
     wait_for_target_slots_per_epoch(target_slots_per_epoch, &client);
@@ -558,7 +562,7 @@ fn generate_system_txs(
     instruction_padding_config: &Option<InstructionPaddingConfig>,
     compute_unit_price: &Option<ComputeUnitPrice>,
 ) -> Vec<TimestampedTransaction> {
-    let pairs: Vec<_> = if !reclaim {
+    let pairs: Vec<_> = if !reclaim -{
         source.iter().zip(dest.iter()).collect()
     } else {
         dest.iter().zip(source.iter()).collect()
@@ -821,6 +825,7 @@ fn generate_txs<T: 'static + BenchTpsClient + Send + Sync + ?Sized>(
     threads: usize,
     use_durable_nonce: bool,
 ) {
+    let greg_ts_starts = timestamp();
     info!("greg: generate_txs, durable nonce: {}", use_durable_nonce);
     let transactions = if use_durable_nonce {
         chunk_generator.generate(None)
@@ -833,6 +838,7 @@ fn generate_txs<T: 'static + BenchTpsClient + Send + Sync + ?Sized>(
 
     let sz = transactions.len() / threads;
     info!("greg tx.len / threads: {}", sz);
+    let greg_ts_starts_2 = timestamp();
     let chunks: Vec<_> = transactions.chunks(sz).collect();
     {
         let mut shared_txs_wl = shared_txs.write().unwrap();
@@ -843,6 +849,8 @@ fn generate_txs<T: 'static + BenchTpsClient + Send + Sync + ?Sized>(
         //     shared_txs_wl.push_back(chunk.to_vec());
         // }
     }
+    info!("greg create chunks only time: {}ms", timestamp() - greg_ts_starts_2);
+    info!("greg generate_tx full time: {}ms", timestamp() - greg_ts_starts);
     info!("greg chunks len: {}", chunks.len());
 }
 
@@ -967,7 +975,7 @@ fn do_tx_transfers<T: BenchTpsClient + ?Sized>(
             let mut old_transactions = false;
             let mut transactions = Vec::<_>::new();
             let mut min_timestamp = u64::MAX;
-            let greg_ts_start: u64 = timestamp();
+            let greg_ts_start_2: u64 = timestamp();
             for tx in txs0 {
                 let now = timestamp();
                 // Transactions without durable nonce that are too old will be rejected by the cluster Don't bother
@@ -984,7 +992,7 @@ fn do_tx_transfers<T: BenchTpsClient + ?Sized>(
                 transactions.push(tx.0);
                 info!("greg single loop time: {}", timestamp() - now)
             }
-            info!("greg tx looping time: {}", timestamp() - greg_ts_start);
+            info!("greg tx looping time: {}", timestamp() - greg_ts_start_2); // seems the same for both maybe
 
             if min_timestamp != u64::MAX {
                 info!("greg: bench-tps-do_tx_transfers oldest-blockhash-age: {:?}", timestamp() - min_timestamp);

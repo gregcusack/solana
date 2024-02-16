@@ -52,6 +52,7 @@ use {
         pubkey::Pubkey,
         signature::Signature,
         transaction,
+        timing::timestamp,
     },
     solana_transaction_status::{
         EncodedConfirmedBlock, EncodedConfirmedTransactionWithStatusMeta, TransactionStatus,
@@ -5267,6 +5268,7 @@ impl RpcClient {
         &self,
         commitment: CommitmentConfig,
     ) -> ClientResult<(Hash, u64)> {
+        let greg_ts_start = timestamp();
         let (blockhash, last_valid_block_height) =
             if self.get_node_version().await? < semver::Version::new(1, 9, 0) {
                 info!("greg: get_latest_blockhash_with_commitment: get_node_version");
@@ -5277,6 +5279,7 @@ impl RpcClient {
                 } = self.get_fees_with_commitment(commitment).await?.value;
                 (blockhash, last_valid_block_height)
             } else {
+                let greg_ts_start_inside = timestamp();
                 info!("greg: get_latest_blockhash_with_commitment: else part of get_node_version");
                 let RpcBlockhash {
                     blockhash,
@@ -5294,8 +5297,10 @@ impl RpcClient {
                         RpcRequest::GetLatestBlockhash,
                     )
                 })?;
+                info!("greg: get_latest_blockhash_with_commitment actual request time: {}ms", timestamp() - greg_ts_start_inside);
                 (blockhash, last_valid_block_height)
             };
+        info!("greg: get_latest_blockhash_with_commitment time: {}ms", timestamp() - greg_ts_start);
         info!("greg: blockhash: {:?}, last_valid_block_height: {:?}", blockhash, last_valid_block_height);
         Ok((blockhash, last_valid_block_height))
     }
