@@ -405,8 +405,9 @@ where
         ..
     } = config;
 
+    // let c = config.clone();
     info!("greg: running do_bench_tps");
-    info!("config: {:?}", config);
+    // info!("config: {:?}", config);
 
     assert!(gen_keypairs.len() >= 2 * tx_count);
     let chunk_generator = TransactionChunkGenerator::new(
