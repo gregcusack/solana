@@ -562,7 +562,7 @@ fn generate_system_txs(
     instruction_padding_config: &Option<InstructionPaddingConfig>,
     compute_unit_price: &Option<ComputeUnitPrice>,
 ) -> Vec<TimestampedTransaction> {
-    let pairs: Vec<_> = if !reclaim -{
+    let pairs: Vec<_> = if !reclaim {
         source.iter().zip(dest.iter()).collect()
     } else {
         dest.iter().zip(source.iter()).collect()
