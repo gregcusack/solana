@@ -15,6 +15,7 @@ use solana_rpc_client_api::deprecated_config::{
     RpcConfirmedBlockConfig, RpcConfirmedTransactionConfig,
 };
 use {
+    log::*,
     crate::{
         http_sender::HttpSender,
         mock_sender::MockSender,
@@ -3683,6 +3684,7 @@ impl RpcClient {
 
     /// Request the transaction count.
     pub fn get_transaction_count(&self) -> ClientResult<u64> {
+        info!("greg: get_transaction_count in rpc_client");
         self.invoke((self.rpc_client.as_ref()).get_transaction_count())
     }
 
@@ -3999,6 +4001,7 @@ impl RpcClient {
         &self,
         commitment: CommitmentConfig,
     ) -> ClientResult<(Hash, u64)> {
+        info!("greg: get_latest_blockhash_with_commitment commitment: {:?}", commitment);
         self.invoke((self.rpc_client.as_ref()).get_latest_blockhash_with_commitment(commitment))
     }
 

@@ -1,4 +1,5 @@
 use {
+    log::*,
     crate::bench_tps_client::{BenchTpsClient, BenchTpsError, Result},
     solana_rpc_client::rpc_client::RpcClient,
 <<<<<<< HEAD
@@ -39,6 +40,7 @@ impl BenchTpsClient for RpcClient {
         Ok(())
     }
     fn get_latest_blockhash(&self) -> Result<Hash> {
+        info!("greg: get_latest_blockhash trait");
         RpcClient::get_latest_blockhash(self).map_err(|err| err.into())
     }
 
@@ -46,11 +48,13 @@ impl BenchTpsClient for RpcClient {
         &self,
         commitment_config: CommitmentConfig,
     ) -> Result<(Hash, u64)> {
+        info!("greg: get_latest_blockhash_with_commitment in rpc_client");
         RpcClient::get_latest_blockhash_with_commitment(self, commitment_config)
             .map_err(|err| err.into())
     }
 
     fn get_transaction_count(&self) -> Result<u64> {
+        info!("greg: get_transaction_count in rpc_client trait");
         RpcClient::get_transaction_count(self).map_err(|err| err.into())
     }
 

@@ -4532,6 +4532,8 @@ impl RpcClient {
 
     /// Request the transaction count.
     pub async fn get_transaction_count(&self) -> ClientResult<u64> {
+        info!("greg: get_transaction_count in nonblocking rpc_client.rs");
+        info!("greg: self commitment: {:?}", self.commitment());
         self.get_transaction_count_with_commitment(self.commitment())
             .await
     }
@@ -4540,6 +4542,7 @@ impl RpcClient {
         &self,
         commitment_config: CommitmentConfig,
     ) -> ClientResult<u64> {
+        info!("greg: get_transaction_count_with_commitment in rpc_client");
         self.send(
             RpcRequest::GetTransactionCount,
             json!([self.maybe_map_commitment(commitment_config).await?]),
@@ -5252,6 +5255,7 @@ impl RpcClient {
     }
 
     pub async fn get_latest_blockhash(&self) -> ClientResult<Hash> {
+        info!("greg: getting latest blockhash with commitment: {:?}", self.commitment());
         let (blockhash, _) = self
             .get_latest_blockhash_with_commitment(self.commitment())
             .await?;
@@ -5265,6 +5269,7 @@ impl RpcClient {
     ) -> ClientResult<(Hash, u64)> {
         let (blockhash, last_valid_block_height) =
             if self.get_node_version().await? < semver::Version::new(1, 9, 0) {
+                info!("greg: get_latest_blockhash_with_commitment: get_node_version");
                 let Fees {
                     blockhash,
                     last_valid_block_height,
@@ -5272,6 +5277,7 @@ impl RpcClient {
                 } = self.get_fees_with_commitment(commitment).await?.value;
                 (blockhash, last_valid_block_height)
             } else {
+                info!("greg: get_latest_blockhash_with_commitment: else part of get_node_version");
                 let RpcBlockhash {
                     blockhash,
                     last_valid_block_height,
@@ -5290,6 +5296,7 @@ impl RpcClient {
                 })?;
                 (blockhash, last_valid_block_height)
             };
+        info!("greg: blockhash: {:?}, last_valid_block_height: {:?}", blockhash, last_valid_block_height);
         Ok((blockhash, last_valid_block_height))
     }
 
