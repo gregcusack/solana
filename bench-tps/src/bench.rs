@@ -1002,9 +1002,11 @@ fn do_tx_transfers<T: BenchTpsClient + ?Sized>(
                 );
             }
 
+            let greg_ts_start_send_batch = timestamp();
             if let Err(error) = client.send_batch(transactions) {
                 warn!("send_batch_sync in do_tx_transfers failed: {}", error);
             }
+            info!("greg time to send batch: {}", timestamp() - greg_ts_start_send_batch);
 
             info!("greg: bench-tps-do_tx_transfers time-elapsed-since-last-send: {:?}", timestamp() - last_sent_time);
             datapoint_info!(

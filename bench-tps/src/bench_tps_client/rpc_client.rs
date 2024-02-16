@@ -1,19 +1,11 @@
 use {
-    log::*,
     crate::bench_tps_client::{BenchTpsClient, BenchTpsError, Result},
     solana_rpc_client::rpc_client::RpcClient,
-<<<<<<< HEAD
     solana_rpc_client_api::config::RpcBlockConfig,
     solana_sdk::{
         account::Account, commitment_config::CommitmentConfig, epoch_info::EpochInfo, hash::Hash,
         message::Message, pubkey::Pubkey, signature::Signature, slot_history::Slot,
         transaction::Transaction,
-=======
-    solana_rpc_client_api::config::RpcSendTransactionConfig,
-    solana_sdk::{
-        account::Account, commitment_config::{CommitmentConfig, CommitmentLevel}, epoch_info::EpochInfo, hash::Hash,
-        message::Message, pubkey::Pubkey, signature::Signature, transaction::Transaction,
->>>>>>> debugging rpc and changed block commitment level
     },
     solana_transaction_status::UiConfirmedBlock,
 };
@@ -34,9 +26,14 @@ impl BenchTpsClient for RpcClient {
     }
 
     fn send_batch(&self, transactions: Vec<Transaction>) -> Result<()> {
+        info!("greg rpc send batch. num tx to send: {}", transactions.len());
+        let greg_ts_all_tx = timestamp();
         for transaction in transactions {
+            let greg_ts_one_tx = timestamp();
             BenchTpsClient::send_transaction(self, transaction)?;
+            info!("greg time to send one tx: {}", timestamp() - greg_ts_one_tx);
         }
+        info!("greg time to send all txs: {}", timestamp() - greg_ts_all_tx);
         Ok(())
     }
     fn get_latest_blockhash(&self) -> Result<Hash> {

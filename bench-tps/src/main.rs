@@ -130,11 +130,7 @@ fn create_client(
     match external_client_type {
         ExternalClientType::RpcClient => Arc::new(RpcClient::new_with_commitment(
             json_rpc_url.to_string(),
-<<<<<<< HEAD
-            commitment_config,
-=======
             CommitmentConfig::finalized(), // Need to change to finalized
->>>>>>> debugging rpc and changed block commitment level
         )),
         ExternalClientType::TpuClient => {
             let rpc_client = Arc::new(RpcClient::new_with_commitment(
