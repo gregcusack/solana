@@ -442,7 +442,9 @@ where
     let shared_txs: SharedTransactions = Arc::new(RwLock::new(VecDeque::new()));
 
     info!("greg: do_bench_tps: about to run get_latest_blockhash");
+    let greg_ts_start = timestamp();
     let blockhash = Arc::new(RwLock::new(get_latest_blockhash(client.as_ref())));
+    info!("greg get_latest_blockhash time: {}", timestamp() - greg_ts_start);
     let shared_tx_active_thread_count = Arc::new(AtomicIsize::new(0));
     let total_tx_sent_count = Arc::new(AtomicUsize::new(0));
 
@@ -467,6 +469,7 @@ where
         None
     };
 
+    let greg_ts_start: u64 = timestamp();
     let s_threads = create_sender_threads(
         &client,
         &shared_txs,
@@ -476,12 +479,16 @@ where
         exit_signal.clone(),
         &shared_tx_active_thread_count,
     );
+    info!("greg: create_sender_threads duration: {}", timestamp() - greg_ts_start);
 
+    let greg_ts_start: u64 = timestamp();
     wait_for_target_slots_per_epoch(target_slots_per_epoch, &client);
+    info!("greg: wait_for_target_slots_per_epoch duration: {}", timestamp() - greg_ts_start);
 
     let start = Instant::now();
 
     info!("greg generating chunked transfers");
+    let greg_ts_start: u64 = timestamp();
     generate_chunked_transfers(
         blockhash,
         &shared_txs,
@@ -492,6 +499,7 @@ where
         sustained,
         use_durable_nonce,
     );
+    info!("greg: generate_chunked_transfers duration: {}", timestamp() - greg_ts_start);
 
     // Stop the sampling threads so it will collect the stats
     exit_signal.store(true, Ordering::Relaxed);
@@ -842,11 +850,13 @@ fn get_new_latest_blockhash<T: BenchTpsClient + ?Sized>(
     client: &Arc<T>,
     blockhash: &Hash,
 ) -> Option<Hash> {
+    let greg_ts_start = timestamp();
     let start = Instant::now();
     while start.elapsed().as_secs() < 5 {
         if let Ok(new_blockhash) = client.get_latest_blockhash() {
             info!("greg: new_blockhash: {:?}", new_blockhash);
             if new_blockhash != *blockhash {
+                info!("greg time to get new_blockhash: {}", timestamp() - greg_ts_start);
                 return Some(new_blockhash);
             }
             info!("greg: old_blockhash equals new_blockhash");
@@ -868,8 +878,10 @@ fn poll_blockhash<T: BenchTpsClient + ?Sized>(
     let mut blockhash_last_updated = Instant::now();
     let mut last_error_log = Instant::now();
     info!("greg: in poll_blockhash");
+    let greg_ts_start = timestamp();
     loop {
         info!("greg: in poll_blockhash loop");
+        let greg_ts_start = timestamp();
         let blockhash_updated = {
             let old_blockhash = *blockhash.read().unwrap();
             info!("greg: old_blockhash: {:?}", old_blockhash);
@@ -891,6 +903,7 @@ fn poll_blockhash<T: BenchTpsClient + ?Sized>(
                 false
             }
         };
+        info!("blockhash_updated flag get time: {}", timestamp() - greg_ts_start);
 
         if blockhash_updated {
             info!("greg: blockhash updated!");
@@ -914,6 +927,7 @@ fn poll_blockhash<T: BenchTpsClient + ?Sized>(
 
         sleep(Duration::from_millis(50));
     }
+    info!("greg: poll blockhash full loop time: {}", timestamp() - greg_ts_start);
 }
 
 fn do_tx_transfers<T: BenchTpsClient + ?Sized>(
@@ -935,10 +949,14 @@ fn do_tx_transfers<T: BenchTpsClient + ?Sized>(
         if thread_batch_sleep_ms > 0 {
             sleep(Duration::from_millis(thread_batch_sleep_ms as u64));
         }
+        let greg_ts_start = timestamp();
         let txs = {
             let mut shared_txs_wl = shared_txs.write().expect("write lock in do_tx_transfers");
             shared_txs_wl.pop_front()
         };
+        info!("greg tx pop front time: {}", timestamp() - greg_ts_start);
+
+        let greg_ts_start = timestamp();
         if let Some(txs0) = txs {
             info!("greg: tx length: {}", txs0.len());
             shared_tx_thread_count.fetch_add(1, Ordering::Relaxed);
@@ -949,6 +967,7 @@ fn do_tx_transfers<T: BenchTpsClient + ?Sized>(
             let mut old_transactions = false;
             let mut transactions = Vec::<_>::new();
             let mut min_timestamp = u64::MAX;
+            let greg_ts_start: u64 = timestamp();
             for tx in txs0 {
                 let now = timestamp();
                 // Transactions without durable nonce that are too old will be rejected by the cluster Don't bother
@@ -963,7 +982,9 @@ fn do_tx_transfers<T: BenchTpsClient + ?Sized>(
                     }
                 }
                 transactions.push(tx.0);
+                info!("greg single loop time: {}", timestamp() - now)
             }
+            info!("greg tx looping time: {}", timestamp() - greg_ts_start);
 
             if min_timestamp != u64::MAX {
                 info!("greg: bench-tps-do_tx_transfers oldest-blockhash-age: {:?}", timestamp() - min_timestamp);
@@ -1006,6 +1027,7 @@ fn do_tx_transfers<T: BenchTpsClient + ?Sized>(
                 ("count", tx_len, i64)
             );
         }
+        info!("greg if statement time: {}", timestamp() - greg_ts_start);
         if exit_signal.load(Ordering::Relaxed) {
             break;
         }
