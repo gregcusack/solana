@@ -77,39 +77,6 @@ pub struct Config {
     pub commitment_config: CommitmentConfig,
 }
 
-impl std::fmt::Display for Config {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Config: {{\n")?;
-        write!(f, "  entrypoint_addr: {},\n", self.entrypoint_addr)?;
-        write!(f, "  json_rpc_url: {},\n", self.json_rpc_url)?;
-        write!(f, "  websocket_url: {},\n", self.websocket_url)?;
-        // For complex types like Keypair, you might just want to print a placeholder or specific field
-        write!(f, "  id: {},\n", "Keypair-Placeholder")?;
-        write!(f, "  threads: {},\n", self.threads)?;
-        write!(f, "  num_nodes: {},\n", self.num_nodes)?;
-        write!(f, "  duration: {:?},\n", self.duration)?;
-        write!(f, "  tx_count: {},\n", self.tx_count)?;
-        write!(f, "  keypair_multiplier: {},\n", self.keypair_multiplier)?;
-        write!(f, "  thread_batch_sleep_ms: {},\n", self.thread_batch_sleep_ms)?;
-        write!(f, "  sustained: {},\n", self.sustained)?;
-        write!(f, "  client_ids_and_stake_file: {},\n", self.client_ids_and_stake_file)?;
-        write!(f, "  write_to_client_file: {},\n", self.write_to_client_file)?;
-        write!(f, "  read_from_client_file: {},\n", self.read_from_client_file)?;
-        write!(f, "  target_lamports_per_signature: {},\n", self.target_lamports_per_signature)?;
-        write!(f, "  multi_client: {},\n", self.multi_client)?;
-        write!(f, "  num_lamports_per_account: {},\n", self.num_lamports_per_account)?;
-        write!(f, "  target_slots_per_epoch: {},\n", self.target_slots_per_epoch)?;
-        write!(f, "  tpu_connection_pool_size: {},\n", self.tpu_connection_pool_size)?;
-        write!(f, "  use_durable_nonce: {},\n", self.use_durable_nonce)?;
-        write!(f, "  target_node: {:?},\n", self.target_node)?;
-        write!(f, "  client_node_id: {:?},\n", self.client_node_id)?;
-        write!(f, "  target_lamports_per_signature: {},\n", self.target_lamports_per_signature)?;
-        write!(f, "  use_quic: {},\n", self.use_quic)?;
-        write!(f, "  bind_address: {}\n", self.bind_address)?;
-        write!(f, "}}")
-    }
-}
-
 impl Eq for Config {}
 
 impl Default for Config {

@@ -21,6 +21,9 @@ impl BenchTpsClient for BankClient {
     fn send_transaction(&self, transaction: Transaction) -> Result<Signature> {
         AsyncClient::async_send_transaction(self, transaction).map_err(|err| err.into())
     }
+    fn send_transaction_with_commitment(&self, _transaction: Transaction, _commitment_config: CommitmentConfig) -> Result<Signature> {
+        unimplemented!("BankClient doesn't support send_transaction_with_commitment");
+    }
     fn send_batch(&self, transactions: Vec<Transaction>) -> Result<()> {
         AsyncClient::async_send_batch(self, transactions).map_err(|err| err.into())
     }

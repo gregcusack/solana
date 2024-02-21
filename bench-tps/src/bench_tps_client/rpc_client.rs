@@ -12,32 +12,16 @@ use {
 
 impl BenchTpsClient for RpcClient {
     fn send_transaction(&self, transaction: Transaction) -> Result<Signature> {
-        // RpcClient::send_transaction(self, &transaction).map_err(|err| err.into())
-        RpcClient::send_transaction_with_config(self, &transaction,
-            RpcSendTransactionConfig {
-                skip_preflight: true,
-                preflight_commitment: Some(
-                    CommitmentLevel::Finalized,
-                ),
-                ..RpcSendTransactionConfig::default()
-            },
-        ).map_err(|err| err.into())
-
+        RpcClient::send_transaction(self, &transaction).map_err(|err| err.into())
     }
 
     fn send_batch(&self, transactions: Vec<Transaction>) -> Result<()> {
-        info!("greg rpc send batch. num tx to send: {}", transactions.len());
-        let greg_ts_all_tx = timestamp();
         for transaction in transactions {
-            let greg_ts_one_tx = timestamp();
             BenchTpsClient::send_transaction(self, transaction)?;
-            info!("greg time to send one tx: {}", timestamp() - greg_ts_one_tx);
         }
-        info!("greg time to send all txs: {}", timestamp() - greg_ts_all_tx);
         Ok(())
     }
     fn get_latest_blockhash(&self) -> Result<Hash> {
-        info!("greg: get_latest_blockhash trait");
         RpcClient::get_latest_blockhash(self).map_err(|err| err.into())
     }
 
@@ -45,13 +29,11 @@ impl BenchTpsClient for RpcClient {
         &self,
         commitment_config: CommitmentConfig,
     ) -> Result<(Hash, u64)> {
-        info!("greg: get_latest_blockhash_with_commitment in rpc_client");
         RpcClient::get_latest_blockhash_with_commitment(self, commitment_config)
             .map_err(|err| err.into())
     }
 
     fn get_transaction_count(&self) -> Result<u64> {
-        info!("greg: get_transaction_count in rpc_client trait");
         RpcClient::get_transaction_count(self).map_err(|err| err.into())
     }
 

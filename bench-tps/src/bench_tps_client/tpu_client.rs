@@ -24,6 +24,11 @@ where
         self.try_send_transaction(&transaction)?;
         Ok(signature)
     }
+
+    fn send_transaction_with_commitment(&self, _transaction: Transaction, _commitment_config: CommitmentConfig) -> Result<Signature> {
+        unimplemented!("TpuClient doesn't support send_transaction_with_commitment");
+    }
+
     fn send_batch(&self, transactions: Vec<Transaction>) -> Result<()> {
         self.try_send_transaction_batch(&transactions)?;
         Ok(())

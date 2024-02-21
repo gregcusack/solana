@@ -32,6 +32,8 @@ pub trait BenchTpsClient {
     /// Send a signed transaction without confirmation
     fn send_transaction(&self, transaction: Transaction) -> Result<Signature>;
 
+    fn send_transaction_with_commitment(&self, transaction: Transaction, commitment_config: CommitmentConfig) -> Result<Signature>;
+
     /// Send a batch of signed transactions without confirmation.
     fn send_batch(&self, transactions: Vec<Transaction>) -> Result<()>;
 
