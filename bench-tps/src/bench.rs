@@ -436,8 +436,7 @@ where
 
     let shared_txs: SharedTransactions = Arc::new(RwLock::new(VecDeque::new()));
 
-    // let blockhash = Arc::new(RwLock::new(get_latest_blockhash(client.as_ref())));
-    let blockhash = Arc::new(RwLock::new(get_latest_blockhash_with_commitment(client.as_ref(), commitment_config)));
+    let blockhash = Arc::new(RwLock::new(get_latest_blockhash(client.as_ref())));
     let shared_tx_active_thread_count = Arc::new(AtomicIsize::new(0));
     let total_tx_sent_count = Arc::new(AtomicUsize::new(0));
 

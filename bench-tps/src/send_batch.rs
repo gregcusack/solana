@@ -40,18 +40,6 @@ pub fn get_latest_blockhash<T: BenchTpsClient + ?Sized>(client: &T) -> Hash {
     }
 }
 
-pub fn get_latest_blockhash_with_commitment<T: BenchTpsClient + ?Sized>(client: &T, commitment_config: CommitmentConfig) -> Hash {
-    loop {
-        match client.get_latest_blockhash_with_commitment(commitment_config) {
-            Ok((blockhash, _)) => return blockhash,
-            Err(err) => {
-                info!("Couldn't get last blockhash: {:?}", err);
-                sleep(Duration::from_secs(1));
-            }
-        };
-    }
-}
-
 pub fn generate_keypairs(seed_keypair: &Keypair, count: u64) -> (Vec<Keypair>, u64) {
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&seed_keypair.to_bytes()[..32]);
