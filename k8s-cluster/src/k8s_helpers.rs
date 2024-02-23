@@ -1,5 +1,4 @@
 use {
-    log::*,
     k8s_openapi::{
         api::{
             apps::v1::{ReplicaSet, ReplicaSetSpec},
@@ -49,42 +48,19 @@ pub fn create_replica_set(
     nodes: Option<Vec<String>>,
     pod_requests: BTreeMap<String, Quantity>,
 ) -> Result<ReplicaSet, Box<dyn Error>> {
-    let mut node_affinity = None;
-    if container_name == "client-container-0" {
-        let specific_node = vec!["metropolis-b35ebad2d71303e4eb9c2df67ea42a4a".to_string()];
-        node_affinity = Some(NodeAffinity {
-            required_during_scheduling_ignored_during_execution: Some(NodeSelector {
-                node_selector_terms: vec![
-                    NodeSelectorTerm {
-                        match_expressions: Some(vec![
-                            NodeSelectorRequirement {
-                                key: "kubernetes.io/hostname".to_string(),
-                                operator: "In".to_string(),
-                                values: Some(specific_node), // Directly use specific_node without cloning
-                            }
-                        ]),
-                        ..Default::default()
-                    }
-                ],
-            }),
-            ..Default::default()
-        });
-    }
-
-
-    // let node_affinity = nodes.clone().map(|_| NodeAffinity {
-    //     required_during_scheduling_ignored_during_execution: Some(NodeSelector {
-    //         node_selector_terms: vec![NodeSelectorTerm {
-    //             match_expressions: Some(vec![NodeSelectorRequirement {
-    //                 key: "kubernetes.io/hostname".to_string(),
-    //                 operator: "In".to_string(),
-    //                 values: nodes,
-    //             }]),
-    //             ..Default::default()
-    //         }],
-    //     }),
-    //     ..Default::default()
-    // });
+    let node_affinity = nodes.clone().map(|_| NodeAffinity {
+        required_during_scheduling_ignored_during_execution: Some(NodeSelector {
+            node_selector_terms: vec![NodeSelectorTerm {
+                match_expressions: Some(vec![NodeSelectorRequirement {
+                    key: "kubernetes.io/hostname".to_string(),
+                    operator: "In".to_string(),
+                    values: nodes,
+                }]),
+                ..Default::default()
+            }],
+        }),
+        ..Default::default()
+    });
 
     let pod_spec = PodTemplateSpec {
         metadata: Some(ObjectMeta {

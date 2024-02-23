@@ -138,7 +138,7 @@ args+=(
   --gossip-port 8001 \
   --rpc-port 8899 \
   --rpc-faucet-address "$MY_POD_IP":9900 \
-  --no-poh-speed-test \
+  # --no-poh-speed-test \
   --no-incremental-snapshots \
   --full-rpc-api \
   --enable-rpc-transaction-history \

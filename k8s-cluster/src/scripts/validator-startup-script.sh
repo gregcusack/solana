@@ -6,7 +6,7 @@ source /home/solana/k8s-cluster-scripts/common.sh
 
 args=(
   --max-genesis-archive-unpacked-size 1073741824
-  --no-poh-speed-test
+  # --no-poh-speed-test
   --no-os-network-limits-test
 )
 airdrops_enabled=1
