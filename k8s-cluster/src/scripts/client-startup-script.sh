@@ -125,7 +125,7 @@ bench-tps)
       --threads $threadCount \
       $benchTpsExtraArgs \
       --read-client-keys ./client-accounts.yml \
-      --url "http://$LOAD_BALANCER_RPC_ADDRESS"
+      --url "http://$test_rpc"
       ${args[*]} \
       ${runtime_args[*]} \
   "
