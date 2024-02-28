@@ -329,8 +329,19 @@ pub fn build_args<'a>(version: &'_ str) -> App<'a, '_> {
             Arg::with_name("thin_client")
                 .long("use-thin-client")
                 .conflicts_with("rpc_client")
+                .conflicts_with("thin_client")
                 .takes_value(false)
                 .help("Submit transactions with a ThinClient")
+        )
+        .arg(
+            Arg::with_name("thin_client")
+                .long("use-thin-client")
+                .conflicts_with("rpc_client")
+                .conflicts_with("tpu_client")
+                .takes_value(false)
+                .hidden(hidden_unless_forced())
+                .help("Submit transactions with a ThinClient. Note: usage is discouraged. \
+                    ThinClient will be deprecated.")
         )
         .arg(
             Arg::with_name("tpu_disable_quic")
