@@ -4,10 +4,11 @@ use {
     crate::{cluster_info::ClusterInfo, legacy_contact_info::LegacyContactInfo as ContactInfo},
     crossbeam_channel::{unbounded, Sender},
     rand::{thread_rng, Rng},
-    solana_client::{connection_cache::ConnectionCache, thin_client::ThinClient},
+    solana_client::{connection_cache::ConnectionCache, thin_client::ThinClient, tpu_client::TpuClient, rpc_client::RpcClient},
     solana_perf::recycler::Recycler,
     solana_runtime::bank_forks::BankForks,
     solana_sdk::{
+        commitment_config::CommitmentConfig,
         pubkey::Pubkey,
         signature::{Keypair, Signer},
     },
@@ -212,15 +213,21 @@ pub fn get_multi_client(
     nodes: &[ContactInfo],
     socket_addr_space: &SocketAddrSpace,
     connection_cache: Arc<ConnectionCache>,
-) -> (ThinClient, usize) {
+) -> (TpuClient<P, M, C>, usize) {
     let protocol = connection_cache.protocol();
     let (rpc_addrs, tpu_addrs): (Vec<_>, Vec<_>) = nodes
         .iter()
         .filter_map(|node| node.valid_client_facing_addr(protocol, socket_addr_space))
         .unzip();
     let num_nodes = tpu_addrs.len();
+    // ThinClient::new_from_addrs(rpc_addrs, tpu_addrs, connection_cache),
+    let rpc_client = Arc::new(RpcClient::new(
+        nodes[0].valid_client_facing_addr(protocol, socket_addr_space)
+    ));
+    let websocket_url = nodes[0].rpc_pubsub_url();
     (
-        ThinClient::new_from_addrs(rpc_addrs, tpu_addrs, connection_cache),
+
+        TpuClient::new(rpc_client, &websocket_url, TpuClientConfig::default()).unwrap(),
         num_nodes,
     )
 }
