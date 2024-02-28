@@ -670,6 +670,10 @@ mod tests {
                 threads: 4,
                 read_from_client_file: true,
                 client_ids_and_stake_file: "./client-accounts.yml".to_string(),
+<<<<<<< HEAD
+=======
+                // entrypoint_addr: SocketAddr::from((Ipv4Addr::new(192, 1, 2, 3), 8001)),
+>>>>>>> rm thin-client from bench-tps. todo: rm from net/ scripts
                 ..Config::default()
             }
         );

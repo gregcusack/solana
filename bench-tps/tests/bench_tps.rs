@@ -9,8 +9,8 @@ use {
     solana_client::{
         connection_cache::ConnectionCache,
         tpu_client::{TpuClient, TpuClientConfig},
-    }, solana_connection_cache::connection_cache, solana_core::validator::ValidatorConfig, solana_faucet::faucet::run_local_faucet, solana_local_cluster::{
-        local_cluster::{self, ClusterConfig, LocalCluster},
+    }, solana_core::validator::ValidatorConfig, solana_faucet::faucet::run_local_faucet, solana_local_cluster::{
+        local_cluster::{ClusterConfig, LocalCluster},
         validator_configs::make_identical_validator_configs,
     }, solana_rpc::rpc::JsonRpcConfig, solana_rpc_client::rpc_client::RpcClient, solana_sdk::{
         account::{Account, AccountSharedData},
