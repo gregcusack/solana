@@ -6133,6 +6133,7 @@ dependencies = [
  "solana-bloom",
  "solana-clap-utils",
  "solana-client",
+ "solana-connection-cache",
  "solana-entry",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",

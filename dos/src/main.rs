@@ -50,7 +50,7 @@ use {
     solana_dos::cli::*,
     solana_gossip::{
         contact_info::Protocol,
-        gossip_service::{discover, get_multi_client},
+        gossip_service::{discover, get_client},
         legacy_contact_info::LegacyContactInfo as ContactInfo,
     },
     solana_measure::measure::Measure,
@@ -790,10 +790,16 @@ fn main() {
                 DEFAULT_TPU_CONNECTION_POOL_SIZE,
             ),
         };
-        let (client, num_clients) = get_multi_client(
+        // let (client, num_clients) = get_multi_client(
+        //     &validators,
+        //     &SocketAddrSpace::Unspecified,
+        //     Arc::new(connection_cache),
+        // );
+
+        let client = get_client(
             &validators,
             &SocketAddrSpace::Unspecified,
-            Arc::new(connection_cache),
+            connection_cache,
         );
         if validators.len() < num_clients {
             eprintln!(

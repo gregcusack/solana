@@ -4,7 +4,10 @@ use {
     crate::{cluster_info::ClusterInfo, legacy_contact_info::LegacyContactInfo as ContactInfo},
     crossbeam_channel::{unbounded, Sender},
     rand::{thread_rng, Rng},
-    solana_client::{connection_cache::ConnectionCache, thin_client::ThinClient, tpu_client::TpuClient, rpc_client::RpcClient},
+    solana_client::{connection_cache::ConnectionCache, rpc_client::RpcClient, thin_client::ThinClient, tpu_client::{TpuClient, TpuClientConfig, TpuSenderError}},
+    solana_connection_cache::connection_cache::{
+        ConnectionManager, ConnectionPool, NewConnectionConfig
+    },
     solana_perf::recycler::Recycler,
     solana_runtime::bank_forks::BankForks,
     solana_sdk::{
@@ -194,11 +197,16 @@ pub fn discover(
 }
 
 /// Creates a ThinClient by selecting a valid node at random
-pub fn get_client(
+pub fn get_client<P, M, C>(
     nodes: &[ContactInfo],
     socket_addr_space: &SocketAddrSpace,
-    connection_cache: Arc<ConnectionCache>,
-) -> ThinClient {
+    connection_cache: ConnectionCache,
+) -> Result<TpuClient<P, M, C>, TpuSenderError>
+    where
+        P: ConnectionPool<NewConnectionConfig = C>,
+        M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+        C: NewConnectionConfig,
+    {
     let protocol = connection_cache.protocol();
     let nodes: Vec<_> = nodes
         .iter()
@@ -206,31 +214,57 @@ pub fn get_client(
         .collect();
     let select = thread_rng().gen_range(0..nodes.len());
     let (rpc, tpu) = nodes[select];
-    ThinClient::new(rpc, tpu, connection_cache)
-}
 
-pub fn get_multi_client(
-    nodes: &[ContactInfo],
-    socket_addr_space: &SocketAddrSpace,
-    connection_cache: Arc<ConnectionCache>,
-) -> (TpuClient<P, M, C>, usize) {
-    let protocol = connection_cache.protocol();
-    let (rpc_addrs, tpu_addrs): (Vec<_>, Vec<_>) = nodes
-        .iter()
-        .filter_map(|node| node.valid_client_facing_addr(protocol, socket_addr_space))
-        .unzip();
-    let num_nodes = tpu_addrs.len();
-    // ThinClient::new_from_addrs(rpc_addrs, tpu_addrs, connection_cache),
     let rpc_client = Arc::new(RpcClient::new(
-        nodes[0].valid_client_facing_addr(protocol, socket_addr_space)
+        rpc,
     ));
-    let websocket_url = nodes[0].rpc_pubsub_url();
-    (
 
-        TpuClient::new(rpc_client, &websocket_url, TpuClientConfig::default()).unwrap(),
-        num_nodes,
-    )
+    match connection_cache {
+        ConnectionCache::Udp(cache) => Ok(
+            TpuClient::new_with_connection_cache(
+                rpc_client,
+                tpu,
+                TpuClientConfig::default(),
+                cache,
+            )),
+        ConnectionCache::Quic(cache) => Ok(
+            TpuClient::new_with_connection_cache(
+                rpc_client,
+                tpu,
+                TpuClientConfig::default(),
+                cache,
+            )),
+    }
+
+    // let websocket_url = nodes[select].rpc_pubsub_url();
+    // TpuClient::new(rpc_client, &websocket_url, TpuClientConfig::default()).unwrap()
+    // TpuClient::new_with_connection_cache(rpc_client, tpu, TpuClientConfig::default(), connection_cache).unwrap()
+
+    // ThinClient::new(rpc, tpu, connection_cache)
 }
+
+// pub fn get_multi_client<P, M, C>(
+//     nodes: &[ContactInfo],
+//     socket_addr_space: &SocketAddrSpace,
+//     connection_cache: Arc<ConnectionCache>,
+// ) -> (TpuClient<P, M, C>, usize) {
+//     let protocol = connection_cache.protocol();
+//     let (rpc_addrs, tpu_addrs): (Vec<_>, Vec<_>) = nodes
+//         .iter()
+//         .filter_map(|node| node.valid_client_facing_addr(protocol, socket_addr_space))
+//         .unzip();
+//     let num_nodes = tpu_addrs.len();
+//     // ThinClient::new_from_addrs(rpc_addrs, tpu_addrs, connection_cache),
+//     let rpc_client = Arc::new(RpcClient::new(
+//         nodes[0].valid_client_facing_addr(protocol, socket_addr_space)
+//     ));
+//     let websocket_url = nodes[0].rpc_pubsub_url();
+//     (
+
+//         TpuClient::new(rpc_client, &websocket_url, TpuClientConfig::default()).unwrap(),
+//         num_nodes,
+//     )
+// }
 
 fn spy(
     spy_ref: Arc<ClusterInfo>,
