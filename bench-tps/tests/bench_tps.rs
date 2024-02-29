@@ -55,24 +55,26 @@ fn test_bench_tps_local_cluster(config: Config) {
     let faucet_addr = run_local_faucet(faucet_keypair, None);
 
     const NUM_NODES: usize = 1;
-    let mut cluster_config = ClusterConfig {
-        node_stakes: vec![999_990; NUM_NODES],
-        cluster_lamports: 200_000_000,
-        validator_configs: make_identical_validator_configs(
-            &ValidatorConfig {
-                rpc_config: JsonRpcConfig {
-                    faucet_addr: Some(faucet_addr),
-                    ..JsonRpcConfig::default_for_test()
+    let cluster = LocalCluster::new(
+        &mut ClusterConfig {
+            node_stakes: vec![999_990; NUM_NODES],
+            cluster_lamports: 200_000_000,
+            validator_configs: make_identical_validator_configs(
+                &ValidatorConfig {
+                    rpc_config: JsonRpcConfig {
+                        faucet_addr: Some(faucet_addr),
+                        ..JsonRpcConfig::default_for_test()
+                    },
+                    ..ValidatorConfig::default_for_test()
                 },
-                ..ValidatorConfig::default_for_test()
-            },
-            NUM_NODES,
-        ),
-        native_instruction_processors,
-        additional_accounts,
-        ..ClusterConfig::default()
-    };
-    let cluster = LocalCluster::new(&mut cluster_config, SocketAddrSpace::Unspecified);
+                NUM_NODES,
+            ),
+            native_instruction_processors,
+            additional_accounts,
+            ..ClusterConfig::default()
+        },
+        SocketAddrSpace::Unspecified,
+    );
 
     cluster.transfer(&cluster.funding_keypair, &faucet_pubkey, 100_000_000);
 
