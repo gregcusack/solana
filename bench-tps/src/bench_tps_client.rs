@@ -113,4 +113,5 @@ pub trait BenchTpsClient {
 
 mod bank_client;
 mod rpc_client;
+mod thin_client;
 mod tpu_client;
