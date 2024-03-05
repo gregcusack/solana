@@ -48,19 +48,59 @@ pub fn create_replica_set(
     nodes: Option<Vec<String>>,
     pod_requests: BTreeMap<String, Quantity>,
 ) -> Result<ReplicaSet, Box<dyn Error>> {
-    let node_affinity = nodes.clone().map(|_| NodeAffinity {
+    let node_affinity = Some(NodeAffinity {
         required_during_scheduling_ignored_during_execution: Some(NodeSelector {
-            node_selector_terms: vec![NodeSelectorTerm {
-                match_expressions: Some(vec![NodeSelectorRequirement {
-                    key: "kubernetes.io/hostname".to_string(),
-                    operator: "In".to_string(),
-                    values: nodes,
-                }]),
-                ..Default::default()
-            }],
+            node_selector_terms: vec![
+                NodeSelectorTerm {
+                    match_expressions: Some(vec![
+                        NodeSelectorRequirement {
+                            key: "topology.kubernetes.io/region".to_string(),
+                            operator: "In".to_string(),
+                            values: Some(vec!["eq-hk".to_string()]),
+                        },
+                        NodeSelectorRequirement {
+                            key: "topology.kubernetes.io/zone".to_string(),
+                            operator: "In".to_string(),
+                            values: Some(vec!["eq-hk2".to_string()]),
+                        }
+                    ]),
+                    ..Default::default()
+                },
+            ],
         }),
         ..Default::default()
     });
+
+    // let node_affinity = nodes.clone().map(|_| NodeAffinity {
+    //     required_during_scheduling_ignored_during_execution: Some(NodeSelector {
+    //         node_selector_terms: vec![
+    //             // NodeSelectorTerm {
+    //             //     match_expressions: Some(vec![NodeSelectorRequirement {
+    //             //         key: "kubernetes.io/hostname".to_string(),
+    //             //         operator: "In".to_string(),
+    //             //         values: nodes,
+    //             //     }]),
+    //             //     ..Default::default()
+    //             // },
+    //             NodeSelectorTerm {
+    //                 match_expressions: Some(vec![
+    //                     NodeSelectorRequirement {
+    //                         key: "topology.kubernetes.io/region".to_string(),
+    //                         operator: "In".to_string(),
+    //                         values: Some(vec!["eq-hk".to_string()]),
+    //                     },
+    //                     NodeSelectorRequirement {
+    //                         key: "topology.kubernetes.io/zone".to_string(),
+    //                         operator: "In".to_string(),
+    //                         values: Some(vec!["eq-hk2".to_string()]),
+    //                     }
+    //                 ]),
+    //                 ..Default::default()
+    //             },
+    //         ],
+    //     }),
+    //     ..Default::default()
+    // });
 
     let pod_spec = PodTemplateSpec {
         metadata: Some(ObjectMeta {
