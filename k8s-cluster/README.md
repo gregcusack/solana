@@ -323,7 +323,7 @@ kubectl get pods -n <namespace> -l app.kubernetes.io/identity=<identity>
 ```
 
 ## Trouble Shooting
-1) The default `solana-validator` command includes `--require-tower`, as a result if your pods restart for whatever reason after the validator was running for some time, the validator will not properly boot. Deploy your experiment with `--skip-require-tower`
+1) The default `agave-validator` command includes `--require-tower`, as a result if your pods restart for whatever reason after the validator was running for some time, the validator will not properly boot. Deploy your experiment with `--skip-require-tower`
 
 ### Notes
 - Have tested deployments of up to 1200 validators

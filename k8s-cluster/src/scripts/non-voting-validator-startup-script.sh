@@ -58,7 +58,7 @@ while [[ -n $1 ]]; do
     elif [[ $1 == --internal-node-sol ]]; then
       node_sol=$2
       shift 2
-    # solana-validator options
+    # agave-validator options
     elif [[ $1 = --expected-genesis-hash ]]; then
       args+=("$1" "$2")
       shift 2
@@ -232,9 +232,9 @@ default_arg --rpc-port 8899
 
 program=
 if [[ -n $SOLANA_CUDA ]]; then
-  program="solana-validator --cuda"
+  program="agave-validator --cuda"
 else
-  program="solana-validator"
+  program="agave-validator"
 fi
 
 echo "program: $program"
@@ -263,7 +263,7 @@ kill_node_and_exit() {
 
 trap 'kill_node_and_exit' INT TERM ERR
 
-echo "All commands succeeded. Running solana-validator next..."
+echo "All commands succeeded. Running agave-validator next..."
 
 echo "Validator Args"
 for arg in "${args[@]}"; do

@@ -36,7 +36,7 @@ impl LedgerHelper {
             std::fs::remove_dir_all(&config_dir).unwrap();
         }
         std::fs::create_dir_all(&config_dir).unwrap();
-        let executable_path = build_path.join("solana-ledger-tool");
+        let executable_path = build_path.join("agave-ledger-tool");
         let output = Command::new(executable_path)
             .arg("-l")
             .arg(LEDGER_DIR.as_os_str())
@@ -59,7 +59,7 @@ impl LedgerHelper {
 
     pub fn create_bank_hash(build_path: PathBuf) -> Result<Hash, Box<dyn Error>> {
         ledger_directory_exists()?;
-        let executable_path = build_path.join("solana-ledger-tool");
+        let executable_path = build_path.join("agave-ledger-tool");
         let output = Command::new(executable_path)
             .arg("-l")
             .arg(LEDGER_DIR.as_os_str())
