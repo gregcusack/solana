@@ -677,34 +677,37 @@ impl CrdsDataStats {
             }
         }
 
-        let GossipRoute::PushMessage(from) = route else {
-            return;
-        };
-
-        if should_report_message_signature(&entry.value.signature) {
-            datapoint_info!(
-                "gossip_crds_sample",
-                (
-                    "origin",
-                    entry.value.pubkey().to_string().get(..8),
-                    Option<String>
-                ),
-                (
-                    "signature",
-                    entry.value.signature.to_string().get(..8),
-                    Option<String>
-                ),
-                (
-                    "from",
-                    from.to_string().get(..8),
-                    Option<String>
-                )
-            );
+        if let GossipRoute::PushMessage(from) = route {
+            if should_report_message_signature(&entry.value.signature) {
+                report_gossip_crds_sample_push("gossip_crds_sample", entry, from);
+            }
+        } else if let GossipRoute::PullResponse = route {
+            if should_report_message_signature(&entry.value.signature) {
+                datapoint_info!(
+                    "gossip_crds_sample_pull",
+                    (
+                        "origin",
+                        entry.value.pubkey().to_string().get(..8),
+                        Option<String>
+                    ),
+                    (
+                        "signature",
+                        entry.value.signature.to_string().get(..8),
+                        Option<String>
+                    )
+                );
+            }
         }
     }
 
-    fn record_fail(&mut self, entry: &VersionedCrdsValue) {
+    fn record_fail(&mut self, entry: &VersionedCrdsValue, route: GossipRoute) {
         self.fails[Self::ordinal(entry)] += 1;
+        let GossipRoute::PushMessage(from) = route else {
+            return;
+        };
+        if should_report_message_signature(&entry.value.signature) {
+            report_gossip_crds_sample_push("gossip_crds_sample_fail", entry, from);
+        }
     }
 
     fn ordinal(entry: &VersionedCrdsValue) -> usize {
@@ -742,8 +745,8 @@ impl CrdsStats {
         match route {
             GossipRoute::LocalMessage => (),
             GossipRoute::PullRequest => (),
-            GossipRoute::PushMessage(_) => self.push.record_fail(entry),
-            GossipRoute::PullResponse => self.pull.record_fail(entry),
+            GossipRoute::PushMessage(_) => self.push.record_fail(entry, route),
+            GossipRoute::PullResponse => self.pull.record_fail(entry, route),
         }
     }
 }
@@ -755,6 +758,32 @@ fn should_report_message_signature(signature: &Signature) -> bool {
         return false;
     };
     u64::from_le_bytes(bytes).trailing_zeros() >= SIGNATURE_SAMPLE_LEADING_ZEROS
+}
+
+#[inline]
+fn report_gossip_crds_sample_push(
+    metric_label: &'static str,
+    entry: &VersionedCrdsValue,
+    from: &Pubkey,
+) {
+    datapoint_info!(
+        metric_label,
+        (
+            "origin",
+            entry.value.pubkey().to_string().get(..8),
+            Option<String>
+        ),
+        (
+            "signature",
+            entry.value.signature.to_string().get(..8),
+            Option<String>
+        ),
+        (
+            "from",
+            from.to_string().get(..8),
+            Option<String>
+        )
+    );
 }
 
 #[cfg(test)]
