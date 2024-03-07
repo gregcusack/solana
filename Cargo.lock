@@ -5589,7 +5589,6 @@ dependencies = [
  "solana-sdk",
  "solana-streamer",
  "solana-test-validator",
- "solana-thin-client",
  "solana-tpu-client",
  "solana-version",
  "spl-instruction-padding",
