@@ -181,6 +181,16 @@ where
         // lesser evil.
         tokio::task::block_in_place(move || self.rpc_client.runtime().block_on(f))
     }
+
+    // pub fn poll_get_balance_with_commitment(
+    //     &self,
+    //     pubkey: &Pubkey,
+    //     commitment_config: CommitmentConfig,
+    // ) -> TransportResult<u64> {
+    //     self.rpc_client()
+    //         .poll_get_balance_with_commitment(pubkey, commitment_config)
+    //         .map_err(|e| e.into())
+    // }
 }
 
 // 48 chosen because it's unlikely that 12 leaders in a row will miss their slots

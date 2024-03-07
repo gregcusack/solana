@@ -9,7 +9,9 @@ use {
     solana_client::{
         connection_cache::{ConnectionCache, Protocol},
         thin_client::ThinClient,
+        tpu_client::{TpuClientConfig, TpuClient},
     },
+    solana_rpc_client::rpc_client::RpcClient,
     solana_core::consensus::VOTE_THRESHOLD_DEPTH,
     solana_entry::entry::{Entry, EntrySlice},
     solana_gossip::{
@@ -90,22 +92,59 @@ pub fn spend_and_verify_all_nodes<S: ::std::hash::BuildHasher + Sync + Send>(
         let random_keypair = Keypair::new();
         let (rpc, tpu) = get_client_facing_addr(connection_cache.protocol(), ingress_node);
         let client = ThinClient::new(rpc, tpu, connection_cache.clone());
+        
+        let rpc_pubsub_url = format!("ws://{}/", entry_point_info.rpc_pubsub().unwrap());
+        let rpc_url = format!("http://{}", entry_point_info.rpc().unwrap());
+
+        let ConnectionCache::Quic(cache) = connection_cache.as_ref() else {
+            panic!("Expected a Quic ConnectionCache.");
+        };
+
+        let client2 = TpuClient::new_with_connection_cache(
+            Arc::new(RpcClient::new(rpc_url)),
+            rpc_pubsub_url.as_str(),
+            TpuClientConfig::default(),
+            cache.clone(),
+        )
+        .unwrap_or_else(|err| {
+            panic!("Could not create TpuClient with Quic Cache {err:?}");
+        });
+        
         let bal = client
             .poll_get_balance_with_commitment(
                 &funding_keypair.pubkey(),
                 CommitmentConfig::processed(),
             )
             .expect("balance in source");
+
+        let bal2 = client2
+            .poll_get_balance_with_commitment(
+                &funding_keypair.pubkey(),
+                CommitmentConfig::processed(),
+            )
+            .expect("balance in source");
+
+
         assert!(bal > 0);
+        assert!(bal2 > 0);
+
         let (blockhash, _) = client
             .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
             .unwrap();
+        let (blockhash2, _) = client2
+            .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
+            .unwrap();
+
         let mut transaction =
             system_transaction::transfer(funding_keypair, &random_keypair.pubkey(), 1, blockhash);
         let confs = VOTE_THRESHOLD_DEPTH + 1;
         let sig = client
             .retry_transfer_until_confirmed(funding_keypair, &mut transaction, 10, confs)
             .unwrap();
+        let sig2 = client2
+            .retry_transfer_until_confirmed(funding_keypair, &mut transaction, 10, confs)
+            .unwrap();
+
         for validator in &cluster_nodes {
             if ignore_nodes.contains(validator.pubkey()) {
                 continue;
