@@ -41,7 +41,6 @@ members = [
     "geyser-plugin-manager",
     "gossip",
     "install",
-    "k8s-cluster",
     "keygen",
     "ledger",
     "ledger-tool",
@@ -136,9 +135,12 @@ license = "Apache-2.0"
 edition = "2021"
 
 [workspace.dependencies]
+Inflector = "0.11.4"
+aquamarine = "0.3.3"
 aes-gcm-siv = "0.10.3"
-ahash = "0.8.3"
-anyhow = "1.0.75"
+ahash = "0.8.10"
+anyhow = "1.0.80"
+arbitrary = "1.3.2"
 ark-bn254 = "0.4.0"
 ark-ec = "0.4.0"
 ark-ff = "0.4.0"
@@ -179,11 +181,11 @@ const_format = "0.2.32"
 core_affinity = "0.5.10"
 criterion = "0.5.1"
 criterion-stats = "0.3.0"
-crossbeam-channel = "0.5.8"
-csv = "1.2.2"
-ctrlc = "3.4.1"
+crossbeam-channel = "0.5.12"
+csv = "1.3.0"
+ctrlc = "3.4.2"
 curve25519-dalek = "3.2.1"
-dashmap = "4.0.2"
+dashmap = "5.5.3"
 derivation-path = { version = "0.2.0", default-features = false }
 derivative = "2.2.0"
 dialoguer = "0.10.4"
@@ -206,10 +208,10 @@ fs_extra = "1.3.0"
 futures = "0.3.30"
 futures-util = "0.3.29"
 gag = "1.0.0"
-git2 = "0.17.2"
 generic-array = { version = "0.14.7", default-features = false }
 gethostname = "0.2.3"
 getrandom = "0.2.10"
+git2 = "0.17.2"
 goauth = "0.13.1"
 hex = "0.4.3"
 hidapi = { version = "2.6.0", default-features = false }
@@ -479,7 +481,7 @@ solana-zk-token-sdk = { path = "zk-token-sdk" }
 # A number of packages used explicit upper bound on the `zeroize` package, such
 # as `>=1, <1.4`.  The problem is that cargo still does not duplicate `zeroize`
 # if a newer version is available and requested by another package and just
-# fails the whole dependency resolution process.  Why? :'(
+# fails the whole dependency resolution process.
 #
 # This is described in
 #
@@ -489,6 +491,9 @@ solana-zk-token-sdk = { path = "zk-token-sdk" }
 # introduce these constraints.  They have already removed these constraints in
 # newer versions, but we have not updated yet.  As we update, we need to remove
 # these patch requests.
+#
+# When our dependencies are upgraded, we can remove these patches.  Before that
+# we might need to maintain these patches in sync with our full dependency tree.
 
 # Our dependency tree has `aes-gcm-siv` v0.10.3 and the `zeroize` restriction
 # was removed in the next commit just after the release.  So it seems safe to
@@ -511,11 +516,17 @@ git = "https://github.com/RustCrypto/AEADs"
 rev = "6105d7a5591aefa646a95d12b5e8d3f55a9214ef"
 
 # Our dependency tree has `curve25519-dalek` v3.2.1.  They have removed the
-# constrain in the next major release.  Commit that removes `zeroize` constrain
-# was added to multiple release branches.  Though 3.2 release was never updated.
-# So we have a separate repo with a patched v3.2.1 release.  Commit that removed
-# `zeroize` constrain on the `main` branch cherry picked on top of the v3.2.1
-# release.
+# constraint in the next major release. The commit that removes the `zeroize`
+# constraint was added to multiple release branches, but not to the 3.2 branch.
+#
+# `curve25519-dalek` maintainers are saying they do not want to invest any more
+# time in the 3.2 release:
+#
+# https://github.com/dalek-cryptography/curve25519-dalek/issues/452#issuecomment-1749809428
+#
+# So we have to fork and create our own release, based on v3.2.1, with the
+# commit that removed `zeroize` constraint on the `main` branch cherry-picked on
+# top.
 #
 # `curve25519-dalek` v3.2.1 release:
 #
@@ -525,14 +536,32 @@ rev = "6105d7a5591aefa646a95d12b5e8d3f55a9214ef"
 #
 # https://github.com/dalek-cryptography/curve25519-dalek/commit/29e5c29b0e5c6821e4586af58b0d0891dd2ec639
 #
-# Comparison with `c14774464c4d38de553c6ef2f48a10982c1b4801`:
+# Comparison with `b500cdc2a920cd5bff9e2dd974d7b97349d61464`:
 #
-# https://github.com/dalek-cryptography/curve25519-dalek/compare/3.2.1...ilya-bobyr:curve25519-dalek:c14774464c4d38de553c6ef2f48a10982c1b4801
+# https://github.com/dalek-cryptography/curve25519-dalek/compare/3.2.1...solana-labs:curve25519-dalek:b500cdc2a920cd5bff9e2dd974d7b97349d61464
 #
-# Alternatively:
+# Or, using the branch name instead of the hash:
 #
-# https://github.com/dalek-cryptography/curve25519-dalek/compare/3.2.1...ilya-bobyr:curve25519-dalek:3.2.1-unpin-zeroize
+# https://github.com/dalek-cryptography/curve25519-dalek/compare/3.2.1...solana-labs:curve25519-dalek:3.2.1-unpin-zeroize
 #
 [patch.crates-io.curve25519-dalek]
-git = "https://github.com/ilya-bobyr/curve25519-dalek.git"
-rev = "c14774464c4d38de553c6ef2f48a10982c1b4801"
+git = "https://github.com/solana-labs/curve25519-dalek.git"
+rev = "b500cdc2a920cd5bff9e2dd974d7b97349d61464"
+
+# Solana RPC nodes experience stalls when running with `tokio` containing this
+# commit:
+# https://github.com/tokio-rs/tokio/commit/4eed411519783ef6f58cbf74f886f91142b5cfa6
+#
+# Tokio maintainers believe performance degradation is due to application bugs:
+# https://github.com/tokio-rs/tokio/issues/4873#issuecomment-1198277677
+#
+# This may indeed be true of the code in this monorepo, but we haven't yet
+# identified the bug or a way to fix. As a stopgap, this patches `tokio` to the
+# tagged version specified above with commit `4eed411` reverted.
+#
+# Comparison:
+# https://github.com/tokio-rs/tokio/compare/tokio-1.29.1...solana-labs:solana-tokio:tokio-1.29.1-revert-4eed411
+#
+[patch.crates-io.tokio]
+git = "https://github.com/solana-labs/solana-tokio.git"
+rev = "7cf47705faacf7bf0e43e4131a5377b3291fce21"
