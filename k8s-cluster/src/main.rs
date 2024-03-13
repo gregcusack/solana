@@ -293,7 +293,7 @@ fn parse_matches() -> ArgMatches<'static> {
                 include this parameter, the validator will keep the entire ledger until it runs
                 out of disk space. The default value attempts to keep the ledger disk usage
                 under 500GB. More or less disk usage may be requested by adding an argument to
-                `--limit-ledger-size` if desired. Check `solana-validator --help` for the
+                `--limit-ledger-size` if desired. Check `agave-validator --help` for the
                 default limit value used by `--limit-ledger-size`. More information about
                 selecting a custom limit value is at : https://github.com/solana-labs/solana/blob/583cec922b6107e0f85c7e14cb5e642bc7dfb340/core/src/ledger_cleanup_service.rs#L15-L26"),
         )
