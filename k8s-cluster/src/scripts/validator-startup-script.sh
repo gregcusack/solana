@@ -6,7 +6,7 @@ source /home/solana/k8s-cluster-scripts/common.sh
 
 args=(
   --max-genesis-archive-unpacked-size 1073741824
-  # --no-poh-speed-test
+  --no-poh-speed-test
   --no-os-network-limits-test
 )
 airdrops_enabled=1
@@ -338,9 +338,11 @@ run_solana_command() {
     return 1
 }
 
-run_validator() {
-  echo "Adding $node_sol to validator identity account:"
-  solana --keypair validator-accounts/faucet.json --url $LOAD_BALANCER_RPC_URL transfer --allow-unfunded-recipient $IDENTITY_FILE $node_sol
+setup_validator() {
+  if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL airdrop $node_sol $IDENTITY_FILE" "Airdrop"; then
+    echo "Aidrop command failed."
+    exit 1
+  fi
 
   if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-vote-account --allow-unsafe-authorized-withdrawer validator-accounts/vote.json $IDENTITY_FILE $IDENTITY_FILE -k $IDENTITY_FILE" "Create Vote Account"; then
     if $vote_account_already_exists; then
@@ -355,13 +357,6 @@ run_validator() {
 }
 
 run_delegate_stake() {
-  # catchup before running stuff:
-  echo "going to try and catchup before running anything"
-  solana --url $LOAD_BALANCER_RPC_URL catchup $IDENTITY_FILE
-
-  solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE vote-account validator-accounts/vote.json
-
-  # if [ "$vote_account_already_exists" != true ]; then
   echo "stake sol for account: $stake_sol"
   if ! run_solana_command "solana -u $LOAD_BALANCER_RPC_URL create-stake-account validator-accounts/stake.json $stake_sol -k $IDENTITY_FILE" "Create Stake Account"; then
     if $stake_account_already_exists; then
@@ -382,16 +377,13 @@ run_delegate_stake() {
     echo "delegated stake"
   fi
 
-  # call stakes
-  echo "call stakes"
   solana --url $LOAD_BALANCER_RPC_URL --keypair $IDENTITY_FILE stakes validator-accounts/stake.json
-  echo "done calling stakes"
 }
 
-echo "greg run validator"
-run_validator & #$node_sol $LOAD_BALANCER_RPC_URL $IDENTITY_FILE $vote_account_already_exists $program $PS4 $args &
-echo "greg run run delegate stake"
-run_delegate_stake &
+echo "get airdrop and create vote account"
+setup_validator
+echo "create stake account and delegate stake"
+run_delegate_stake 
 
 echo running validator:
 
