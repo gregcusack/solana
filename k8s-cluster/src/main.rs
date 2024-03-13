@@ -349,9 +349,9 @@ fn parse_matches() -> ArgMatches<'static> {
             Arg::with_name("client_type")
                 .long("client-type")
                 .takes_value(true)
-                .default_value("thin-client")
-                .possible_values(&["thin-client", "tpu-client", "rpc-client"])
-                .help("Client Config. options: thin-client, tpu-client, rpc-client. default: [thin-client]"),
+                .default_value("tpu-client")
+                .possible_values(&["tpu-client", "rpc-client"])
+                .help("Client Config. options: tpu-client, rpc-client."),
         )
         .arg(
             Arg::with_name("client_to_run")

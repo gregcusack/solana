@@ -5,18 +5,15 @@ benchTpsExtraArgs="$2"
 clientType=
 
 # check if benchTpsExtraArgs is set. if not then it will get set to client-type. Which then needs to get handled appropriately
-if [[ "$benchTpsExtraArgs" == "thin-client" || "$benchTpsExtraArgs" == "tpu-client" || "$benchTpsExtraArgs" == "rpc-client" ]]; then
+if [[ "$benchTpsExtraArgs" == "tpu-client" || "$benchTpsExtraArgs" == "rpc-client" ]]; then
     clientType=$benchTpsExtraArgs
     benchTpsExtraArgs=
     shift 2
 else
-    clientType="${3:-thin-client}"
+    clientType="${3:-tpu-client}"
     shift 3
     # Convert string to array
     IFS=' ' read -r -a argsArray <<< "$benchTpsExtraArgs"
-
-    # Initialize clientType with a default value
-    clientType="thin-client"
 
     # Loop through the array and check for the specific flag
     for arg in "${argsArray[@]}"; do
@@ -67,19 +64,12 @@ fi
 
 echo "threadCount: $threadCount"
 
-TPU_CLIENT=false
 RPC_CLIENT=false
 case "$clientType" in
-  thin-client)
-    TPU_CLIENT=false
-    RPC_CLIENT=false
-    ;;
   tpu-client)
-    TPU_CLIENT=true
     RPC_CLIENT=false
     ;;
   rpc-client)
-    TPU_CLIENT=false
     RPC_CLIENT=true
     ;;
   *)
@@ -87,18 +77,19 @@ case "$clientType" in
     exit 1
     ;;
 esac
-
 case $clientToRun in
 bench-tps)
   args=()
 
-  if ${TPU_CLIENT}; then
-    args+=(--url "http://$LOAD_BALANCER_RPC_ADDRESS")
-  elif ${RPC_CLIENT}; then
-    args+=(--url "http://$LOAD_BALANCER_RPC_ADDRESS")
-  else
-    args+=(--entrypoint "$BOOTSTRAP_GOSSIP_ADDRESS")
+  if ${RPC_CLIENT}; then
+    args+=(--use-rpc-client)
   fi
+
+  entrypointIp="${BOOTSTRAP_GOSSIP_ADDRESS:0:-5}"
+  $rpc="$entrypointIp:8899"
+
+  args+=(--bind-address "$entrypointIp")
+  args+=(--client-node-id ./client-accounts/identity.json)
 
   clientCommand="\
     solana-bench-tps \
@@ -106,6 +97,7 @@ bench-tps)
       --threads $threadCount \
       $benchTpsExtraArgs \
       --read-client-keys ./client-accounts.yml \
+      --url "http://$rpc"
       ${args[*]} \
       ${runtime_args[*]} \
   "
