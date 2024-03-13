@@ -51,6 +51,8 @@ while [[ -n $1 ]]; do
   fi
 done
 
+echo "get airdrop for client"
+solana airdrop 5000000 -k ./client-accounts/identity.json  -u "http://$LOAD_BALANCER_RPC_ADDRESS"
 
 missing() {
   echo "Error: $1 not specified"
@@ -86,7 +88,7 @@ bench-tps)
   fi
 
   entrypointIp="${BOOTSTRAP_GOSSIP_ADDRESS:0:-5}"
-  $rpc="$entrypointIp:8899"
+  url="$entrypointIp:8899"
 
   args+=(--bind-address "$entrypointIp")
   args+=(--client-node-id ./client-accounts/identity.json)
@@ -97,7 +99,7 @@ bench-tps)
       --threads $threadCount \
       $benchTpsExtraArgs \
       --read-client-keys ./client-accounts.yml \
-      --url "http://$rpc"
+      --url "http://$url"
       ${args[*]} \
       ${runtime_args[*]} \
   "

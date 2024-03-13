@@ -518,6 +518,8 @@ impl<'a> Kubernetes<'a> {
         k8s_helpers::create_secret_from_files(&secret_name_with_optional_tag, &key_files)
     }
 
+    // use validator identity for client 1
+    // all clients get same identity which may not be good or desirable
     pub fn create_client_secret(&self, client_index: i32) -> Result<Secret, Box<dyn Error>> {
         let mut secret_name_with_optional_tag = format!("client-accounts-secret-{}", client_index);
         if let Some(tag) = &self.deployment_tag {
@@ -525,9 +527,20 @@ impl<'a> Kubernetes<'a> {
                 add_tag_to_name(secret_name_with_optional_tag.as_str(), tag);
         }
 
+        // validator0 key being used as the identity key for the client
+        let mut validator_with_optional_tag = "validator".to_string();
+        if let Some(tag) = &self.deployment_tag {
+            validator_with_optional_tag =
+                add_tag_to_name(validator_with_optional_tag.as_str(), tag);
+        }
+        let identity_file = format!("{}-{}-{}.json", validator_with_optional_tag, "identity", 0);
+
         let faucet_key_path = SOLANA_ROOT.join("config-k8s/faucet.json");
 
-        let key_files = vec![(faucet_key_path, "faucet")];
+        let key_path = SOLANA_ROOT.join("config-k8s");
+        let identity_key_path = key_path.join(identity_file);
+
+        let key_files = vec![(faucet_key_path, "faucet"), (identity_key_path, "identity")];
 
         k8s_helpers::create_secret_from_files(&secret_name_with_optional_tag, &key_files)
     }
