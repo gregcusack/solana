@@ -93,7 +93,7 @@ cargo run --bin solana-k8s --
     --tag <imagetag. default: latest>
     -c <num-clients>
     --client-delay-start <seconds-to-wait-after-deploying-validators-before-deploying-client>
-    --client-type <client-type e.g. thin-client>
+    --client-type <client-type e.g. tpu-client>
     --client-to-run <type-of-client e.g. bench-tps>
     --bench-tps-args <bench-tps-args e.g. tx-count=25000>
     --run-client # if not set, client accounts are created but no client is deployed
