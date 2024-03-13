@@ -24,7 +24,7 @@ impl LedgerHelper {
             LEDGER_DIR.as_path(),
             DEFAULT_MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
         );
-        let shred_version = compute_shred_version(&genesis_config.hash(), None);
+        let shred_version = compute_shred_version(&genesis_config?.hash(), None);
         info!("Shred Version: {}", shred_version);
         Ok(shred_version)
     }
@@ -43,8 +43,8 @@ impl LedgerHelper {
             .arg("create-snapshot")
             .arg("0")
             .arg(LEDGER_DIR.as_os_str())
-            .arg("--warp-slot")
-            .arg(warp_slot.to_string())
+            // .arg("--warp-slot")
+            // .arg(warp_slot.to_string())
             .output()
             .expect("Failed to execute create-snapshot command");
 

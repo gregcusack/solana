@@ -855,7 +855,6 @@ async fn main() {
                 return;
             }
         }
-    }
 
         match genesis.generate_accounts(
             ValidatorType::NonVoting,
