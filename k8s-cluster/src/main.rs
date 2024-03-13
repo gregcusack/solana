@@ -10,7 +10,8 @@ use {
         },
         get_solana_root, initialize_globals,
         kubernetes::{
-            ClientConfig, Kubernetes, Metrics, NodeAffinityType, PodRequests, ValidatorConfig,
+            ClientConfig, GeographicRegion, Kubernetes, Metrics, NodeAffinityConfig, NodeType,
+            PodRequests, ValidatorConfig,
         },
         ledger_helper::LedgerHelper,
         parse_and_format_bench_tps_args,
@@ -469,6 +470,14 @@ fn parse_matches() -> ArgMatches<'static> {
                 ),
         )
         .arg(
+            Arg::with_name("confine_to_single_region")
+                .long("confine-to-single-region")
+                .help("Having issues with tpu-client and rpc-client sending high TPS when deployment
+                    spans nodes in multiple geographical regions. Use this flag to select a region at 
+                    random to deploy your cluster nodes in. Currently deploys only in eq-hk region.
+                    Overrides `--node-type`"),
+        )
+        .arg(
             Arg::with_name("cpu_requests")
                 .long("cpu-requests")
                 .takes_value(true)
@@ -729,13 +738,22 @@ async fn main() {
 
     // Get the user-defined node_type
     let node_type = match matches.value_of("node_type").unwrap_or_default() {
-        "equinix" => NodeAffinityType::Equinix,
-        "lumen" => NodeAffinityType::Lumen,
-        "mixed" => NodeAffinityType::Mixed,
+        "equinix" => NodeType::Equinix,
+        "lumen" => NodeType::Lumen,
+        "mixed" => NodeType::Mixed,
         _ => unreachable!(),
     };
 
     info!("Node Type: {}", node_type);
+
+    let region = if matches.is_present("confine_to_single_region") {
+        info!("Node Region: {}", GeographicRegion::HongKong);
+        Some(GeographicRegion::HongKong)
+    } else {
+        None
+    };
+
+    let node_affinity = NodeAffinityConfig::new(Some(node_type), region);
 
     let deployment_tag = matches.value_of("deployment_tag").map(|t| t.to_string());
     let no_bootstrap = matches.is_present("no_bootstrap");
@@ -751,7 +769,7 @@ async fn main() {
         &mut validator_config,
         client_config.clone(),
         metrics,
-        node_type,
+        node_affinity,
         deployment_tag.clone(),
         pod_requests,
     )
