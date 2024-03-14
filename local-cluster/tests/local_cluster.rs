@@ -9,7 +9,11 @@ use {
     solana_accounts_db::{
         hardened_unpack::open_genesis_config, utils::create_accounts_run_and_snapshot_dirs,
     },
-    solana_client::thin_client::ThinClient,
+    solana_client::{
+        connection_cache::ConnectionCache,
+        thin_client::ThinClient,
+        tpu_client::{TpuClient, TpuClientConfig},
+    },
     solana_core::{
         consensus::{
             tower_storage::FileTowerStorage, Tower, SWITCH_FORK_THRESHOLD, VOTE_THRESHOLD_DEPTH,
@@ -221,18 +225,29 @@ fn test_local_cluster_signature_subscribe() {
         .unwrap();
     let non_bootstrap_info = cluster.get_contact_info(&non_bootstrap_id).unwrap();
 
-    let (rpc, tpu) = LegacyContactInfo::try_from(non_bootstrap_info)
-        .map(|node| {
-            cluster_tests::get_client_facing_addr(cluster.connection_cache.protocol(), node)
-        })
-        .unwrap();
-    let tx_client = ThinClient::new(rpc, tpu, cluster.connection_cache.clone());
+    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
+    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
 
-    let (blockhash, _) = tx_client
-        .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
-        .unwrap();
+    let ConnectionCache::Quic(cache) = cluster.connection_cache.as_ref() else {
+        panic!("Expected a Quic ConnectionCache.");
+    };
 
-    let mut transaction = system_transaction::transfer(
+    let tx_client = TpuClient::new_with_connection_cache(
+        Arc::new(RpcClient::new_with_commitment(
+            rpc_url,
+            CommitmentConfig::processed(),
+        )),
+        rpc_pubsub_url.as_str(),
+        TpuClientConfig::default(),
+        cache.clone(),
+    )
+    .unwrap_or_else(|err| {
+        panic!("Could not create TpuClient with Quic Cache {err:?}");
+    });
+
+    let blockhash = tx_client.get_latest_blockhash().unwrap();
+
+    let transaction = system_transaction::transfer(
         &cluster.funding_keypair,
         &solana_sdk::pubkey::new_rand(),
         10,
@@ -249,9 +264,7 @@ fn test_local_cluster_signature_subscribe() {
     )
     .unwrap();
 
-    tx_client
-        .retry_transfer(&cluster.funding_keypair, &mut transaction, 5)
-        .unwrap();
+    tx_client.send_transaction(&transaction);
 
     let mut got_received_notification = false;
     loop {
