@@ -755,6 +755,9 @@ impl<'a> Kubernetes<'a> {
             };
         } else {
             if let Some(node_type) = self.node_affinity.node_type {
+                if node_type == NodeType::Mixed {
+                    return Ok(());
+                }
                 match self.get_nodes_by_type(node_type).await {
                     Ok(nodes) => self.nodes = nodes,
                     Err(err) => {
@@ -763,14 +766,6 @@ impl<'a> Kubernetes<'a> {
                 }
             }
         }
-        if let Some(nodes) = &self.nodes {
-            for node in nodes.iter() {
-                info!("node: {:?}", node);
-            }
-        } else {
-            info!("nodes is empty!");
-        }
-
         Ok(())
     }
 
