@@ -7,7 +7,12 @@ use {
     itertools::izip,
     log::*,
     solana_accounts_db::utils::create_accounts_run_and_snapshot_dirs,
-    solana_client::{connection_cache::ConnectionCache, thin_client::ThinClient},
+    solana_client::{
+        connection_cache::ConnectionCache,
+        rpc_client::RpcClient,
+        thin_client::ThinClient,
+        tpu_client::{TpuClient, TpuClientConfig},
+    },
     solana_core::{
         consensus::tower_storage::FileTowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress},
@@ -18,6 +23,7 @@ use {
         gossip_service::discover_cluster,
     },
     solana_ledger::{create_new_tmp_ledger, shred::Shred},
+    solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
     solana_runtime::{
         genesis_utils::{
             create_genesis_config_with_vote_accounts_and_cluster_type, GenesisConfigInfo,
@@ -62,6 +68,52 @@ use {
         sync::{Arc, RwLock},
     },
 };
+
+pub fn build_tpu_quic_client(
+    cluster: &LocalCluster,
+) -> Result<TpuClient<QuicPool, QuicConnectionManager, QuicConfig>> {
+    build_tpu_client(cluster, |rpc_url| Arc::new(RpcClient::new(rpc_url)))
+}
+
+pub fn build_tpu_quic_client_with_commitment(
+    cluster: &LocalCluster,
+    commitment_config: CommitmentConfig,
+) -> Result<TpuClient<QuicPool, QuicConnectionManager, QuicConfig>> {
+    build_tpu_client(cluster, |rpc_url| {
+        Arc::new(RpcClient::new_with_commitment(rpc_url, commitment_config))
+    })
+}
+
+fn build_tpu_client<F>(
+    cluster: &LocalCluster,
+    rpc_client_builder: F,
+) -> Result<TpuClient<QuicPool, QuicConnectionManager, QuicConfig>>
+where
+    F: FnOnce(String) -> Arc<RpcClient>,
+{
+    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
+    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
+
+    let cache = match &*cluster.connection_cache {
+        ConnectionCache::Quic(cache) => cache,
+        ConnectionCache::Udp(_) => {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "Expected a Quic ConnectionCache. Got UDP",
+            ))
+        }
+    };
+
+    let tpu_client = TpuClient::new_with_connection_cache(
+        rpc_client_builder(rpc_url),
+        rpc_pubsub_url.as_str(),
+        TpuClientConfig::default(),
+        cache.clone(),
+    )
+    .map_err(|err| Error::new(ErrorKind::Other, format!("TpuSenderError: {}", err)))?;
+
+    Ok(tpu_client)
+}
 
 const DUMMY_SNAPSHOT_CONFIG_PATH_MARKER: &str = "dummy";
 
