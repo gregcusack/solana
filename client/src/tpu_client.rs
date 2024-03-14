@@ -6,7 +6,9 @@ use {
     },
     solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
     solana_rpc_client::rpc_client::RpcClient,
+    solana_rpc_client_api::client_error::Result as ClientResult,
     solana_sdk::{
+        hash::Hash,
         message::Message,
         signers::Signers,
         transaction::{Transaction, TransactionError},
@@ -66,6 +68,10 @@ where
     /// Returns the last error if all sends fail
     pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>) -> TransportResult<()> {
         self.tpu_client.try_send_wire_transaction(wire_transaction)
+    }
+
+    pub fn get_latest_blockhash(&self) -> ClientResult<Hash> {
+        self.rpc_client().get_latest_blockhash()
     }
 }
 
