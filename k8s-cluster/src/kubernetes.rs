@@ -140,18 +140,61 @@ impl Metrics {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum NodeAffinityType {
+pub struct NodeAffinityConfig {
+    node_type: Option<NodeType>,
+    geographic_region: Option<GeographicRegion>,
+}
+
+impl NodeAffinityConfig {
+    // choose region over node_type if both provided
+    pub fn new(node_type: Option<NodeType>, region: Option<GeographicRegion>) -> Self {
+        match (node_type, region) {
+            (Some(node_type), None) => Self {
+                node_type: Some(node_type),
+                geographic_region: None,
+            },
+            (None, Some(region)) => Self {
+                node_type: None,
+                geographic_region: Some(region),
+            },
+            (Some(_), Some(region)) => Self {
+                node_type: None,
+                geographic_region: Some(region),
+            },
+            _ => Self {
+                node_type: Some(NodeType::Mixed),
+                geographic_region: None,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NodeType {
     Equinix,
     Lumen,
     Mixed,
 }
 
-impl std::fmt::Display for NodeAffinityType {
+impl std::fmt::Display for NodeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NodeAffinityType::Equinix => write!(f, "Equinix"),
-            NodeAffinityType::Lumen => write!(f, "Lumen"),
-            NodeAffinityType::Mixed => write!(f, "Mixed"),
+            NodeType::Equinix => write!(f, "eq-"),
+            NodeType::Lumen => write!(f, "lum-"),
+            NodeType::Mixed => write!(f, "Mixed"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GeographicRegion {
+    HongKong,
+}
+
+impl std::fmt::Display for GeographicRegion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GeographicRegion::HongKong => write!(f, "eq-hk"),
         }
     }
 }
@@ -181,7 +224,7 @@ pub struct Kubernetes<'a> {
     client_config: ClientConfig,
     pub metrics: Option<Metrics>,
     nodes: Option<Vec<String>>,
-    node_affinity: NodeAffinityType,
+    node_affinity: NodeAffinityConfig,
     deployment_tag: Option<String>,
     pod_requests: PodRequests,
 }
@@ -192,7 +235,7 @@ impl<'a> Kubernetes<'a> {
         validator_config: &'a mut ValidatorConfig<'a>,
         client_config: ClientConfig,
         metrics: Option<Metrics>,
-        node_affinity: NodeAffinityType,
+        node_affinity: NodeAffinityConfig,
         deployment_tag: Option<String>,
         pod_requests: PodRequests,
     ) -> Kubernetes<'a> {
@@ -700,28 +743,38 @@ impl<'a> Kubernetes<'a> {
     }
 
     pub async fn set_nodes(&mut self) -> Result<(), Box<dyn Error>> {
-        match self.node_affinity {
-            NodeAffinityType::Equinix | NodeAffinityType::Lumen => {
-                match self.get_nodes_by_type().await {
+        if let Some(region) = self.node_affinity.geographic_region {
+            match self.get_nodes_by_region(region).await {
+                Ok(nodes) => self.nodes = nodes,
+                Err(err) => {
+                    return Err(boxed_error!(format!(
+                        "Failed to get {} nodes by region",
+                        err
+                    )))
+                }
+            };
+        } else {
+            if let Some(node_type) = self.node_affinity.node_type {
+                match self.get_nodes_by_type(node_type).await {
                     Ok(nodes) => self.nodes = nodes,
-                    Err(err) => return Err(boxed_error!(format!("Failed to get {} nodes", err))),
+                    Err(err) => {
+                        return Err(boxed_error!(format!("Failed to get {} nodes by type", err)))
+                    }
                 }
             }
-            _ => return Ok(()),
-        };
+        }
+        if let Some(nodes) = &self.nodes {
+            for node in nodes.iter() {
+                info!("node: {:?}", node);
+            }
+        } else {
+            info!("nodes is empty!");
+        }
+
         Ok(())
     }
 
-    async fn get_nodes_by_type(&self) -> Result<Option<Vec<String>>, Box<dyn Error>> {
-        let matching_arm = match self.node_affinity {
-            NodeAffinityType::Equinix => "eq-",
-            NodeAffinityType::Lumen => "lum-",
-            NodeAffinityType::Mixed => {
-                warn!("NodeAffinityType::Mixed node valid in context of get_nodes_by_type()");
-                return Ok(None);
-            }
-        };
-
+    async fn get_nodes(&self, label_value: &str) -> Result<Option<Vec<String>>, Box<dyn Error>> {
         let nodes: Api<Node> = Api::all(self.client.clone());
         let lp = ListParams::default();
         let node_list = nodes.list(&lp).await?;
@@ -731,7 +784,7 @@ impl<'a> Kubernetes<'a> {
         for node in node_list {
             if let Some(labels) = node.metadata.labels {
                 for (key, value) in labels.iter() {
-                    if key == "topology.kubernetes.io/region" && value.starts_with(matching_arm) {
+                    if key == "topology.kubernetes.io/region" && value.starts_with(label_value) {
                         if let Some(name) = &node.metadata.name {
                             matching_nodes.push(name.clone());
                         }
@@ -740,6 +793,20 @@ impl<'a> Kubernetes<'a> {
             }
         }
         Ok(Some(matching_nodes))
+    }
+
+    async fn get_nodes_by_region(
+        &self,
+        region: GeographicRegion,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error>> {
+        self.get_nodes(&region.to_string()).await
+    }
+
+    async fn get_nodes_by_type(
+        &self,
+        node_type: NodeType,
+    ) -> Result<Option<Vec<String>>, Box<dyn Error>> {
+        self.get_nodes(&node_type.to_string()).await
     }
 
     pub fn create_validator_replica_set(
