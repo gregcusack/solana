@@ -821,7 +821,7 @@ pub mod test {
         solana_gossip::contact_info::LegacyContactInfo,
         solana_local_cluster::{
             cluster::Cluster,
-            local_cluster::{ClusterConfig, LocalCluster},
+            local_cluster::{build_tpu_quic_client, ClusterConfig, LocalCluster},
             validator_configs::make_identical_validator_configs,
         },
         solana_rpc::rpc::JsonRpcConfig,

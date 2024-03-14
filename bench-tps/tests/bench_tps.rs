@@ -12,9 +12,12 @@ use {
     solana_faucet::faucet::run_local_faucet,
     solana_local_cluster::{
         cluster::Cluster,
-        local_cluster::{ClusterConfig, LocalCluster},
+        local_cluster::{build_tpu_quic_client, ClusterConfig, LocalCluster},
         validator_configs::make_identical_validator_configs,
     },
+    solana_client::tpu_client::{TpuClient, TpuClientConfig},
+    solana_core::validator::ValidatorConfig,
+    solana_faucet::faucet::run_local_faucet,
     solana_quic_client::{QuicConfig, QuicConnectionManager},
     solana_rpc::rpc::JsonRpcConfig,
     solana_rpc_client::rpc_client::RpcClient,
