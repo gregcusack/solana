@@ -7,14 +7,11 @@ use {
         cli::{Config, InstructionPaddingConfig},
         send_batch::generate_durable_nonce_accounts,
     },
-    solana_client::{
-        connection_cache::ConnectionCache,
-        tpu_client::{TpuClient, TpuClientConfig},
-    },
+    solana_client::tpu_client::{TpuClient, TpuClientConfig},
     solana_core::validator::ValidatorConfig,
     solana_faucet::faucet::run_local_faucet,
     solana_local_cluster::{
-        local_cluster::{ClusterConfig, LocalCluster},
+        local_cluster::{build_tpu_quic_client, ClusterConfig, LocalCluster},
         validator_configs::make_identical_validator_configs,
     },
     solana_rpc::rpc::JsonRpcConfig,
@@ -78,24 +75,9 @@ fn test_bench_tps_local_cluster(config: Config) {
 
     cluster.transfer(&cluster.funding_keypair, &faucet_pubkey, 100_000_000);
 
-    let ConnectionCache::Quic(cache) = &*cluster.connection_cache else {
-        panic!("Expected a Quic ConnectionCache.");
-    };
-
-    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
-    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
-
-    let client = Arc::new(
-        TpuClient::new_with_connection_cache(
-            Arc::new(RpcClient::new(rpc_url)),
-            rpc_pubsub_url.as_str(),
-            TpuClientConfig::default(),
-            cache.clone(),
-        )
-        .unwrap_or_else(|err| {
-            panic!("Could not create TpuClient {err:?}");
-        }),
-    );
+    let client = Arc::new(build_tpu_quic_client(&cluster).unwrap_or_else(|err| {
+        panic!("Could not create TpuClient with Quic Cache {err:?}");
+    }));
 
     let lamports_per_account = 100;
 
