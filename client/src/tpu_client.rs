@@ -6,10 +6,12 @@ use {
     },
     solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
     solana_rpc_client::rpc_client::RpcClient,
-    solana_rpc_client_api::client_error::Result as ClientResult,
     solana_sdk::{
+        account::Account,
+        commitment_config::CommitmentConfig,
         hash::Hash,
         message::Message,
+        pubkey::Pubkey,
         signers::Signers,
         transaction::{Transaction, TransactionError},
         transport::Result as TransportResult,
@@ -70,8 +72,22 @@ where
         self.tpu_client.try_send_wire_transaction(wire_transaction)
     }
 
-    pub fn get_latest_blockhash(&self) -> ClientResult<Hash> {
-        self.rpc_client().get_latest_blockhash()
+    pub fn get_latest_blockhash(&self) -> TransportResult<Hash> {
+        let (blockhash, _) = self
+            .rpc_client()
+            .get_latest_blockhash_with_commitment(CommitmentConfig::default())?;
+        Ok(blockhash)
+    }
+
+    pub fn get_account_with_commitment(
+        &self,
+        pubkey: &Pubkey,
+        commitment_config: CommitmentConfig,
+    ) -> TransportResult<Option<Account>> {
+        self.rpc_client()
+            .get_account_with_commitment(pubkey, commitment_config)
+            .map_err(|e| e.into())
+            .map(|r| r.value)
     }
 }
 
