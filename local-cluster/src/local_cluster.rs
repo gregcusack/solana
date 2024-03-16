@@ -11,7 +11,11 @@ use {
         connection_cache::ConnectionCache,
         rpc_client::RpcClient,
         thin_client::ThinClient,
-        tpu_client::{QuicTpuClient, TpuClient, TpuClientConfig},
+        // tpu_client::{QuicTpuClient, TpuClient, TpuClientConfig},
+    },
+    solana_tpu_client::{
+        tpu_client::{QuicTpuClient2, TpuClient as TpuClientBlocking, TpuClientConfig},
+        nonblocking::tpu_client::TpuClient as TpuClientNonBlocking
     },
     solana_core::{
         consensus::tower_storage::FileTowerStorage,
@@ -808,7 +812,7 @@ impl LocalCluster {
         }
     }
 
-    fn build_tpu_client<F>(&self, rpc_client_builder: F) -> Result<QuicTpuClient>
+    fn build_tpu_client<F>(&self, rpc_client_builder: F) -> Result<QuicTpuClient2>
     where
         F: FnOnce(String) -> Arc<RpcClient>,
     {
@@ -825,7 +829,7 @@ impl LocalCluster {
             }
         };
 
-        let tpu_client = TpuClient::new_with_connection_cache(
+        let tpu_client = TpuClientBlocking::new_with_connection_cache(
             rpc_client_builder(rpc_url),
             rpc_pubsub_url.as_str(),
             TpuClientConfig::default(),
@@ -853,14 +857,14 @@ impl Cluster for LocalCluster {
         })
     }
 
-    fn build_tpu_quic_client(&self) -> Result<QuicTpuClient> {
+    fn build_tpu_quic_client(&self) -> Result<QuicTpuClient2> {
         self.build_tpu_client(|rpc_url| Arc::new(RpcClient::new(rpc_url)))
     }
 
     fn build_tpu_quic_client_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> Result<QuicTpuClient> {
+    ) -> Result<QuicTpuClient2> {
         self.build_tpu_client(|rpc_url| {
             Arc::new(RpcClient::new_with_commitment(rpc_url, commitment_config))
         })

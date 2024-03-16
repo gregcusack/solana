@@ -7,7 +7,8 @@ use {
         cli::{Config, InstructionPaddingConfig},
         send_batch::generate_durable_nonce_accounts,
     },
-    solana_client::tpu_client::{TpuClient, TpuClientConfig},
+    // solana_client::tpu_client::{TpuClient, TpuClientConfig},
+    solana_connection_cache::connection_cache::ConnectionCache,
     solana_core::validator::ValidatorConfig,
     solana_faucet::faucet::run_local_faucet,
     solana_local_cluster::{
@@ -25,6 +26,7 @@ use {
     },
     solana_streamer::socket::SocketAddrSpace,
     solana_test_validator::TestValidatorGenesis,
+    solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig, DEFAULT_TPU_CONNECTION_POOL_SIZE},
     std::{sync::Arc, time::Duration},
 };
 
@@ -123,8 +125,14 @@ fn test_bench_tps_test_validator(config: Config) {
         CommitmentConfig::processed(),
     ));
     let websocket_url = test_validator.rpc_pubsub_url();
+    let connection_cache = ConnectionCache::new_quic(
+        "connection_cache_bench_tps_quic",
+        DEFAULT_TPU_CONNECTION_POOL_SIZE,
+    );
+    // let client =
+    //     Arc::new(TpuClient::new(rpc_client, &websocket_url, TpuClientConfig::default()).unwrap());
     let client =
-        Arc::new(TpuClient::new(rpc_client, &websocket_url, TpuClientConfig::default()).unwrap());
+        Arc::new(TpuClient::new_with_connection_cache(rpc_client, &websocket_url, TpuClientConfig::default(), connection_cache).unwrap());
 
     let lamports_per_account = 1000;
 

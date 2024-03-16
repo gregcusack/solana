@@ -7411,9 +7411,11 @@ dependencies = [
  "solana-measure",
  "solana-metrics",
  "solana-pubsub-client",
+ "solana-quic-client",
  "solana-rpc-client",
  "solana-rpc-client-api",
  "solana-sdk",
+ "solana-udp-client",
  "thiserror",
  "tokio",
 ]
