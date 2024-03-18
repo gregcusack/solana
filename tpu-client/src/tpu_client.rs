@@ -27,7 +27,7 @@ pub const DEFAULT_TPU_CONNECTION_POOL_SIZE: usize = 4;
 
 pub type Result<T> = std::result::Result<T, TpuSenderError>;
 
-pub type QuicTpuClient2 = TpuClient<QuicPool, QuicConnectionManager, QuicConfig>;
+pub type QuicTpuClient = TpuClient<QuicPool, QuicConnectionManager, QuicConfig>;
 
 pub enum TpuClientWrapper {
     Quic(TpuClient<QuicPool, QuicConnectionManager, QuicConfig>),

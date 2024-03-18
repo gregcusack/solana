@@ -824,10 +824,9 @@ pub mod test {
             local_cluster::{ClusterConfig, LocalCluster},
             validator_configs::make_identical_validator_configs,
         },
-        solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
         solana_rpc::rpc::JsonRpcConfig,
         solana_sdk::timing::timestamp,
-        solana_tpu_client::tpu_client::TpuClient,
+        solana_tpu_client::tpu_client::QuicTpuClient,
     };
 
     const TEST_SEND_BATCH_SIZE: usize = 1;
@@ -835,9 +834,7 @@ pub mod test {
     // thin wrapper for the run_dos function
     // to avoid specifying everywhere generic parameters
     fn run_dos_no_client(nodes: &[ContactInfo], iterations: usize, params: DosClientParameters) {
-        run_dos::<TpuClient<QuicPool, QuicConnectionManager, QuicConfig>>(
-            nodes, iterations, None, params,
-        );
+        run_dos::<QuicTpuClient>(nodes, iterations, None, params);
     }
 
     #[test]
