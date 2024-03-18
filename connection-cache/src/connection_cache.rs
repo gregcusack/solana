@@ -15,6 +15,8 @@ use {
         sync::{atomic::Ordering, Arc, RwLock},
         thread::{Builder, JoinHandle},
     },
+    // solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
+    // solana_udp_client::{UdpConfig, UdpConnectionManager, UdpPool},
     thiserror::Error,
 };
 
@@ -29,6 +31,11 @@ pub enum Protocol {
     UDP,
     QUIC,
 }
+
+// pub enum ConnectionCacheWrapper {
+//     Quic(Arc<ConnectionCache<QuicPool, QuicConnectionManager, QuicConfig>>),
+//     Udp(Arc<ConnectionCache<UdpPool, UdpConnectionManager, UdpConfig>>),
+// }`
 
 pub trait ConnectionManager: Send + Sync + 'static {
     type ConnectionPool: ConnectionPool;

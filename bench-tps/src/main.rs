@@ -10,7 +10,7 @@ use {
     },
     solana_client::{
         connection_cache::ConnectionCache,
-        tpu_client::{TpuClient, TpuClientConfig},
+        // tpu_client::{TpuClient, TpuClientConfig},
     },
     solana_genesis::Base64Account,
     solana_rpc_client::rpc_client::RpcClient,
@@ -22,6 +22,7 @@ use {
         system_program,
     },
     solana_streamer::streamer::StakedNodes,
+    solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
     std::{
         collections::HashMap,
         fs::File,

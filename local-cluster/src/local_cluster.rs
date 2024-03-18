@@ -8,14 +8,7 @@ use {
     log::*,
     solana_accounts_db::utils::create_accounts_run_and_snapshot_dirs,
     solana_client::{
-        connection_cache::ConnectionCache,
-        rpc_client::RpcClient,
-        thin_client::ThinClient,
-        // tpu_client::{QuicTpuClient, TpuClient, TpuClientConfig},
-    },
-    solana_tpu_client::{
-        tpu_client::{QuicTpuClient2, TpuClient as TpuClientBlocking, TpuClientConfig},
-        nonblocking::tpu_client::TpuClient as TpuClientNonBlocking
+        connection_cache::ConnectionCache, rpc_client::RpcClient, thin_client::ThinClient,
     },
     solana_core::{
         consensus::tower_storage::FileTowerStorage,
@@ -56,6 +49,7 @@ use {
     solana_stake_program::stake_state,
     solana_streamer::socket::SocketAddrSpace,
     solana_tpu_client::tpu_client::{
+        QuicTpuClient2, TpuClient as TpuClientBlocking, TpuClientConfig,
         DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_ENABLE_UDP, DEFAULT_TPU_USE_QUIC,
     },
     solana_vote_program::{

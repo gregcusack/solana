@@ -1,6 +1,5 @@
 use {
     crate::bench_tps_client::{BenchTpsClient, BenchTpsError, Result},
-    solana_client::tpu_client::TpuClient,
     solana_connection_cache::connection_cache::{
         ConnectionManager, ConnectionPool, NewConnectionConfig,
     },
@@ -10,6 +9,9 @@ use {
         message::Message, pubkey::Pubkey, signature::Signature, slot_history::Slot,
         transaction::Transaction,
     },
+    // crate::solana_tpu_client::tpu_client,
+    // solana_client::tpu_client::TpuClient,
+    solana_tpu_client::tpu_client::TpuClient,
     solana_transaction_status::UiConfirmedBlock,
 };
 
