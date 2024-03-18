@@ -49,7 +49,7 @@ use {
     solana_stake_program::stake_state,
     solana_streamer::socket::SocketAddrSpace,
     solana_tpu_client::tpu_client::{
-        QuicTpuClient2, TpuClient as TpuClientBlocking, TpuClientConfig,
+        QuicTpuClient, TpuClient as TpuClientBlocking, TpuClientConfig,
         DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_ENABLE_UDP, DEFAULT_TPU_USE_QUIC,
     },
     solana_vote_program::{
@@ -806,7 +806,7 @@ impl LocalCluster {
         }
     }
 
-    fn build_tpu_client<F>(&self, rpc_client_builder: F) -> Result<QuicTpuClient2>
+    fn build_tpu_client<F>(&self, rpc_client_builder: F) -> Result<QuicTpuClient>
     where
         F: FnOnce(String) -> Arc<RpcClient>,
     {
@@ -851,14 +851,14 @@ impl Cluster for LocalCluster {
         })
     }
 
-    fn build_tpu_quic_client(&self) -> Result<QuicTpuClient2> {
+    fn build_tpu_quic_client(&self) -> Result<QuicTpuClient> {
         self.build_tpu_client(|rpc_url| Arc::new(RpcClient::new(rpc_url)))
     }
 
     fn build_tpu_quic_client_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> Result<QuicTpuClient2> {
+    ) -> Result<QuicTpuClient> {
         self.build_tpu_client(|rpc_url| {
             Arc::new(RpcClient::new_with_commitment(rpc_url, commitment_config))
         })
