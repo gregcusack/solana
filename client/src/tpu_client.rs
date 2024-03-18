@@ -1,5 +1,5 @@
 use {
-    crate::connection_cache::ConnectionCache,
+    // crate::connection_cache::ConnectionCache,
     solana_connection_cache::connection_cache::{
         ConnectionCache as BackendConnectionCache, ConnectionManager, ConnectionPool,
         NewConnectionConfig,
@@ -13,7 +13,6 @@ use {
         transport::Result as TransportResult,
     },
     solana_tpu_client::tpu_client::{Result, TpuClient as BackendTpuClient},
-    solana_udp_client::{UdpConfig, UdpConnectionManager, UdpPool},
     std::sync::Arc,
 };
 pub use {
@@ -22,11 +21,6 @@ pub use {
 };
 
 pub type QuicTpuClient = TpuClient<QuicPool, QuicConnectionManager, QuicConfig>;
-
-pub enum TpuClientWrapper {
-    Quic(TpuClient<QuicPool, QuicConnectionManager, QuicConfig>),
-    Udp(TpuClient<UdpPool, UdpConnectionManager, UdpConfig>),
-}
 
 /// Client which sends transactions directly to the current leader's TPU port over UDP.
 /// The client uses RPC to determine the current leader and fetch node contact info

@@ -4,11 +4,7 @@ use {
     crate::{cluster_info::ClusterInfo, legacy_contact_info::LegacyContactInfo as ContactInfo},
     crossbeam_channel::{unbounded, Sender},
     rand::{thread_rng, Rng},
-    solana_client::{
-        connection_cache::ConnectionCache,
-        rpc_client::RpcClient,
-        tpu_client::{TpuClient, TpuClientConfig, TpuClientWrapper},
-    },
+    solana_client::{connection_cache::ConnectionCacheWrapper, rpc_client::RpcClient},
     solana_perf::recycler::Recycler,
     solana_runtime::bank_forks::BankForks,
     solana_sdk::{
@@ -19,6 +15,7 @@ use {
         socket::SocketAddrSpace,
         streamer::{self, StreamerReceiveStats},
     },
+    solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig, TpuClientWrapper},
     std::{
         collections::HashSet,
         net::{SocketAddr, TcpListener, UdpSocket},
@@ -200,7 +197,7 @@ pub fn discover(
 /// Creates a TpuClient by selecting a valid node at random
 pub fn get_client(
     nodes: &[ContactInfo],
-    connection_cache: Arc<ConnectionCache>,
+    connection_cache: Arc<ConnectionCacheWrapper>,
 ) -> TpuClientWrapper {
     let select = thread_rng().gen_range(0..nodes.len());
 
@@ -208,7 +205,7 @@ pub fn get_client(
     let rpc_url = format!("http://{}", nodes[select].rpc().unwrap());
 
     match &*connection_cache {
-        ConnectionCache::Quic(cache) => TpuClientWrapper::Quic(
+        ConnectionCacheWrapper::Quic(cache) => TpuClientWrapper::Quic(
             TpuClient::new_with_connection_cache(
                 Arc::new(RpcClient::new(rpc_url)),
                 rpc_pubsub_url.as_str(),
@@ -219,7 +216,7 @@ pub fn get_client(
                 panic!("Could not create TpuClient with Quic Cache {err:?}");
             }),
         ),
-        ConnectionCache::Udp(cache) => TpuClientWrapper::Udp(
+        ConnectionCacheWrapper::Udp(cache) => TpuClientWrapper::Udp(
             TpuClient::new_with_connection_cache(
                 Arc::new(RpcClient::new(rpc_url)),
                 rpc_pubsub_url.as_str(),

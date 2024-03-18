@@ -8,7 +8,7 @@ use {
     log::*,
     solana_accounts_db::utils::create_accounts_run_and_snapshot_dirs,
     solana_client::{
-        connection_cache::ConnectionCache, rpc_client::RpcClient, thin_client::ThinClient,
+        connection_cache::ConnectionCacheWrapper, rpc_client::RpcClient, thin_client::ThinClient,
     },
     solana_core::{
         consensus::tower_storage::FileTowerStorage,
@@ -145,7 +145,7 @@ pub struct LocalCluster {
     pub entry_point_info: ContactInfo,
     pub validators: HashMap<Pubkey, ClusterValidatorInfo>,
     pub genesis_config: GenesisConfig,
-    pub connection_cache: Arc<ConnectionCache>,
+    pub connection_cache: Arc<ConnectionCacheWrapper>,
 }
 
 impl LocalCluster {
@@ -322,11 +322,11 @@ impl LocalCluster {
             validators,
             genesis_config,
             connection_cache: match config.tpu_use_quic {
-                true => Arc::new(ConnectionCache::new_quic(
+                true => Arc::new(ConnectionCacheWrapper::new_quic(
                     "connection_cache_local_cluster_quic",
                     config.tpu_connection_pool_size,
                 )),
-                false => Arc::new(ConnectionCache::with_udp(
+                false => Arc::new(ConnectionCacheWrapper::with_udp(
                     "connection_cache_local_cluster_udp",
                     config.tpu_connection_pool_size,
                 )),
@@ -814,8 +814,8 @@ impl LocalCluster {
         let rpc_url = format!("http://{}", self.entry_point_info.rpc().unwrap());
 
         let cache = match &*self.connection_cache {
-            ConnectionCache::Quic(cache) => cache,
-            ConnectionCache::Udp(_) => {
+            ConnectionCacheWrapper::Quic(cache) => cache,
+            ConnectionCacheWrapper::Udp(_) => {
                 return Err(Error::new(
                     ErrorKind::Other,
                     "Expected a Quic ConnectionCache. Got UDP",

@@ -29,7 +29,7 @@ pub type Result<T> = std::result::Result<T, TpuSenderError>;
 
 pub type QuicTpuClient2 = TpuClient<QuicPool, QuicConnectionManager, QuicConfig>;
 
-pub enum TpuClientWrapper2 {
+pub enum TpuClientWrapper {
     Quic(TpuClient<QuicPool, QuicConnectionManager, QuicConfig>),
     Udp(TpuClient<UdpPool, UdpConnectionManager, UdpConfig>),
 }

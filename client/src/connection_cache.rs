@@ -28,7 +28,7 @@ const DEFAULT_CONNECTION_CACHE_USE_QUIC: bool = true;
 /// A thin wrapper over connection-cache/ConnectionCache to ease
 /// construction of the ConnectionCache for code dealing both with udp and quic.
 /// For the scenario only using udp or quic, use connection-cache/ConnectionCache directly.
-pub enum ConnectionCache {
+pub enum ConnectionCacheWrapper {
     Quic(Arc<BackendConnectionCache<QuicPool, QuicConnectionManager, QuicConfig>>),
     Udp(Arc<BackendConnectionCache<UdpPool, UdpConnectionManager, UdpConfig>>),
 }
@@ -46,7 +46,7 @@ pub enum NonblockingClientConnection {
     Udp(Arc<<UdpBaseClientConnection as BaseClientConnection>::NonblockingClientConnection>),
 }
 
-impl NotifyKeyUpdate for ConnectionCache {
+impl NotifyKeyUpdate for ConnectionCacheWrapper {
     fn update_key(&self, key: &Keypair) -> Result<(), Box<dyn std::error::Error>> {
         match self {
             Self::Udp(_) => Ok(()),
@@ -55,11 +55,11 @@ impl NotifyKeyUpdate for ConnectionCache {
     }
 }
 
-impl ConnectionCache {
+impl ConnectionCacheWrapper {
     pub fn new(name: &'static str) -> Self {
         if DEFAULT_CONNECTION_CACHE_USE_QUIC {
             let cert_info = (&Keypair::new(), IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
-            ConnectionCache::new_with_client_options(
+            ConnectionCacheWrapper::new_with_client_options(
                 name,
                 DEFAULT_CONNECTION_POOL_SIZE,
                 None, // client_endpoint
@@ -67,7 +67,7 @@ impl ConnectionCache {
                 None, // stake_info
             )
         } else {
-            ConnectionCache::with_udp(name, DEFAULT_CONNECTION_POOL_SIZE)
+            ConnectionCacheWrapper::with_udp(name, DEFAULT_CONNECTION_POOL_SIZE)
         }
     }
 
@@ -223,7 +223,7 @@ impl solana_connection_cache::nonblocking::client_connection::ClientConnection
 mod tests {
     use {
         super::*,
-        crate::connection_cache::ConnectionCache,
+        crate::connection_cache::ConnectionCacheWrapper,
         crossbeam_channel::unbounded,
         solana_sdk::{net::DEFAULT_TPU_COALESCE, signature::Keypair},
         solana_streamer::{
@@ -275,7 +275,7 @@ mod tests {
         )
         .unwrap();
 
-        let connection_cache = ConnectionCache::new_with_client_options(
+        let connection_cache = ConnectionCacheWrapper::new_with_client_options(
             "connection_cache_test",
             1,                            // connection_pool_size
             Some(response_recv_endpoint), // client_endpoint

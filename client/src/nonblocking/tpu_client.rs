@@ -1,6 +1,7 @@
 pub use solana_tpu_client::nonblocking::tpu_client::{LeaderTpuService, TpuSenderError};
 use {
-    crate::{connection_cache::ConnectionCache, tpu_client::TpuClientConfig},
+    // crate::{connection_cache::ConnectionCache, tpu_client::TpuClientConfig},
+    crate::tpu_client::TpuClientConfig,
     solana_connection_cache::connection_cache::{
         ConnectionCache as BackendConnectionCache, ConnectionManager, ConnectionPool,
         NewConnectionConfig,

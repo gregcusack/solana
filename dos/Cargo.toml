@@ -19,6 +19,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 solana-bench-tps = { workspace = true }
 solana-client = { workspace = true }
+solana-connection-cache = { workspace = true }
 solana-core = { workspace = true }
 solana-faucet = { workspace = true }
 solana-gossip = { workspace = true }
@@ -32,6 +33,7 @@ solana-rpc-client = { workspace = true }
 solana-sdk = { workspace = true }
 solana-streamer = { workspace = true }
 solana-tpu-client = { workspace = true }
+solana-udp-client = { workspace = true }
 solana-version = { workspace = true }
 
 [package.metadata.docs.rs]

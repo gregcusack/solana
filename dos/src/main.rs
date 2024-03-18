@@ -46,10 +46,7 @@ use {
     log::*,
     rand::{thread_rng, Rng},
     solana_bench_tps::{bench::generate_and_fund_keypairs, bench_tps_client::BenchTpsClient},
-    solana_client::{
-        connection_cache::ConnectionCache, tpu_client::TpuClientWrapper,
-        tpu_connection::TpuConnection,
-    },
+    solana_client::{connection_cache::ConnectionCache, tpu_connection::TpuConnection},
     solana_core::repair::serve_repair::{RepairProtocol, RepairRequestHeader, ServeRepair},
     solana_dos::cli::*,
     solana_gossip::{
@@ -72,7 +69,7 @@ use {
         transaction::Transaction,
     },
     solana_streamer::socket::SocketAddrSpace,
-    solana_tpu_client::tpu_client::DEFAULT_TPU_CONNECTION_POOL_SIZE,
+    solana_tpu_client::tpu_client::{TpuClientWrapper, DEFAULT_TPU_CONNECTION_POOL_SIZE},
     std::{
         net::{SocketAddr, UdpSocket},
         process::exit,
@@ -264,9 +261,10 @@ fn create_sender_thread(
             "connection_cache_dos_quic",
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
         ),
-        false => {
-            ConnectionCache::with_udp("connection_cache_dos_udp", DEFAULT_TPU_CONNECTION_POOL_SIZE)
-        }
+        false => ConnectionCache::with_udp(
+            "connection_cache_dos_udp",
+            DEFAULT_TPU_CONNECTION_POOL_SIZE,
+        ),
     };
     let connection = connection_cache.get_connection(target);
 
@@ -795,6 +793,7 @@ fn main() {
                 DEFAULT_TPU_CONNECTION_POOL_SIZE,
             ),
         };
+
         let client = get_client(&validators, Arc::new(connection_cache));
         (gossip_nodes, Some(client))
     } else {
@@ -818,7 +817,6 @@ fn main() {
 pub mod test {
     use {
         super::*,
-        solana_client::tpu_client::{QuicTpuClient, TpuClient},
         solana_core::validator::ValidatorConfig,
         solana_faucet::faucet::run_local_faucet,
         solana_gossip::contact_info::LegacyContactInfo,
@@ -827,8 +825,10 @@ pub mod test {
             local_cluster::{ClusterConfig, LocalCluster},
             validator_configs::make_identical_validator_configs,
         },
+        solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
         solana_rpc::rpc::JsonRpcConfig,
         solana_sdk::timing::timestamp,
+        solana_tpu_client::tpu_client::TpuClient,
     };
 
     const TEST_SEND_BATCH_SIZE: usize = 1;
