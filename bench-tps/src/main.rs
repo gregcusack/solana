@@ -8,7 +8,7 @@ use {
         keypairs::get_keypairs,
         send_batch::{generate_durable_nonce_accounts, generate_keypairs},
     },
-    solana_client::connection_cache::ConnectionCacheWrapper,
+    solana_client::connection_cache::ConnectionCache,
     solana_genesis::Base64Account,
     solana_rpc_client::rpc_client::RpcClient,
     solana_sdk::{
@@ -77,15 +77,15 @@ fn create_connection_cache(
     bind_address: IpAddr,
     client_node_id: Option<&Keypair>,
     commitment_config: CommitmentConfig,
-) -> ConnectionCacheWrapper {
+) -> ConnectionCache {
     if !use_quic {
-        return ConnectionCacheWrapper::with_udp(
+        return ConnectionCache::with_udp(
             "bench-tps-connection_cache_udp",
             tpu_connection_pool_size,
         );
     }
     if client_node_id.is_none() {
-        return ConnectionCacheWrapper::new_quic(
+        return ConnectionCache::new_quic(
             "bench-tps-connection_cache_quic",
             tpu_connection_pool_size,
         );
@@ -108,7 +108,7 @@ fn create_connection_cache(
         Arc::new(stakes),
         HashMap::<Pubkey, u64>::default(), // overrides
     )));
-    ConnectionCacheWrapper::new_with_client_options(
+    ConnectionCache::new_with_client_options(
         "bench-tps-connection_cache_quic",
         tpu_connection_pool_size,
         None,
@@ -122,7 +122,7 @@ fn create_client(
     external_client_type: &ExternalClientType,
     json_rpc_url: &str,
     websocket_url: &str,
-    connection_cache: ConnectionCacheWrapper,
+    connection_cache: ConnectionCache,
     commitment_config: CommitmentConfig,
 ) -> Arc<dyn BenchTpsClient + Send + Sync> {
     match external_client_type {
@@ -136,7 +136,7 @@ fn create_client(
                 commitment_config,
             ));
             match connection_cache {
-                ConnectionCacheWrapper::Udp(cache) => Arc::new(
+                ConnectionCache::Udp(cache) => Arc::new(
                     TpuClient::new_with_connection_cache(
                         rpc_client,
                         websocket_url,
@@ -148,7 +148,7 @@ fn create_client(
                         exit(1);
                     }),
                 ),
-                ConnectionCacheWrapper::Quic(cache) => Arc::new(
+                ConnectionCache::Quic(cache) => Arc::new(
                     TpuClient::new_with_connection_cache(
                         rpc_client,
                         websocket_url,

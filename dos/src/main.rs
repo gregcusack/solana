@@ -261,10 +261,9 @@ fn create_sender_thread(
             "connection_cache_dos_quic",
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
         ),
-        false => ConnectionCache::with_udp(
-            "connection_cache_dos_udp",
-            DEFAULT_TPU_CONNECTION_POOL_SIZE,
-        ),
+        false => {
+            ConnectionCache::with_udp("connection_cache_dos_udp", DEFAULT_TPU_CONNECTION_POOL_SIZE)
+        }
     };
     let connection = connection_cache.get_connection(target);
 

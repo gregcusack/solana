@@ -4,8 +4,8 @@
 //! unstable and may change in future releases.
 #[allow(deprecated)]
 use {
-    // crate::connection_cache::{dispatch, ConnectionCache},
-    crate::connection_cache::dispatch,
+    crate::connection_cache::{dispatch, ConnectionCache},
+    // crate::connection_cache::dispatch,
     solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
     solana_rpc_client::rpc_client::RpcClient,
     solana_rpc_client_api::config::RpcProgramAccountsConfig,

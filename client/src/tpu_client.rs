@@ -1,5 +1,5 @@
 use {
-    // crate::connection_cache::ConnectionCache,
+    crate::connection_cache::ConnectionCache,
     solana_connection_cache::connection_cache::{
         ConnectionCache as BackendConnectionCache, ConnectionManager, ConnectionPool,
         NewConnectionConfig,
