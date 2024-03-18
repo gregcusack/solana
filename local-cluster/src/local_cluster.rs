@@ -900,6 +900,27 @@ impl Cluster for LocalCluster {
         })
     }
 
+    fn get_validator_tpu_client(&self, pubkey: &Pubkey) -> Option<QuicTpuClient> {
+        self.validators.get(pubkey).map(|f| {
+            let rpc_pubsub_url = format!("ws://{}/", f.info.contact_info.rpc_pubsub().unwrap());
+            let rpc_url = format!("http://{}", f.info.contact_info.rpc().unwrap());
+
+            let cache = match &*self.connection_cache {
+                ConnectionCache::Quic(cache) => cache,
+                ConnectionCache::Udp(_) => {
+                    panic!("Expected a Quic ConnectionCache. Got UDP");
+                }
+            };
+
+            TpuClientBlocking::new_with_connection_cache(
+                Arc::new(RpcClient::new(rpc_url)),
+                rpc_pubsub_url.as_str(),
+                TpuClientConfig::default(),
+                cache.clone(),
+            ).unwrap_or_else(panic!("Failed to create TpuClient!"))
+        })
+    }
+
     fn build_tpu_quic_client(&self) -> Result<QuicTpuClient> {
         self.build_tpu_client(|rpc_url| Arc::new(RpcClient::new(rpc_url)))
     }
