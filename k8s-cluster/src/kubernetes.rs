@@ -146,7 +146,7 @@ pub struct NodeAffinityConfig {
 }
 
 impl NodeAffinityConfig {
-    // choose region over node_type if both provided
+    // choose node_type over region if both provided
     pub fn new(node_type: Option<NodeType>, region: Option<GeographicRegion>) -> Self {
         match (node_type, region) {
             (Some(node_type), None) => Self {
@@ -755,6 +755,9 @@ impl<'a> Kubernetes<'a> {
             };
         } else {
             if let Some(node_type) = self.node_affinity.node_type {
+                if node_type == NodeType::Mixed {
+                    return Ok(());
+                }
                 match self.get_nodes_by_type(node_type).await {
                     Ok(nodes) => self.nodes = nodes,
                     Err(err) => {
@@ -763,14 +766,6 @@ impl<'a> Kubernetes<'a> {
                 }
             }
         }
-        if let Some(nodes) = &self.nodes {
-            for node in nodes.iter() {
-                info!("node: {:?}", node);
-            }
-        } else {
-            info!("nodes is empty!");
-        }
-
         Ok(())
     }
 
