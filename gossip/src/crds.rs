@@ -119,6 +119,7 @@ pub(crate) struct CrdsStats {
     /// and that message was later received via a PushMessage
     pub(crate) num_redundant_pull_responses: u64,
     pub(crate) num_duplicate_push: u64,
+    pub(crate) num_total_push: u64,
 }
 
 /// This structure stores some local metadata associated with the CrdsValue
@@ -236,6 +237,9 @@ impl Crds {
         let label = value.label();
         let pubkey = value.pubkey();
         let value = VersionedCrdsValue::new(value, self.cursor, now, route);
+        if let GossipRoute::PushMessage(_) = route {
+            self.stats.lock().unwrap().num_total_push += 1
+        }
         match self.table.entry(label) {
             Entry::Vacant(entry) => {
                 self.stats.lock().unwrap().record_insert(&value, route);
