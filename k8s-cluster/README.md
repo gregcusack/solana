@@ -15,8 +15,10 @@ docker login
 kubectl create ns <namespace>
 ```
 
-### Run
+### Build solana release from local commit
 ```
 cargo run --bin solana-k8s --
     -n <namespace e.g. monogon-test>
+    --deploy-method local
+    --do-build
 ```

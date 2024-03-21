@@ -11,8 +11,10 @@ edition = { workspace = true }
 
 [dependencies]
 clap = { workspace = true }
+git2 = { workspace = true }
 k8s-openapi = { workspace = true }
 kube = { workspace = true }
+lazy_static = { workspace = true }
 log = { workspace = true }
 solana-logger = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
