@@ -1,0 +1,28 @@
+[package]
+name = "solana-k8s-cluster"
+publish = false
+description = "Kubernetes Validator Deployment for Testing"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+clap = { workspace = true }
+k8s-openapi = { workspace = true }
+kube = { workspace = true }
+log = { workspace = true }
+solana-logger = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[build-dependencies]
+rustc_version = { workspace = true }
+
+[[bin]]
+name = "solana-k8s"
+path = "src/main.rs"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
