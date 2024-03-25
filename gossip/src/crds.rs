@@ -307,7 +307,8 @@ impl Crds {
                 Ok(())
             }
             Entry::Occupied(mut entry) => {
-                self.stats.lock().unwrap().record_fail(&value, route);
+                let mut stats = self.stats.lock().unwrap();
+                stats.record_fail(&value, route);
                 trace!(
                     "INSERT FAILED data: {} new.wallclock: {}",
                     value.value.label(),
@@ -321,11 +322,11 @@ impl Crds {
                 } else if matches!(route, GossipRoute::PushMessage(_)) {
                     let entry = entry.get_mut();
                     if entry.num_push_recv == Some(0) {
-                        self.stats.lock().unwrap().num_redundant_pull_responses += 1;
+                        stats.num_redundant_pull_responses += 1;
                     }
                     let num_push_dups = entry.num_push_recv.unwrap_or_default();
                     entry.num_push_recv = Some(num_push_dups.saturating_add(1));
-                    self.stats.lock().unwrap().num_duplicate_push += 1;
+                    stats.num_duplicate_push += 1;
                     Err(CrdsError::DuplicatePush(num_push_dups))
                 } else {
                     Err(CrdsError::InsertFailed)
