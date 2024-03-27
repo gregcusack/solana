@@ -119,7 +119,6 @@ pub(crate) struct CrdsStats {
     /// and that message was later received via a PushMessage
     pub(crate) num_redundant_pull_responses: u64,
     pub(crate) num_duplicate_push: u64,
-    pub(crate) num_total_push: u64,
 }
 
 /// This structure stores some local metadata associated with the CrdsValue
@@ -237,12 +236,10 @@ impl Crds {
         let label = value.label();
         let pubkey = value.pubkey();
         let value = VersionedCrdsValue::new(value, self.cursor, now, route);
-        if let GossipRoute::PushMessage(_) = route {
-            self.stats.lock().unwrap().num_total_push += 1
-        }
+        let mut stats = self.stats.lock().unwrap();
         match self.table.entry(label) {
             Entry::Vacant(entry) => {
-                self.stats.lock().unwrap().record_insert(&value, route);
+                stats.record_insert(&value, route);
                 let entry_index = entry.index();
                 self.shards.insert(entry_index, &value);
                 match &value.value.data {
@@ -268,7 +265,7 @@ impl Crds {
                 Ok(())
             }
             Entry::Occupied(mut entry) if overrides(&value.value, entry.get()) => {
-                self.stats.lock().unwrap().record_insert(&value, route);
+                stats.record_insert(&value, route);
                 let entry_index = entry.index();
                 self.shards.remove(entry_index, entry.get());
                 self.shards.insert(entry_index, &value);
@@ -307,7 +304,6 @@ impl Crds {
                 Ok(())
             }
             Entry::Occupied(mut entry) => {
-                let mut stats = self.stats.lock().unwrap();
                 stats.record_fail(&value, route);
                 trace!(
                     "INSERT FAILED data: {} new.wallclock: {}",
@@ -323,10 +319,11 @@ impl Crds {
                     let entry = entry.get_mut();
                     if entry.num_push_recv == Some(0) {
                         stats.num_redundant_pull_responses += 1;
+                    } else {
+                        stats.num_duplicate_push += 1;
                     }
                     let num_push_dups = entry.num_push_recv.unwrap_or_default();
                     entry.num_push_recv = Some(num_push_dups.saturating_add(1));
-                    stats.num_duplicate_push += 1;
                     Err(CrdsError::DuplicatePush(num_push_dups))
                 } else {
                     Err(CrdsError::InsertFailed)

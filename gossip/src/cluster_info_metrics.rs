@@ -439,7 +439,6 @@ pub(crate) fn submit_gossip_stats(
             crds_stats.num_duplicate_push,
             i64
         ),
-        ("num_total_push", crds_stats.num_total_push, i64),
         (
             "push_fanout_num_entries",
             stats.push_fanout_num_entries.clear(),
