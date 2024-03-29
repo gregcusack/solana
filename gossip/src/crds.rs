@@ -118,7 +118,7 @@ pub(crate) struct CrdsStats {
     /// number of times a message was first received via a PullResponse
     /// and that message was later received via a PushMessage
     pub(crate) num_redundant_pull_responses: u64,
-    pub(crate) num_duplicate_push: u64,
+    pub(crate) num_duplicate_push_messages: u64,
 }
 
 /// This structure stores some local metadata associated with the CrdsValue
@@ -320,7 +320,7 @@ impl Crds {
                     if entry.num_push_recv == Some(0) {
                         stats.num_redundant_pull_responses += 1;
                     } else {
-                        stats.num_duplicate_push += 1;
+                        stats.num_duplicate_push_messages += 1;
                     }
                     let num_push_dups = entry.num_push_recv.unwrap_or_default();
                     entry.num_push_recv = Some(num_push_dups.saturating_add(1));

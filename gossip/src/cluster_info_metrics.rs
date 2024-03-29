@@ -436,7 +436,7 @@ pub(crate) fn submit_gossip_stats(
         ("push_message_count", stats.push_message_count.clear(), i64),
         (
             "num_duplicate_push_messages",
-            crds_stats.num_duplicate_push,
+            crds_stats.num_duplicate_push_messages,
             i64
         ),
         (
