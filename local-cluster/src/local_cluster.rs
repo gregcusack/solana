@@ -7,9 +7,7 @@ use {
     itertools::izip,
     log::*,
     solana_accounts_db::utils::create_accounts_run_and_snapshot_dirs,
-    solana_client::{
-        connection_cache::ConnectionCache, rpc_client::RpcClient, thin_client::ThinClient,
-    },
+    solana_client::{connection_cache::ConnectionCache, rpc_client::RpcClient},
     solana_core::{
         consensus::tower_storage::FileTowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress},
@@ -886,14 +884,10 @@ impl Cluster for LocalCluster {
         self.validators.keys().cloned().collect()
     }
 
-    fn get_validator_client(&self, pubkey: &Pubkey) -> Option<ThinClient> {
-        self.validators.get(pubkey).map(|f| {
-            let (rpc, tpu) = LegacyContactInfo::try_from(&f.info.contact_info)
-                .map(|node| {
-                    cluster_tests::get_client_facing_addr(self.connection_cache.protocol(), node)
-                })
-                .unwrap();
-            ThinClient::new(rpc, tpu, self.connection_cache.clone())
+    fn get_validator_client(&self, pubkey: &Pubkey) -> Option<QuicTpuClient> {
+        self.validators.get(pubkey).map(|_| {
+            self.build_tpu_quic_client()
+                .expect("should build tpu quic client")
         })
     }
 
