@@ -94,6 +94,7 @@ where
     /// size
     /// Returns the last error if all sends fail
     pub fn try_send_transaction(&self, transaction: &Transaction) -> TransportResult<()> {
+        println!("try_send_transaction about to invoke");
         self.invoke(self.tpu_client.try_send_transaction(transaction))
     }
 
@@ -132,6 +133,21 @@ where
         transaction: &Transaction,
     ) -> TransportResult<Signature> {
         self.invoke(self.tpu_client.send_and_confirm_transaction(transaction))
+    }
+
+    pub fn send_and_confirm_transaction_with_retries<T: Signers + ?Sized>(
+        &self,
+        keypairs: &T,
+        transaction: &mut Transaction,
+        tries: usize,
+        pending_confirmations: usize
+    ) -> TransportResult<Signature> {
+        self.invoke(self.tpu_client.send_and_confirm_transaction_with_retries(
+            keypairs,
+            transaction,
+            tries,
+            pending_confirmations
+        ))
     }
 
     /// Create a new client that disconnects when dropped

@@ -12,6 +12,7 @@ use {
             ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig, Protocol,
             DEFAULT_CONNECTION_POOL_SIZE,
         },
+        client_connection::ClientConnection as BlockingClientConnection,
         nonblocking::client_connection::ClientConnection,
     },
     solana_pubsub_client::nonblocking::pubsub_client::{PubsubClient, PubsubClientError},
@@ -21,7 +22,7 @@ use {
         response::{RpcContactInfo, SlotUpdate},
     },
     solana_sdk::{
-        clock::Slot,
+        clock::{Slot, MAX_PROCESSING_AGE},
         commitment_config::CommitmentConfig,
         epoch_info::EpochInfo,
         pubkey::Pubkey,
@@ -398,6 +399,7 @@ where
     /// size
     /// Returns the last error if all sends fail
     pub async fn try_send_transaction(&self, transaction: &Transaction) -> TransportResult<()> {
+        println!("try_send_transaction");
         let wire_transaction = serialize(transaction).expect("serialization should succeed");
         self.try_send_wire_transaction(wire_transaction).await
     }
@@ -408,6 +410,8 @@ where
         &self,
         wire_transaction: Vec<u8>,
     ) -> TransportResult<()> {
+        println!("try_send_write_transaction");
+        println!("fanout slots: {}", self.fanout_slots);
         let leaders = self
             .leader_tpu_service
             .leader_tpu_sockets(self.fanout_slots);
@@ -427,20 +431,29 @@ where
         let mut some_success = false;
         for result in results {
             if let Err(e) = result {
+                println!("transport error: {}", e);
                 if last_error.is_none() {
+                    println!("last error is none.");
                     last_error = Some(e);
+                } else {
+                    println!("last error is some");
                 }
             } else {
+                println!("no error in result");
                 some_success = true;
             }
         }
         if !some_success {
+            println!("some_success is false!");
             Err(if let Some(err) = last_error {
+                println!("error for last error: {err}");
                 err
             } else {
+                println!("error is not last error for some reason. no sends attempted?");
                 std::io::Error::new(std::io::ErrorKind::Other, "No sends attempted").into()
             })
         } else {
+            println!("some_success is true!");
             Ok(())
         }
     }
@@ -496,7 +509,10 @@ where
         let pending_confirmations: usize = 0;
         let wire_transaction =
             bincode::serialize(&transaction).expect("transaction serialization failed");
+
+        
         let _ = self.send_wire_transaction(wire_transaction).await;
+
 
         if let Ok(confirmed_blocks) = self
             .rpc_client()
@@ -507,6 +523,69 @@ where
                 return Ok(transaction.signatures[0]);
             }
         }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "failed to confirm transaction".to_string(),
+        )
+        .into())
+    }
+
+    pub async fn send_and_confirm_transaction_with_retries<T: Signers + ?Sized>(
+        &self,
+        keypairs: &T,
+        transaction: &mut Transaction,
+        tries: usize,
+        pending_confirmations: usize,
+    ) -> TransportResult<Signature> {
+        for x in 0..tries {
+            println!("try: {x}");
+            let now = Instant::now();
+            let mut num_confirmed = 0;
+            let mut wait_time = MAX_PROCESSING_AGE;
+            // resend the same transaction until the transaction has no chance of succeeding
+            let wire_transaction =
+                bincode::serialize(&transaction).expect("transaction serialization failed");
+            while now.elapsed().as_secs() < wait_time as u64 {
+                println!("elapsed < wait time");
+                if num_confirmed == 0 {
+                    println!("num confirmed is 0");
+                    let leaders = self
+                        .leader_tpu_service
+                        .leader_tpu_sockets(self.fanout_slots);
+                    let addr = leaders[0];
+                    // Send the transaction if there has been no confirmation (e.g. the first time)
+                    let conn = self.connection_cache.get_connection(&addr);
+                    conn.send_data(&wire_transaction)?;
+                    // let _ = self.try_send_wire_transaction(wire_transaction.clone()).await;
+                }
+
+                println!("after num_confirmed check");
+                if let Ok(confirmed_blocks) = self
+                    .rpc_client()
+                    .poll_for_signature_confirmation(&transaction.signatures[0], pending_confirmations)
+                    .await
+                {
+                    println!("confirmed blocks found: {confirmed_blocks}");
+                    println!("num confirmed: {num_confirmed}");
+                    num_confirmed = confirmed_blocks;
+                    if confirmed_blocks >= pending_confirmations {
+                        println!("confirmed blocks >= pending confirmations {confirmed_blocks} > {pending_confirmations}");
+                        return Ok(transaction.signatures[0]);
+                    }
+                    // Since network has seen the transaction, wait longer to receive
+                    // all pending confirmations. Resending the transaction could result into
+                    // extra transaction fees
+                    wait_time = wait_time.max(
+                        MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
+                    );
+                    println!("wait time: {wait_time}");
+                }
+            }
+            println!("{} tries failed transfer", x);
+            let blockhash = self.rpc_client().get_latest_blockhash().await?;
+            transaction.sign(keypairs, blockhash);
+        }
+        println!("error failed to confirm tx");
         Err(std::io::Error::new(
             std::io::ErrorKind::Other,
             "failed to confirm transaction".to_string(),

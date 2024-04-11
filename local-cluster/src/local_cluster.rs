@@ -451,6 +451,7 @@ impl LocalCluster {
         // Must have enough tokens to fund vote account and set delegate
         let should_create_vote_pubkey = voting_keypair.is_none();
         if voting_keypair.is_none() {
+            info!("voting keypair is none");
             voting_keypair = Some(Arc::new(Keypair::new()));
         }
         let validator_pubkey = validator_keypair.pubkey();
@@ -463,18 +464,22 @@ impl LocalCluster {
             // setup as a listener
             info!("listener {} ", validator_pubkey,);
         } else if should_create_vote_pubkey {
+            info!("pre transfer with client");
+            info!("args: {:?}, {:?}, {}", self.funding_keypair, validator_pubkey, stake*2 + 2);
             let validator_balance = Self::transfer_with_client(
                 &client,
                 &self.funding_keypair,
                 &validator_pubkey,
                 stake * 2 + 2,
             );
+            info!("post transfer with client");
 
             info!(
                 "validator {} balance {}",
                 validator_pubkey, validator_balance
             );
 
+            info!("pre setup_vote_and_stake_accounts");
             Self::setup_vote_and_stake_accounts(
                 &client,
                 voting_keypair.as_ref().unwrap(),
@@ -482,7 +487,9 @@ impl LocalCluster {
                 stake,
             )
             .unwrap();
+            info!("post setup_vote_and_stake_accounts");
         }
+        info!("post listener check");
 
         let mut config = safe_clone_config(validator_config);
         config.rpc_addrs = Some((
@@ -643,30 +650,37 @@ impl LocalCluster {
         dest_pubkey: &Pubkey,
         lamports: u64,
     ) -> u64 {
-        trace!("getting leader blockhash");
+        info!("getting leader blockhash");
 
         let (blockhash, _) = client
             .rpc_client()
             .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
             .unwrap();
-        let tx = system_transaction::transfer(source_keypair, dest_pubkey, lamports, blockhash);
+        let mut tx = system_transaction::transfer(source_keypair, dest_pubkey, lamports, blockhash);
         info!(
             "executing transfer of {} from {} to {}",
             lamports,
             source_keypair.pubkey(),
             *dest_pubkey
         );
+        info!("pre try_send_transaction");
         client
-            .try_send_transaction(&tx)
+            .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 4, 0)
             .expect("client transfer should succeed");
-        client
+        // client.try_send_transaction(&tx).expect("should succeed");
+        info!("post try_send_transaction");
+        info!("pre wait for balance with commitment");
+        let res = client
             .rpc_client()
             .wait_for_balance_with_commitment(
                 dest_pubkey,
                 Some(lamports),
                 CommitmentConfig::processed(),
             )
-            .expect("get balance should succeed")
+            .expect("get balance should succeed");
+        info!("post wait for balance with commitment. balance: {res}");
+        
+        res
     }
 
     fn setup_vote_and_stake_accounts(
