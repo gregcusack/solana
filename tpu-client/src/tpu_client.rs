@@ -140,13 +140,13 @@ where
         keypairs: &T,
         transaction: &mut Transaction,
         tries: usize,
-        pending_confirmations: usize
+        pending_confirmations: usize,
     ) -> TransportResult<Signature> {
         self.invoke(self.tpu_client.send_and_confirm_transaction_with_retries(
             keypairs,
             transaction,
             tries,
-            pending_confirmations
+            pending_confirmations,
         ))
     }
 

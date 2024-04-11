@@ -8,11 +8,11 @@ use {
     },
     log::*,
     solana_connection_cache::{
+        client_connection::ClientConnection as BlockingClientConnection,
         connection_cache::{
             ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig, Protocol,
             DEFAULT_CONNECTION_POOL_SIZE,
         },
-        client_connection::ClientConnection as BlockingClientConnection,
         nonblocking::client_connection::ClientConnection,
     },
     solana_pubsub_client::nonblocking::pubsub_client::{PubsubClient, PubsubClientError},
@@ -510,9 +510,7 @@ where
         let wire_transaction =
             bincode::serialize(&transaction).expect("transaction serialization failed");
 
-        
         let _ = self.send_wire_transaction(wire_transaction).await;
-
 
         if let Ok(confirmed_blocks) = self
             .rpc_client()
@@ -562,7 +560,10 @@ where
                 println!("after num_confirmed check");
                 if let Ok(confirmed_blocks) = self
                     .rpc_client()
-                    .poll_for_signature_confirmation(&transaction.signatures[0], pending_confirmations)
+                    .poll_for_signature_confirmation(
+                        &transaction.signatures[0],
+                        pending_confirmations,
+                    )
                     .await
                 {
                     println!("confirmed blocks found: {confirmed_blocks}");

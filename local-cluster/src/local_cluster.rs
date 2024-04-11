@@ -7,7 +7,9 @@ use {
     itertools::izip,
     log::*,
     solana_accounts_db::utils::create_accounts_run_and_snapshot_dirs,
-    solana_client::{connection_cache::ConnectionCache, rpc_client::RpcClient, thin_client::ThinClient},
+    solana_client::{
+        connection_cache::ConnectionCache, rpc_client::RpcClient, thin_client::ThinClient,
+    },
     solana_core::{
         consensus::tower_storage::FileTowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress},
@@ -471,7 +473,12 @@ impl LocalCluster {
             info!("listener {} ", validator_pubkey,);
         } else if should_create_vote_pubkey {
             info!("pre transfer with client");
-            info!("args: {:?}, {:?}, {}", self.funding_keypair, validator_pubkey, stake*2 + 2);
+            info!(
+                "args: {:?}, {:?}, {}",
+                self.funding_keypair,
+                validator_pubkey,
+                stake * 2 + 2
+            );
             let validator_balance = Self::transfer_with_client(
                 &thinclient,
                 &client,
@@ -665,8 +672,6 @@ impl LocalCluster {
         dest_pubkey: &Pubkey,
         lamports: u64,
     ) -> u64 {
-        info!("getting leader blockhash");
-
         let (blockhash, _) = client
             .rpc_client()
             .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
@@ -678,17 +683,9 @@ impl LocalCluster {
             source_keypair.pubkey(),
             *dest_pubkey
         );
-        info!("pre try_send_transaction");
         thinclient
             .retry_transfer(source_keypair, &mut tx, 10)
             .expect("client transfer");
-
-        // client
-        //     .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 4, 0)
-        //     .expect("client transfer should succeed");
-        // client.try_send_transaction(&tx).expect("should succeed");
-        info!("post try_send_transaction");
-        info!("pre wait for balance with commitment");
         let res = client
             .rpc_client()
             .wait_for_balance_with_commitment(
@@ -697,8 +694,7 @@ impl LocalCluster {
                 CommitmentConfig::processed(),
             )
             .expect("get balance should succeed");
-        info!("post wait for balance with commitment. balance: {res}");
-        
+
         res
     }
 
