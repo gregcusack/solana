@@ -6,7 +6,10 @@ use {
         ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
     },
     solana_rpc_client::rpc_client::RpcClient,
-    solana_sdk::{clock::Slot, transaction::Transaction, transport::Result as TransportResult},
+    solana_sdk::{
+        clock::Slot, signature::Signature, transaction::Transaction,
+        transport::Result as TransportResult,
+    },
     std::{
         collections::VecDeque,
         net::UdpSocket,
@@ -109,6 +112,13 @@ where
     /// Returns the last error if all sends fail
     pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>) -> TransportResult<()> {
         self.invoke(self.tpu_client.try_send_wire_transaction(wire_transaction))
+    }
+
+    pub fn send_and_confirm_transaction(
+        &self,
+        transaction: &Transaction,
+    ) -> TransportResult<Signature> {
+        self.invoke(self.tpu_client.send_and_confirm_transaction(transaction))
     }
 
     /// Create a new client that disconnects when dropped

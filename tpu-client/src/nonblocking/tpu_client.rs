@@ -26,7 +26,7 @@ use {
         epoch_info::EpochInfo,
         pubkey::Pubkey,
         quic::QUIC_PORT_OFFSET,
-        signature::SignerError,
+        signature::{Signature, SignerError},
         transaction::Transaction,
         transport::{Result as TransportResult, TransportError},
     },
@@ -487,6 +487,31 @@ where
         } else {
             Ok(())
         }
+    }
+
+    pub async fn send_and_confirm_transaction(
+        &self,
+        transaction: &Transaction,
+    ) -> TransportResult<Signature> {
+        let pending_confirmations: usize = 0;
+        let wire_transaction =
+            bincode::serialize(&transaction).expect("transaction serialization failed");
+        let _ = self.send_wire_transaction(wire_transaction).await;
+
+        if let Ok(confirmed_blocks) = self
+            .rpc_client()
+            .poll_for_signature_confirmation(&transaction.signatures[0], pending_confirmations)
+            .await
+        {
+            if confirmed_blocks >= pending_confirmations {
+                return Ok(transaction.signatures[0]);
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "failed to confirm transaction".to_string(),
+        )
+        .into())
     }
 
     /// Create a new client that disconnects when dropped
