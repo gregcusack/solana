@@ -7,7 +7,7 @@ use {
     itertools::izip,
     log::*,
     solana_accounts_db::utils::create_accounts_run_and_snapshot_dirs,
-    solana_client::{connection_cache::ConnectionCache, rpc_client::RpcClient},
+    solana_client::{connection_cache::ConnectionCache, rpc_client::RpcClient, thin_client::ThinClient},
     solana_core::{
         consensus::tower_storage::FileTowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress},
@@ -447,6 +447,12 @@ impl LocalCluster {
         socket_addr_space: SocketAddrSpace,
     ) -> Pubkey {
         let client = self.build_tpu_quic_client().expect("tpu_client");
+        let (rpc, tpu) = LegacyContactInfo::try_from(&self.entry_point_info)
+            .map(|node| {
+                cluster_tests::get_client_facing_addr(self.connection_cache.protocol(), node)
+            })
+            .unwrap();
+        let thinclient = ThinClient::new(rpc, tpu, self.connection_cache.clone());
 
         // Must have enough tokens to fund vote account and set delegate
         let should_create_vote_pubkey = voting_keypair.is_none();
@@ -467,6 +473,7 @@ impl LocalCluster {
             info!("pre transfer with client");
             info!("args: {:?}, {:?}, {}", self.funding_keypair, validator_pubkey, stake*2 + 2);
             let validator_balance = Self::transfer_with_client(
+                &thinclient,
                 &client,
                 &self.funding_keypair,
                 &validator_pubkey,
@@ -548,7 +555,14 @@ impl LocalCluster {
 
     pub fn transfer(&self, source_keypair: &Keypair, dest_pubkey: &Pubkey, lamports: u64) -> u64 {
         let client = self.build_tpu_quic_client().expect("new tpu quic client");
-        Self::transfer_with_client(&client, source_keypair, dest_pubkey, lamports)
+        let (rpc, tpu) = LegacyContactInfo::try_from(&self.entry_point_info)
+            .map(|node| {
+                cluster_tests::get_client_facing_addr(self.connection_cache.protocol(), node)
+            })
+            .unwrap();
+        let thinclient = ThinClient::new(rpc, tpu, self.connection_cache.clone());
+
+        Self::transfer_with_client(&thinclient, &client, source_keypair, dest_pubkey, lamports)
     }
 
     fn discover_nodes(
@@ -645,6 +659,7 @@ impl LocalCluster {
     }
 
     fn transfer_with_client(
+        thinclient: &ThinClient,
         client: &QuicTpuClient,
         source_keypair: &Keypair,
         dest_pubkey: &Pubkey,
@@ -664,9 +679,13 @@ impl LocalCluster {
             *dest_pubkey
         );
         info!("pre try_send_transaction");
-        client
-            .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 4, 0)
-            .expect("client transfer should succeed");
+        thinclient
+            .retry_transfer(source_keypair, &mut tx, 10)
+            .expect("client transfer");
+
+        // client
+        //     .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 4, 0)
+        //     .expect("client transfer should succeed");
         // client.try_send_transaction(&tx).expect("should succeed");
         info!("post try_send_transaction");
         info!("pre wait for balance with commitment");
