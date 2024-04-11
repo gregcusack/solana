@@ -792,7 +792,7 @@ impl LocalCluster {
             );
 
             client
-                .try_send_transaction(&transaction)
+                .send_and_confirm_transaction(&transaction)
                 .expect("delegate stake");
             client
                 .rpc_client()
