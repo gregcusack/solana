@@ -31,7 +31,7 @@ use {
         use_snapshot_archives_at_startup::UseSnapshotArchivesAtStartup,
     },
     solana_local_cluster::{
-        cluster::{Cluster, ClusterValidatorInfo},
+        cluster::{Cluster, ClusterValidatorInfo, QuicTpuClient},
         cluster_tests,
         integration_tests::{
             copy_blocks, create_custom_leader_schedule,
@@ -995,6 +995,7 @@ fn test_incremental_snapshot_download_with_crossing_full_snapshot_interval_at_st
         let validator_current_slot = cluster
             .get_validator_client(&validator_identity.pubkey())
             .unwrap()
+            .rpc_client()
             .get_slot_with_commitment(CommitmentConfig::finalized())
             .unwrap();
         trace!("validator current slot: {validator_current_slot}");
@@ -1373,7 +1374,10 @@ fn test_snapshots_blockstore_floor() {
     let target_slot = slot_floor + 40;
     while current_slot <= target_slot {
         trace!("current_slot: {}", current_slot);
-        if let Ok(slot) = validator_client.get_slot_with_commitment(CommitmentConfig::processed()) {
+        if let Ok(slot) = validator_client
+            .rpc_client()
+            .get_slot_with_commitment(CommitmentConfig::processed())
+        {
             current_slot = slot;
         } else {
             continue;
@@ -1565,6 +1569,7 @@ fn test_no_voting() {
         .unwrap();
     loop {
         let last_slot = client
+            .rpc_client()
             .get_slot_with_commitment(CommitmentConfig::processed())
             .expect("Couldn't get slot");
         if last_slot > 4 * VOTE_THRESHOLD_DEPTH as u64 {
@@ -1628,6 +1633,7 @@ fn test_optimistic_confirmation_violation_detection() {
     let mut prev_voted_slot = 0;
     loop {
         let last_voted_slot = client
+            .rpc_client()
             .get_slot_with_commitment(CommitmentConfig::processed())
             .unwrap();
         if last_voted_slot > 50 {
@@ -1681,6 +1687,7 @@ fn test_optimistic_confirmation_violation_detection() {
         let client = cluster.get_validator_client(&node_to_restart).unwrap();
         loop {
             let last_root = client
+                .rpc_client()
                 .get_slot_with_commitment(CommitmentConfig::finalized())
                 .unwrap();
             if last_root > prev_voted_slot {
@@ -1758,7 +1765,10 @@ fn test_validator_saves_tower() {
 
     // Wait for some votes to be generated
     loop {
-        if let Ok(slot) = validator_client.get_slot_with_commitment(CommitmentConfig::processed()) {
+        if let Ok(slot) = validator_client
+            .rpc_client()
+            .get_slot_with_commitment(CommitmentConfig::processed())
+        {
             trace!("current slot: {}", slot);
             if slot > 2 {
                 break;
@@ -1783,7 +1793,10 @@ fn test_validator_saves_tower() {
         #[allow(deprecated)]
         // This test depends on knowing the immediate root, without any delay from the commitment
         // service, so the deprecated CommitmentConfig::root() is retained
-        if let Ok(root) = validator_client.get_slot_with_commitment(CommitmentConfig::root()) {
+        if let Ok(root) = validator_client
+            .rpc_client()
+            .get_slot_with_commitment(CommitmentConfig::root())
+        {
             trace!("current root: {}", root);
             if root > 0 {
                 break root;
@@ -1812,7 +1825,10 @@ fn test_validator_saves_tower() {
         #[allow(deprecated)]
         // This test depends on knowing the immediate root, without any delay from the commitment
         // service, so the deprecated CommitmentConfig::root() is retained
-        if let Ok(root) = validator_client.get_slot_with_commitment(CommitmentConfig::root()) {
+        if let Ok(root) = validator_client
+            .rpc_client()
+            .get_slot_with_commitment(CommitmentConfig::root())
+        {
             trace!(
                 "current root: {}, last_replayed_root: {}",
                 root,
@@ -1845,7 +1861,10 @@ fn test_validator_saves_tower() {
         #[allow(deprecated)]
         // This test depends on knowing the immediate root, without any delay from the commitment
         // service, so the deprecated CommitmentConfig::root() is retained
-        if let Ok(root) = validator_client.get_slot_with_commitment(CommitmentConfig::root()) {
+        if let Ok(root) = validator_client
+            .rpc_client()
+            .get_slot_with_commitment(CommitmentConfig::root())
+        {
             trace!("current root: {}, last tower root: {}", root, tower3_root);
             if root > tower3_root {
                 break root;
@@ -2856,8 +2875,8 @@ fn setup_transfer_scan_threads(
     num_starting_accounts: usize,
     exit: Arc<AtomicBool>,
     scan_commitment: CommitmentConfig,
-    update_client_receiver: Receiver<ThinClient>,
-    scan_client_receiver: Receiver<ThinClient>,
+    update_client_receiver: Receiver<QuicTpuClient>,
+    scan_client_receiver: Receiver<QuicTpuClient>,
 ) -> (
     JoinHandle<()>,
     JoinHandle<()>,
@@ -2895,6 +2914,7 @@ fn setup_transfer_scan_threads(
                     return;
                 }
                 let (blockhash, _) = client
+                    .rpc_client()
                     .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
                     .unwrap();
                 for i in 0..starting_keypairs_.len() {
@@ -2941,6 +2961,7 @@ fn setup_transfer_scan_threads(
                     return;
                 }
                 if let Some(total_scan_balance) = client
+                    .rpc_client()
                     .get_program_accounts_with_config(
                         &system_program::id(),
                         scan_commitment_config.clone(),

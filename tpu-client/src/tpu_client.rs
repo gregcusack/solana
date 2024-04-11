@@ -7,7 +7,10 @@ use {
     },
     solana_rpc_client::rpc_client::RpcClient,
     solana_sdk::{
-        clock::Slot, signature::Signature, transaction::Transaction,
+        client::AsyncClient,
+        clock::Slot,
+        signature::Signature,
+        transaction::{Transaction, VersionedTransaction},
         transport::Result as TransportResult,
     },
     std::{
@@ -118,6 +121,16 @@ where
         self.invoke(self.tpu_client.try_send_wire_transaction(wire_transaction))
     }
 
+    pub fn try_send_wire_transaction_batch(
+        &self,
+        wire_transactions: Vec<Vec<u8>>,
+    ) -> TransportResult<()> {
+        self.invoke(
+            self.tpu_client
+                .try_send_wire_transaction_batch(wire_transactions),
+        )
+    }
+
     pub fn send_and_confirm_transaction(
         &self,
         transaction: &Transaction,
@@ -194,6 +207,35 @@ where
         // `block_in_place()` only panics if called from a current_thread runtime, which is the
         // lesser evil.
         tokio::task::block_in_place(move || self.rpc_client.runtime().block_on(f))
+    }
+}
+
+impl<P, M, C> AsyncClient for TpuClient<P, M, C>
+where
+    P: ConnectionPool<NewConnectionConfig = C>,
+    M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+    C: NewConnectionConfig,
+{
+    fn async_send_versioned_transaction(
+        &self,
+        transaction: VersionedTransaction,
+    ) -> TransportResult<Signature> {
+        let wire_transaction =
+            bincode::serialize(&transaction).expect("serialize Transaction in send_batch");
+        self.send_wire_transaction(wire_transaction);
+        Ok(transaction.signatures[0])
+    }
+
+    fn async_send_versioned_transaction_batch(
+        &self,
+        batch: Vec<VersionedTransaction>,
+    ) -> TransportResult<()> {
+        let buffers = batch
+            .into_par_iter()
+            .map(|tx| bincode::serialize(&tx).expect("serialize Transaction in send_batch"))
+            .collect::<Vec<_>>();
+        self.try_send_wire_transaction_batch(buffers)?;
+        Ok(())
     }
 }
 
