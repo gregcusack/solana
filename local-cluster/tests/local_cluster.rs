@@ -1034,10 +1034,10 @@ fn test_incremental_snapshot_download_with_crossing_full_snapshot_interval_at_st
 
     info!("Starting the validator...");
     let validator_identity = Arc::new(Keypair::new());
-    info!(
-        "first validator: id, stake: {:?}, {stake}",
-        validator_identity
-    );
+    // info!(
+    //     "first validator: id, stake: {:?}, {stake}",
+    //     validator_identity
+    // );
     cluster.add_validator(
         &validator_snapshot_test_config.validator_config,
         stake,
@@ -1274,10 +1274,10 @@ fn test_incremental_snapshot_download_with_crossing_full_snapshot_interval_at_st
 
     info!("Starting final validator...");
     let final_validator_identity = Arc::new(Keypair::new());
-    info!(
-        "final validator: id, stake: {:?}, {stake}",
-        final_validator_identity
-    );
+    // info!(
+    //     "final validator: id, stake: {:?}, {stake}",
+    //     final_validator_identity
+    // );
     cluster.add_validator(
         &final_validator_snapshot_test_config.validator_config,
         stake,

@@ -135,6 +135,42 @@ where
         self.invoke(self.tpu_client.send_and_confirm_transaction(transaction))
     }
 
+    pub fn send_and_confirm_transaction_blocking(
+        &self,
+        transaction: &Transaction,
+    ) -> TransportResult<Signature> {
+        let pending_confirmations: usize = 0;
+        let wire_transaction =
+            bincode::serialize(&transaction).expect("transaction serialization failed");
+
+        // let conn = self.connection_cache.get_connection(self.tpu_addr());
+        // Send the transaction if there has been no confirmation (e.g. the first time)
+        // #[allow(clippy::needless_borrow)]
+        // conn.send_data(&wire_transaction)?;
+
+        // let res = self.send_wire_transaction(wire_transaction);
+        let res = self.send_transaction(&transaction);
+        if res {
+            println!("success send wire tx");
+        } else {
+            println!("fail send wire tx");
+        }
+
+        if let Ok(confirmed_blocks) = self
+            .rpc_client()
+            .poll_for_signature_confirmation(&transaction.signatures[0], pending_confirmations)
+        {
+            if confirmed_blocks >= pending_confirmations {
+                return Ok(transaction.signatures[0]);
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "failed to confirm transaction".to_string(),
+        )
+        .into())
+    }
+
     pub fn send_and_confirm_transaction_with_retries<T: Signers + ?Sized>(
         &self,
         keypairs: &T,

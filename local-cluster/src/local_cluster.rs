@@ -676,6 +676,7 @@ impl LocalCluster {
             .rpc_client()
             .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
             .unwrap();
+        println!("blockhash: {:?}", blockhash);
         let mut tx = system_transaction::transfer(source_keypair, dest_pubkey, lamports, blockhash);
         info!(
             "executing transfer of {} from {} to {}",
@@ -683,9 +684,14 @@ impl LocalCluster {
             source_keypair.pubkey(),
             *dest_pubkey
         );
-        thinclient
-            .retry_transfer(source_keypair, &mut tx, 10)
-            .expect("client transfer");
+        // thinclient
+        //     .retry_transfer(source_keypair, &mut tx, 10)
+        //     .expect("client transfer");
+        // thinclient.send_and_confirm_transaction(&[source_keypair], &mut tx, 10, 0).expect("Asd");
+        // client.try_send_transaction(&tx).expect("asd");
+        client
+            .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 5, 0)
+            .expect("should work lol");
         let res = client
             .rpc_client()
             .wait_for_balance_with_commitment(

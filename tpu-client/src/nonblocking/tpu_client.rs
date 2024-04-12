@@ -415,6 +415,10 @@ where
         let leaders = self
             .leader_tpu_service
             .leader_tpu_sockets(self.fanout_slots);
+        println!("leaders len: {}", leaders.len());
+        for leader in &leaders {
+            println!("leader addr: {:?}", leader);
+        }
         let futures = leaders
             .iter()
             .map(|addr| {
@@ -426,6 +430,7 @@ where
             })
             .collect::<Vec<_>>();
         let results: Vec<TransportResult<()>> = join_all(futures).await;
+        println!("results len: {}", results.len());
 
         let mut last_error: Option<TransportError> = None;
         let mut some_success = false;
@@ -510,7 +515,12 @@ where
         let wire_transaction =
             bincode::serialize(&transaction).expect("transaction serialization failed");
 
-        let _ = self.send_wire_transaction(wire_transaction).await;
+        let res = self.send_wire_transaction(wire_transaction).await;
+        if res {
+            println!("success send wire tx");
+        } else {
+            println!("fail send wire tx");
+        }
 
         if let Ok(confirmed_blocks) = self
             .rpc_client()
@@ -547,18 +557,26 @@ where
                 println!("elapsed < wait time");
                 if num_confirmed == 0 {
                     println!("num confirmed is 0");
-                    let leaders = self
-                        .leader_tpu_service
-                        .leader_tpu_sockets(self.fanout_slots);
-                    let addr = leaders[0];
-                    // Send the transaction if there has been no confirmation (e.g. the first time)
-                    let conn = self.connection_cache.get_connection(&addr);
-                    conn.send_data(&wire_transaction)?;
+                    match self
+                        .try_send_wire_transaction(wire_transaction.clone())
+                        .await
+                    {
+                        Ok(_) => println!("try_send_write_transaction success"),
+                        Err(err) => println!("try_send_write_transaction failed: {err}"),
+                    }
+                    println!("continuing");
+                    // let leaders = self
+                    //     .leader_tpu_service
+                    //     .leader_tpu_sockets(self.fanout_slots);
+                    // let addr = leaders[0];
+                    // // Send the transaction if there has been no confirmation (e.g. the first time)
+                    // let conn = self.connection_cache.get_connection(&addr);
+                    // conn.send_data(&wire_transaction)?;
                     // let _ = self.try_send_wire_transaction(wire_transaction.clone()).await;
                 }
 
                 println!("after num_confirmed check");
-                if let Ok(confirmed_blocks) = self
+                match self
                     .rpc_client()
                     .poll_for_signature_confirmation(
                         &transaction.signatures[0],
@@ -566,21 +584,51 @@ where
                     )
                     .await
                 {
-                    println!("confirmed blocks found: {confirmed_blocks}");
-                    println!("num confirmed: {num_confirmed}");
-                    num_confirmed = confirmed_blocks;
-                    if confirmed_blocks >= pending_confirmations {
-                        println!("confirmed blocks >= pending confirmations {confirmed_blocks} > {pending_confirmations}");
-                        return Ok(transaction.signatures[0]);
+                    Ok(confirmed_blocks) => {
+                        println!("confirmed blocks found: {confirmed_blocks}");
+                        println!("num confirmed: {num_confirmed}");
+                        num_confirmed = confirmed_blocks;
+                        if confirmed_blocks >= pending_confirmations {
+                            println!("confirmed blocks >= pending confirmations {confirmed_blocks} > {pending_confirmations}");
+                            return Ok(transaction.signatures[0]);
+                        }
+                        // Since network has seen the transaction, wait longer to receive
+                        // all pending confirmations. Resending the transaction could result into
+                        // extra transaction fees
+                        wait_time = wait_time.max(
+                            MAX_PROCESSING_AGE
+                                * pending_confirmations.saturating_sub(num_confirmed),
+                        );
+                        println!("wait time: {wait_time}");
                     }
-                    // Since network has seen the transaction, wait longer to receive
-                    // all pending confirmations. Resending the transaction could result into
-                    // extra transaction fees
-                    wait_time = wait_time.max(
-                        MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
-                    );
-                    println!("wait time: {wait_time}");
+                    Err(err) => println!("error polling for signature confirmation: err: {err}"),
                 }
+
+                // if let Ok(confirmed_blocks) = self
+                //     .rpc_client()
+                //     .poll_for_signature_confirmation(
+                //         &transaction.signatures[0],
+                //         pending_confirmations,
+                //     )
+                //     .await
+                // {
+                //     println!("confirmed blocks found: {confirmed_blocks}");
+                //     println!("num confirmed: {num_confirmed}");
+                //     num_confirmed = confirmed_blocks;
+                //     if confirmed_blocks >= pending_confirmations {
+                //         println!("confirmed blocks >= pending confirmations {confirmed_blocks} > {pending_confirmations}");
+                //         return Ok(transaction.signatures[0]);
+                //     }
+                //     // Since network has seen the transaction, wait longer to receive
+                //     // all pending confirmations. Resending the transaction could result into
+                //     // extra transaction fees
+                //     wait_time = wait_time.max(
+                //         MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
+                //     );
+                //     println!("wait time: {wait_time}");
+                // } else {
+                //     println!("failed to poll for signature confirmation");
+                // }
             }
             println!("{} tries failed transfer", x);
             let blockhash = self.rpc_client().get_latest_blockhash().await?;
