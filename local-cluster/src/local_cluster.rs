@@ -473,12 +473,12 @@ impl LocalCluster {
             info!("listener {} ", validator_pubkey,);
         } else if should_create_vote_pubkey {
             info!("pre transfer with client");
-            info!(
-                "args: {:?}, {:?}, {}",
-                self.funding_keypair,
-                validator_pubkey,
-                stake * 2 + 2
-            );
+            // info!(
+            //     "args: {:?}, {:?}, {}",
+            //     self.funding_keypair,
+            //     validator_pubkey,
+            //     stake * 2 + 2
+            // );
             let validator_balance = Self::transfer_with_client(
                 &thinclient,
                 &client,
