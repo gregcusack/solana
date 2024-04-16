@@ -357,8 +357,21 @@ where
     M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
     C: NewConnectionConfig,
 {
+    // let conn = connection_cache.get_nonblocking_connection(addr);
+    // match conn.send_data(&wire_transaction).await {
+    //     Ok(_) => println!("send_wire_tx_to_addr success"),
+    //     Err(err) => println!("send_wire_tx_to_addr fail. err: {err}"),
+    // }
+    
+    // println!("send again");
     let conn = connection_cache.get_nonblocking_connection(addr);
-    conn.send_data(&wire_transaction).await
+    let res = match conn.send_data(&wire_transaction).await {
+        Ok(_) => { println!("send_wire_tx_to_addr success"); Ok(()) }
+        Err(err) => { println!("send_wire_tx_to_addr fail. err: {err}"); Err(err) }
+    };
+
+    res
+
 }
 
 async fn send_wire_transaction_batch_to_addr<P, M, C>(

@@ -5185,8 +5185,9 @@ impl RpcClient {
                 .await;
             match response {
                 Ok(count) => {
+                    println!("poll_for_sig: count: {count}, confirmed_blocks: {confirmed_blocks}");
                     if confirmed_blocks != count {
-                        info!(
+                        println!(
                             "signature {} confirmed {} out of {} after {} ms",
                             signature,
                             count,
@@ -5197,6 +5198,7 @@ impl RpcClient {
                         confirmed_blocks = count;
                     }
                     if count >= min_confirmed_blocks {
+                        println!("poll_for_sig: count: {count}, min_confirmed_blocks: {min_confirmed_blocks}");
                         break;
                     }
                 }
@@ -5205,7 +5207,7 @@ impl RpcClient {
                 }
             };
             if now.elapsed().as_secs() > 20 {
-                info!(
+                println!(
                     "signature {} confirmed {} out of {} failed after {} ms",
                     signature,
                     confirmed_blocks,

@@ -219,6 +219,7 @@ where
         pending_confirmations: usize,
     ) -> TransportResult<Signature> {
         for x in 0..tries {
+            println!("thinclient try: {x}");
             let now = Instant::now();
             let mut num_confirmed = 0;
             let mut wait_time = MAX_PROCESSING_AGE;
@@ -226,27 +227,41 @@ where
             let wire_transaction =
                 bincode::serialize(&transaction).expect("transaction serialization failed");
             while now.elapsed().as_secs() < wait_time as u64 {
+                println!("elapsed < wait time");
                 if num_confirmed == 0 {
+                    println!("num confirmed is 0");
                     let conn = self.connection_cache.get_connection(self.tpu_addr());
                     // Send the transaction if there has been no confirmation (e.g. the first time)
                     #[allow(clippy::needless_borrow)]
-                    conn.send_data(&wire_transaction)?;
-                }
+                    match conn.send_data(&wire_transaction) {
+                        Ok(_) => println!("thinclient send_data success"),
+                        Err(err) => println!("thinclient send_data failed: {err}"),
+                    }
+                    println!("thinclient continuing");
 
-                if let Ok(confirmed_blocks) = self.poll_for_signature_confirmation(
+                }
+                println!("thinclient after num_confirmed check");
+
+                match self.poll_for_signature_confirmation(
                     &transaction.signatures[0],
                     pending_confirmations,
                 ) {
-                    num_confirmed = confirmed_blocks;
-                    if confirmed_blocks >= pending_confirmations {
-                        return Ok(transaction.signatures[0]);
+                    Ok(confirmed_blocks) => { 
+                        println!("thinclient confirmed blocks found: {confirmed_blocks}");
+                        println!("thinclient num confirmed: {num_confirmed}");
+                        num_confirmed = confirmed_blocks;
+                        if confirmed_blocks >= pending_confirmations {
+                            println!("thinclient confirmed blocks >= pending confirmations {confirmed_blocks} > {pending_confirmations}");
+                            return Ok(transaction.signatures[0]);
+                        }
+                        // Since network has seen the transaction, wait longer to receive
+                        // all pending confirmations. Resending the transaction could result into
+                        // extra transaction fees
+                        wait_time = wait_time.max(
+                            MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
+                        );
                     }
-                    // Since network has seen the transaction, wait longer to receive
-                    // all pending confirmations. Resending the transaction could result into
-                    // extra transaction fees
-                    wait_time = wait_time.max(
-                        MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
-                    );
+                    Err(err) => println!("thinclient error polling for signature confirmation: err: {err}"),
                 }
             }
             info!("{} tries failed transfer to {}", x, self.tpu_addr());

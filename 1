@@ -1,0 +1,222 @@
+warning: unused import: `client_connection::ClientConnection`
+  --> tpu-client/src/nonblocking/tpu_client.rs:11:9
+   |
+11 |         client_connection::ClientConnection as BlockingClientConnection,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `wire_transaction`
+   --> tpu-client/src/tpu_client.rs:143:13
+    |
+143 |         let wire_transaction =
+    |             ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_wire_transaction`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: `solana-tpu-client` (lib) generated 2 warnings (run `cargo fix --lib -p solana-tpu-client` to apply 1 suggestion)
+warning: unused variable: `thinclient`
+   --> local-cluster/src/local_cluster.rs:669:9
+    |
+669 |         thinclient: &ThinClient,
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_thinclient`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: `solana-local-cluster` (lib) generated 1 warning (run `cargo fix --lib -p solana-local-cluster` to apply 1 suggestion)
+    Finished test [unoptimized + debuginfo] target(s) in 0.41s
+     Running tests/local_cluster.rs (target/debug/deps/local_cluster-c396f324880cda66)
+
+running 1 test
+[2024-04-15T18:22:12.793072719Z INFO  solana_local_cluster::local_cluster] STARTING LOCAL CLUSTER: key 6UYEbnFQ8zjBXyHio22FPjcvKEgxStiSk9wk3EVL7jtR vote_key EnGtqFnLStJn9i4QxGY9nuhXgQNogkCdewxSSptGxc7u has 10000000000 stake
+[2024-04-15T18:22:15.977187992Z INFO  local_cluster] snapshot config:
+    	full snapshot interval: 45
+    	incremental snapshot interval: 9
+    	accounts hash interval: 3
+[2024-04-15T18:22:15.977223730Z INFO  local_cluster] Waiting for leader to create the next incremental snapshot...
+[2024-04-15T18:22:50.997684503Z INFO  local_cluster] Found snapshots:
+    	full snapshot: /home/sol/solana/local-cluster/farf/.tmpZXI69Z/snapshot-45-HS2vgvWMBJstuqVcCCt2zqaFPFRigTFQ5N1wsJpBJxh3.tar.zst
+    	incremental snapshot: /home/sol/solana/local-cluster/farf/.tmpHX0XVG/incremental-snapshot-45-54-7DNS2Y7HJEUNEfXz1CMFCZBe1HAnBVXj9d8Mxu1fMZJ2.tar.zst
+[2024-04-15T18:22:50.997740870Z INFO  local_cluster] Waiting for leader to create snapshots... DONE
+[2024-04-15T18:22:50.997746801Z INFO  local_cluster] Downloading full snapshot to validator...
+[2024-04-15T18:22:51.012254962Z INFO  local_cluster] Downloaded full snapshot, slot: 45
+[2024-04-15T18:22:51.012269309Z INFO  local_cluster] Downloading incremental snapshot to validator...
+[2024-04-15T18:22:51.026233333Z INFO  local_cluster] Downloaded incremental snapshot, slot: 54, base slot: 45
+[2024-04-15T18:22:51.026424938Z INFO  local_cluster] Starting the validator...
+[2024-04-15T18:22:51.053781430Z INFO  solana_local_cluster::local_cluster] voting keypair is none
+[2024-04-15T18:22:51.537889475Z INFO  solana_local_cluster::local_cluster] pre transfer with client
+blockhash: GpfFYW7itJzAk9b3jTs7gmRTYxEh2hifQjFYNmGuGYc5
+[2024-04-15T18:22:51.539528555Z INFO  solana_local_cluster::local_cluster] executing transfer of 20000000002 from 2iDBTSduJhqcyqGa7XssdLFp7XjvrpdMWThoEkhyykgy to CS3VEZQEyw19VwH22SChkyQ4EzpxpNq6Mr2pjpFGk6CJ
+try: 0
+elapsed < wait time
+num confirmed is 0
+try_send_write_transaction
+fanout slots: 12
+leaders len: 1
+leader addr: 127.0.0.1:1030
+results len: 1
+no error in result
+some_success is true!
+try_send_write_transaction success
+continuing
+after num_confirmed check
+poll_for_sig: count: 0, confirmed_blocks: 0
+poll_for_sig: count: 0, min_confirmed_blocks: 0
+confirmed blocks found: 0
+num confirmed: 0
+confirmed blocks >= pending confirmations 0 > 0
+[2024-04-15T18:22:51.800845361Z INFO  solana_local_cluster::local_cluster] post transfer with client
+[2024-04-15T18:22:51.800864808Z INFO  solana_local_cluster::local_cluster] validator CS3VEZQEyw19VwH22SChkyQ4EzpxpNq6Mr2pjpFGk6CJ balance 20000000002
+[2024-04-15T18:22:51.800885237Z INFO  solana_local_cluster::local_cluster] pre setup_vote_and_stake_accounts
+[2024-04-15T18:22:51.800892040Z INFO  solana_local_cluster::local_cluster] setup_vote_and_stake_accounts: CS3VEZQEyw19VwH22SChkyQ4EzpxpNq6Mr2pjpFGk6CJ, 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31, amount: 10000000000
+try_send_transaction about to invoke
+try_send_transaction
+try_send_write_transaction
+fanout slots: 12
+leaders len: 1
+leader addr: 127.0.0.1:1030
+results len: 1
+no error in result
+some_success is true!
+try_send_write_transaction
+fanout slots: 12
+leaders len: 1
+leader addr: 127.0.0.1:1030
+results len: 1
+no error in result
+some_success is true!
+success send wire tx
+poll_for_sig: count: 0, confirmed_blocks: 0
+poll_for_sig: count: 0, min_confirmed_blocks: 0
+[2024-04-15T18:22:52.513963702Z INFO  solana_local_cluster::local_cluster] Checking for vote account registration of CS3VEZQEyw19VwH22SChkyQ4EzpxpNq6Mr2pjpFGk6CJ
+[2024-04-15T18:22:52.515906760Z INFO  solana_local_cluster::local_cluster] node CS3VEZQEyw19VwH22SChkyQ4EzpxpNq6Mr2pjpFGk6CJ Stake { delegation: Delegation { voter_pubkey: 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31, stake: 10000000000, activation_epoch: 1, deactivation_epoch: 18446744073709551615, warmup_cooldown_rate: 0.25 }, credits_observed: 0 } VoteState { node_pubkey: CS3VEZQEyw19VwH22SChkyQ4EzpxpNq6Mr2pjpFGk6CJ, authorized_withdrawer: 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31, commission: 0, votes: [], root_slot: None, authorized_voters: AuthorizedVoters { authorized_voters: {1: 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31} }, prior_voters: CircBuf { buf: [(11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0), (11111111111111111111111111111111, 0, 0)], idx: 31, is_empty: true }, epoch_credits: [], last_timestamp: BlockTimestamp { slot: 0, timestamp: 0 } }
+[2024-04-15T18:22:52.516169039Z INFO  solana_local_cluster::local_cluster] post setup_vote_and_stake_accounts
+[2024-04-15T18:22:52.516175001Z INFO  solana_local_cluster::local_cluster] post listener check
+[2024-04-15T18:22:55.171720795Z INFO  local_cluster] Starting the validator... DONE
+[2024-04-15T18:22:55.171761522Z INFO  local_cluster] Waiting for the validator to see enough slots to cross a full snapshot interval (99)...
+[2024-04-15T18:22:55.618036960Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.628387658Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.637463159Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.646844933Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.656613995Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.752875107Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.763781523Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.774249334Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.784062519Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.794618929Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.804701748Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.814540011Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.825264069Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.835978329Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.846177720Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.856541994Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.866630874Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.877261204Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.947074544Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.957227496Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:55.968860004Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.071232316Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.082125678Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.092731962Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.103830764Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.114659361Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.204617609Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.216339928Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.226900475Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.238750146Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.250293594Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.261785444Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.273238129Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.285458927Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:22:56.297342682Z WARN  solana_core::replay_stage] Vote account 9WQESTjSojnbbdmyp4yc89WsAkdZCXNn22XJja3Vdc31 does not exist.  Unable to vote
+[2024-04-15T18:23:09.258085854Z INFO  local_cluster] Waited 14.086305096s for the validator to see enough slots to cross a full snapshot interval... DONE
+[2024-04-15T18:23:09.258521092Z INFO  local_cluster] leader full snapshot archive for comparison: FullSnapshotArchiveInfo(
+        SnapshotArchiveInfo {
+            path: "/home/sol/solana/local-cluster/farf/.tmpZXI69Z/snapshot-90-BsuDmWzYWyHX4yguBF2sV8WQBUKH26wuVh698TiW15vA.tar.zst",
+            slot: 90,
+            hash: SnapshotHash(
+                BsuDmWzYWyHX4yguBF2sV8WQBUKH26wuVh698TiW15vA,
+            ),
+            archive_format: TarZstd,
+        },
+    )
+[2024-04-15T18:23:09.258575035Z INFO  local_cluster] Stopping the validator...
+test test_incremental_snapshot_download_with_crossing_full_snapshot_interval_at_startup has been running for over 60 seconds
+[2024-04-15T18:23:14.767201378Z INFO  local_cluster] Stopping the validator... DONE
+[2024-04-15T18:23:14.767231065Z INFO  local_cluster] Delete all the snapshots on the validator and restore the originals from the backup...
+[2024-04-15T18:23:14.767490769Z INFO  local_cluster] Delete all the snapshots on the validator and restore the originals from the backup... DONE
+[2024-04-15T18:23:14.767609736Z INFO  local_cluster] Restarting the validator with full snapshot 45...
+[2024-04-15T18:23:18.297613653Z INFO  local_cluster] Restarting the validator... DONE
+[2024-04-15T18:23:18.297661114Z INFO  local_cluster] Waiting for the validator to make new snapshots...
+[2024-04-15T18:23:18.297667506Z INFO  local_cluster] Waiting for validator next full snapshot slot: 90
+[2024-04-15T18:23:18.297673537Z INFO  local_cluster] Waiting for validator next incremental snapshot slot: 99
+[2024-04-15T18:23:18.297956786Z INFO  local_cluster] Validator made new snapshots, full snapshot slot: 90, incremental snapshot slot: 99
+[2024-04-15T18:23:18.297969571Z INFO  local_cluster] Waited 289.952µs for the validator to make new snapshots... DONE
+[2024-04-15T18:23:18.298044453Z INFO  local_cluster] validator full snapshot archives: [
+        FullSnapshotArchiveInfo(
+            SnapshotArchiveInfo {
+                path: "/home/sol/solana/local-cluster/farf/.tmpE7rFMF/snapshot-90-BsuDmWzYWyHX4yguBF2sV8WQBUKH26wuVh698TiW15vA.tar.zst",
+                slot: 90,
+                hash: SnapshotHash(
+                    BsuDmWzYWyHX4yguBF2sV8WQBUKH26wuVh698TiW15vA,
+                ),
+                archive_format: TarZstd,
+            },
+        ),
+        FullSnapshotArchiveInfo(
+            SnapshotArchiveInfo {
+                path: "/home/sol/solana/local-cluster/farf/.tmpE7rFMF/remote/snapshot-45-HS2vgvWMBJstuqVcCCt2zqaFPFRigTFQ5N1wsJpBJxh3.tar.zst",
+                slot: 45,
+                hash: SnapshotHash(
+                    HS2vgvWMBJstuqVcCCt2zqaFPFRigTFQ5N1wsJpBJxh3,
+                ),
+                archive_format: TarZstd,
+            },
+        ),
+    ]
+[2024-04-15T18:23:18.298136749Z INFO  local_cluster] Validator full snapshot archive for comparison: FullSnapshotArchiveInfo(
+        SnapshotArchiveInfo {
+            path: "/home/sol/solana/local-cluster/farf/.tmpE7rFMF/snapshot-90-BsuDmWzYWyHX4yguBF2sV8WQBUKH26wuVh698TiW15vA.tar.zst",
+            slot: 90,
+            hash: SnapshotHash(
+                BsuDmWzYWyHX4yguBF2sV8WQBUKH26wuVh698TiW15vA,
+            ),
+            archive_format: TarZstd,
+        },
+    )
+[2024-04-15T18:23:18.298772609Z INFO  local_cluster] Starting final validator...
+[2024-04-15T18:23:18.332410535Z INFO  solana_local_cluster::local_cluster] voting keypair is none
+[2024-04-15T18:23:18.820653630Z INFO  solana_local_cluster::local_cluster] pre transfer with client
+blockhash: 8sALKaLrgVvaF46gE2vwH1L2KmFexCxXzvctyiR7dsWm
+[2024-04-15T18:23:18.822295605Z INFO  solana_local_cluster::local_cluster] executing transfer of 20000000002 from 2iDBTSduJhqcyqGa7XssdLFp7XjvrpdMWThoEkhyykgy to Aeej18gF4SHzC8sUpD8nzoUSFcbW3sQ7R7dusXcHtXxy
+try: 0
+elapsed < wait time
+num confirmed is 0
+try_send_write_transaction
+fanout slots: 12
+leaders len: 1
+leader addr: 127.0.0.1:1030
+results len: 1
+transport error: transport custom error: "ConnectError(EndpointStopping)"
+last error is none.
+some_success is false!
+error for last error: transport custom error: "ConnectError(EndpointStopping)"
+try_send_write_transaction failed: transport custom error: "ConnectError(EndpointStopping)"
+continuing
+after num_confirmed check
+signature u2M45xTEi9yh6xv915urwWb3bQj8PeRLvuGHapQxLojfDkVeyF2Ucq1owpowKEXvZGk5hiJgfB3eQzxGiKbwGs1 confirmed 0 out of 0 failed after 21190 ms
+error polling for signature confirmation: err: signature not found after 21 seconds
+elapsed < wait time
+num confirmed is 0
+try_send_write_transaction
+fanout slots: 12
+leaders len: 1
+leader addr: 127.0.0.1:1030
+results len: 1
+transport error: transport custom error: "ConnectError(EndpointStopping)"
+last error is none.
+some_success is false!
+error for last error: transport custom error: "ConnectError(EndpointStopping)"
+try_send_write_transaction failed: transport custom error: "ConnectError(EndpointStopping)"
+continuing
+after num_confirmed check

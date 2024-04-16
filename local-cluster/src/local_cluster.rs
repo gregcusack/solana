@@ -300,6 +300,8 @@ impl LocalCluster {
         )
         .expect("assume successful validator start");
 
+        println!("Finish build leader validator");
+
         let mut validators = HashMap::new();
         let leader_info = ValidatorInfo {
             keypair: leader_keypair,
@@ -341,11 +343,46 @@ impl LocalCluster {
                 )
             })
             .collect();
+
+        // let mut count = 0;
+        // let mut stake_store: &u64 = &config.node_stakes[1];
+        // // let mut validator_config_store: &(Arc<Keypair>, bool);
+        // let mut key_store: &Arc<Keypair> = &validator_keys[1].0;
+        // let mut stake_use: &u64;
+        // // // let mut validator_config_store: &(Arc<Keypair>, bool);
+        // let mut key_use: &Arc<Keypair>;
+
         for (stake, validator_config, (key, _)) in izip!(
             config.node_stakes[1..].iter(),
             config.validator_configs[1..].iter(),
             validator_keys[1..].iter(),
         ) {
+            // stake_use = stake;
+            // key_use = key;
+            // if count != 0 {
+            //     stake_use = stake_store;// = stake;
+            //     key_use = key_store;
+            //     // validator_config_store = validator_config;
+            //     // continue;
+            // } else {
+            //     stake_store = stake;
+            //     key_store = key;
+            // }
+            // else {
+            //     stake_store = stake;
+            //     key_store = key;
+            // }
+
+            // if count == 1 {
+            //     stake_use = stake_store;
+            //     key_use = key_store;
+            // } else {
+            //     stake_use = stake;
+            //     key_use = key;
+            // }
+            // count += 1;            
+            println!("adding validator: key: {:?}, stake: {stake}", key.pubkey());
+            // std::thread::sleep(std::time::Duration::from_millis(30000));
             cluster.add_validator(
                 validator_config,
                 *stake,
@@ -353,7 +390,9 @@ impl LocalCluster {
                 node_pubkey_to_vote_key.get(&key.pubkey()).cloned(),
                 socket_addr_space,
             );
+            println!("added validator");
         }
+        println!("done adding validators");
 
         let mut listener_config = safe_clone_config(&config.validator_configs[0]);
         listener_config.voting_disabled = true;
@@ -473,12 +512,6 @@ impl LocalCluster {
             info!("listener {} ", validator_pubkey,);
         } else if should_create_vote_pubkey {
             info!("pre transfer with client");
-            // info!(
-            //     "args: {:?}, {:?}, {}",
-            //     self.funding_keypair,
-            //     validator_pubkey,
-            //     stake * 2 + 2
-            // );
             let validator_balance = Self::transfer_with_client(
                 &thinclient,
                 &client,
@@ -688,10 +721,13 @@ impl LocalCluster {
         //     .retry_transfer(source_keypair, &mut tx, 10)
         //     .expect("client transfer");
         // thinclient.send_and_confirm_transaction(&[source_keypair], &mut tx, 10, 0).expect("Asd");
-        // client.try_send_transaction(&tx).expect("asd");
-        client
-            .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 5, 0)
-            .expect("should work lol");
+        // client
+        //     .send_and_confirm_transaction(&tx)
+        //     .expect("transfer stake");
+        client.try_send_transaction(&tx).expect("asd");
+        // client
+        //     .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 5, 0)
+        //     .expect("should work lol");
         let res = client
             .rpc_client()
             .wait_for_balance_with_commitment(

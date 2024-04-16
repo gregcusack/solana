@@ -66,6 +66,7 @@ pub fn get_client_facing_addr<T: Borrow<LegacyContactInfo>>(
     // QUIC certificate authentication requires the IP Address to match. ContactInfo might have
     // 0.0.0.0 as the IP instead of 127.0.0.1.
     tpu.set_ip(IpAddr::V4(Ipv4Addr::LOCALHOST));
+    println!("rpc, tpu: {:?}, {:?}", rpc, tpu);
     (rpc, tpu)
 }
 
