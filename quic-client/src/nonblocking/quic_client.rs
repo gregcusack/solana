@@ -291,20 +291,26 @@ impl QuicClient {
         let mut connection_try_count = 0;
         let mut last_connection_id = 0;
         let mut last_error = None;
+        let cur_thread = std::thread::current().id();
         while connection_try_count < 2 {
+            println!("{cur_thread:?} -> connection_try_count: {connection_try_count}");
             let connection = {
                 let mut conn_guard = self.connection.lock().await;
 
                 let maybe_conn = conn_guard.as_mut();
                 match maybe_conn {
                     Some(conn) => {
+                        println!("{cur_thread:?} -> conn_stable_id, last_connection_id: ({}, {})", conn.connection.stable_id(), last_connection_id);
+                        // stats.connection_reuse.fetch_add(1, Ordering::Relaxed);
+                        // connection_try_count += 1;
+                        // conn.connection.clone()
                         if conn.connection.stable_id() == last_connection_id {
                             // this is the problematic connection we had used before, create a new one
                             let conn = conn.make_connection_0rtt(self.addr, stats).await;
                             match conn {
                                 Ok(conn) => {
-                                    info!(
-                                        "Made 0rtt connection to {} with id {} try_count {}, last_connection_id: {}, last_error: {:?}",
+                                    println!(
+                                        "{cur_thread:?} -> Made 0rtt connection to {} with id {} try_count {}, last_connection_id: {}, last_error: {:?}",
                                         self.addr,
                                         conn.stable_id(),
                                         connection_try_count,
@@ -315,19 +321,21 @@ impl QuicClient {
                                     conn
                                 }
                                 Err(err) => {
-                                    info!(
-                                        "Cannot make 0rtt connection to {}, error {:}",
+                                    println!(
+                                        "{cur_thread:?} -> Cannot make 0rtt connection to {}, error {:}",
                                         self.addr, err
                                     );
                                     return Err(err);
                                 }
                             }
                         } else {
+                            println!("{cur_thread:?} -> stable_id != last_connection_id");
                             stats.connection_reuse.fetch_add(1, Ordering::Relaxed);
                             conn.connection.clone()
                         }
                     }
                     None => {
+                        println!("{cur_thread:?} -> prev connection doesn't exist. going to make a new one.");
                         let conn = QuicNewConnection::make_connection(
                             self.endpoint.clone(),
                             self.addr,
@@ -337,8 +345,8 @@ impl QuicClient {
                         match conn {
                             Ok(conn) => {
                                 *conn_guard = Some(conn.clone());
-                                info!(
-                                    "Made connection to {} id {} try_count {}, from connection cache warming?: {}",
+                                println!(
+                                    "{cur_thread:?} -> Made connection to {} id {} try_count {}, from connection cache warming?: {}",
                                     self.addr,
                                     conn.connection.stable_id(),
                                     connection_try_count,
@@ -348,7 +356,7 @@ impl QuicClient {
                                 conn.connection.clone()
                             }
                             Err(err) => {
-                                info!("Cannot make connection to {}, error {:}, from connection cache warming?: {}",
+                                println!("{cur_thread:?} -> Cannot make connection to {}, error {:}, from connection cache warming?: {}",
                                     self.addr, err, data.is_empty());
                                 return Err(err);
                             }
@@ -386,6 +394,7 @@ impl QuicClient {
                 .update_stat(&self.stats.acks, new_stats.frame_tx.acks);
 
             if data.is_empty() {
+                println!("{cur_thread:?} -> data empty. warming connections. returning.");
                 // no need to send packet as it is only for warming connections
                 return Ok(connection);
             }
@@ -395,6 +404,7 @@ impl QuicClient {
 
             match Self::_send_buffer_using_conn(data, &connection).await {
                 Ok(()) => {
+                    println!("{cur_thread:?} -> send_buffer_using_conn OK");
                     measure_send_packet.stop();
                     stats.successful_packets.fetch_add(1, Ordering::Relaxed);
                     stats
@@ -403,8 +413,8 @@ impl QuicClient {
                     stats
                         .prepare_connection_us
                         .fetch_add(measure_prepare_connection.as_us(), Ordering::Relaxed);
-                    trace!(
-                        "Succcessfully sent to {} with id {}, thread: {:?}, data len: {}, send_packet_us: {} prepare_connection_us: {}",
+                    println!(
+                        "{cur_thread:?} -> Succcessfully sent to {} with id {}, thread: {:?}, data len: {}, send_packet_us: {} prepare_connection_us: {}",
                         self.addr,
                         connection.stable_id(),
                         thread::current().id(),
@@ -416,12 +426,14 @@ impl QuicClient {
                     return Ok(connection);
                 }
                 Err(err) => match err {
-                    QuicError::ConnectionError(_) => {
+                    QuicError::ConnectionError(ref e) => {
+                        println!("{cur_thread:?} -> send_buffer_using_conn QuicErr: {err}, ConnError: {e}");
                         last_error = Some(err);
+                        connection_try_count += 1;
                     }
                     _ => {
-                        info!(
-                            "Error sending to {} with id {}, error {:?} thread: {:?}",
+                        println!(
+                            "{cur_thread:?} -> Error sending to {} with id {}, error {:?} thread: {:?}",
                             self.addr,
                             connection.stable_id(),
                             err,
@@ -434,8 +446,8 @@ impl QuicClient {
         }
 
         // if we come here, that means we have exhausted maximum retries, return the error
-        info!(
-            "Ran into an error sending data {:?}, exhausted retries to {}",
+        println!(
+            "{cur_thread:?} -> Ran into an error sending data {:?}, exhausted retries to {}",
             last_error, self.addr
         );
         // If we get here but last_error is None, then we have a logic error
@@ -579,9 +591,12 @@ impl ClientConnection for QuicClientConnection {
     }
 
     async fn send_data(&self, data: &[u8]) -> TransportResult<()> {
+        let cur_thread = std::thread::current().id();
+        println!("{cur_thread:?} -> quic client!!! send_data");
         let stats = Arc::new(ClientStats::default());
         // When data is empty which is from cache warmer, we are not sending packets actually, do not count it in
         let num_packets = if data.is_empty() { 0 } else { 1 };
+        println!("{cur_thread:?} -> quic_client num_packets: {num_packets}, data_len: {}", data.len());
         self.client
             .send_buffer(data, &stats, self.connection_stats.clone())
             .map_ok(|v| {
@@ -590,8 +605,8 @@ impl ClientConnection for QuicClientConnection {
                 v
             })
             .map_err(|e| {
-                warn!(
-                    "Failed to send data async to {}, error: {:?} ",
+                println!(
+                    "{cur_thread:?} -> Failed to send data async to {}, error: {:?} ",
                     self.server_addr(),
                     e
                 );

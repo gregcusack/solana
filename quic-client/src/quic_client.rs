@@ -173,6 +173,8 @@ impl ClientConnection for QuicClientConnection {
     }
 
     fn send_data(&self, buffer: &[u8]) -> TransportResult<()> {
+        let cur_thread = std::thread::current().id();
+        println!("{cur_thread:?} -> quic_client blocking!! send_data()");
         RUNTIME.block_on(self.inner.send_data(buffer))?;
         Ok(())
     }

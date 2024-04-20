@@ -205,6 +205,7 @@ impl solana_connection_cache::nonblocking::client_connection::ClientConnection
     dispatch!(fn server_addr(&self) -> &SocketAddr);
 
     async fn send_data(&self, buffer: &[u8]) -> TransportResult<()> {
+        println!("connection_cache send_data");
         match self {
             Self::Quic(cache) => Ok(cache.send_data(buffer).await?),
             Self::Udp(cache) => Ok(cache.send_data(buffer).await?),

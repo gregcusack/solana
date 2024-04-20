@@ -1,3 +1,5 @@
+use solana_connection_cache::connection_cache;
+
 pub use crate::tpu_client::Result;
 use {
     crate::tpu_client::{RecentLeaderSlots, TpuClientConfig, MAX_FANOUT_SLOTS},
@@ -363,7 +365,7 @@ where
     //     Err(err) => println!("send_wire_tx_to_addr fail. err: {err}"),
     // }
     
-    // println!("send again");
+    println!("send_wire_transaction_to_addr()");
     let conn = connection_cache.get_nonblocking_connection(addr);
     let res = match conn.send_data(&wire_transaction).await {
         Ok(_) => { println!("send_wire_tx_to_addr success"); Ok(()) }
@@ -412,7 +414,6 @@ where
     /// size
     /// Returns the last error if all sends fail
     pub async fn try_send_transaction(&self, transaction: &Transaction) -> TransportResult<()> {
-        println!("try_send_transaction");
         let wire_transaction = serialize(transaction).expect("serialization should succeed");
         self.try_send_wire_transaction(wire_transaction).await
     }
@@ -424,11 +425,11 @@ where
         wire_transaction: Vec<u8>,
     ) -> TransportResult<()> {
         println!("try_send_write_transaction");
-        println!("fanout slots: {}", self.fanout_slots);
+        // println!("fanout slots: {}", self.fanout_slots);
         let leaders = self
             .leader_tpu_service
             .leader_tpu_sockets(self.fanout_slots);
-        println!("leaders len: {}", leaders.len());
+        // println!("leaders len: {}", leaders.len());
         for leader in &leaders {
             println!("leader addr: {:?}", leader);
         }
@@ -585,7 +586,7 @@ where
                     // // Send the transaction if there has been no confirmation (e.g. the first time)
                     // let conn = self.connection_cache.get_connection(&addr);
                     // conn.send_data(&wire_transaction)?;
-                    // let _ = self.try_send_wire_transaction(wire_transaction.clone()).await;
+                    // let _ = self.ry_send_wire_transaction(wire_transaction.clone()).await;
                 }
 
                 println!("after num_confirmed check");
@@ -653,6 +654,15 @@ where
             "failed to confirm transaction".to_string(),
         )
         .into())
+    }
+
+    pub fn get_connection_cache(&self) -> Arc<ConnectionCache<P, M, C>> 
+    where
+        P: ConnectionPool<NewConnectionConfig = C>,
+        M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+        C: NewConnectionConfig,
+    {
+        self.connection_cache.clone()
     }
 
     /// Create a new client that disconnects when dropped

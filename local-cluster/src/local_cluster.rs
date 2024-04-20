@@ -717,6 +717,7 @@ impl LocalCluster {
             source_keypair.pubkey(),
             *dest_pubkey
         );
+        println!("####################### try_send_tx START #######################");
         // thinclient
         //     .retry_transfer(source_keypair, &mut tx, 10)
         //     .expect("client transfer");
@@ -724,10 +725,12 @@ impl LocalCluster {
         // client
         //     .send_and_confirm_transaction(&tx)
         //     .expect("transfer stake");
-        client.try_send_transaction(&tx).expect("asd");
+        // client.try_send_transaction(&tx).expect("asd");
         // client
-        //     .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 5, 0)
-        //     .expect("should work lol");
+            // .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 5, 0)
+            // .expect("should work lol");
+        client.send_and_confirm_transaction_blocking(&tx).expect("suh");
+        println!("####################### try_send_tx END #######################");
         let res = client
             .rpc_client()
             .wait_for_balance_with_commitment(

@@ -18,6 +18,7 @@ use {
         net::UdpSocket,
         sync::{Arc, RwLock},
     },
+    solana_connection_cache::client_connection::ClientConnection,
 };
 #[cfg(feature = "spinner")]
 use {
@@ -143,18 +144,62 @@ where
         let wire_transaction =
             bincode::serialize(&transaction).expect("transaction serialization failed");
 
+        println!("try_send_write_transaction");
+        let leader_str = "127.0.0.1:1030";
+        let sock_addr: std::net::SocketAddr = leader_str.parse().unwrap();
+        let leaders = vec![sock_addr];
+        let cc = self.tpu_client.get_connection_cache();
+        let conn = cc.get_connection(&leaders[0]);
+        match conn.send_data(&wire_transaction) {
+            Ok(_) => println!("tpuclient send_data success"),
+            Err(err) => println!("tpuclient send_data failed: {err}"),
+        }
+        match self.rpc_client().poll_for_signature_confirmation(
+            &transaction.signatures[0],
+            pending_confirmations,
+        ) {
+            Ok(confirmed_blocks) => { 
+                println!("tpuclient confirmed blocks found: {confirmed_blocks}");
+                // println!("thinclient num confirmed: {num_confirmed}");
+                // num_confirmed = confirmed_blocks;
+                if confirmed_blocks >= pending_confirmations {
+                    println!("tpuclient confirmed blocks >= pending confirmations {confirmed_blocks} > {pending_confirmations}");
+                    return Ok(transaction.signatures[0]);
+                }
+                // Since network has seen the transaction, wait longer to receive
+                // all pending confirmations. Resending the transaction could result into
+                // extra transaction fees
+                // wait_time = wait_time.max(
+                //     MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
+                // );
+            }
+            Err(err) => println!("tpuclient error polling for signature confirmation: err: {err}"),
+        }
+
+
+
+        // println!("fanout slots: {}", self.fanout_slots);
+        // let leaders = self
+        //     .leader_tpu_service
+        //     .leader_tpu_sockets(self.fanout_slots);
+        // println!("leaders len: {}", leaders.len());
+        // for leader in &leaders {
+        //     println!("leader addr: {:?}", leader);
+        // }
+        
+
         // let conn = self.connection_cache.get_connection(self.tpu_addr());
         // Send the transaction if there has been no confirmation (e.g. the first time)
         // #[allow(clippy::needless_borrow)]
         // conn.send_data(&wire_transaction)?;
 
         // let res = self.send_wire_transaction(wire_transaction);
-        let res = self.send_transaction(&transaction);
-        if res {
-            println!("success send wire tx");
-        } else {
-            println!("fail send wire tx");
-        }
+        // let res = self.send_transaction(&transaction);
+        // if res {
+        //     println!("success send wire tx");
+        // } else {
+        //     println!("fail send wire tx");
+        // }
 
         if let Ok(confirmed_blocks) = self
             .rpc_client()
