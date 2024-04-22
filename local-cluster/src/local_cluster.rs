@@ -759,7 +759,7 @@ impl LocalCluster {
                     .0,
             );
             client
-                .try_send_transaction(&transaction)
+                .try_send_transaction_blocking(&transaction)
                 .expect("should fund vote");
             client
                 .rpc_client()

@@ -701,6 +701,23 @@ where
         self.exit.store(true, Ordering::Relaxed);
         self.leader_tpu_service.join().await;
     }
+
+    pub fn get_connection_cache(&self) -> Arc<ConnectionCache<P, M, C>>
+    where
+        P: ConnectionPool<NewConnectionConfig = C>,
+        M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+        C: NewConnectionConfig,
+    {
+        self.connection_cache.clone()
+    }
+
+    pub fn get_leader_tpu_service(&self) -> &LeaderTpuService {
+        &self.leader_tpu_service
+    }
+
+    pub fn get_fanout_slots(&self) -> u64 {
+        self.fanout_slots
+    }
 }
 
 impl<P, M, C> Drop for TpuClient<P, M, C> {
@@ -777,7 +794,7 @@ impl LeaderTpuService {
         self.recent_slots.estimated_current_slot()
     }
 
-    fn leader_tpu_sockets(&self, fanout_slots: u64) -> Vec<SocketAddr> {
+    pub fn leader_tpu_sockets(&self, fanout_slots: u64) -> Vec<SocketAddr> {
         let current_slot = self.recent_slots.estimated_current_slot();
         self.leader_tpu_cache
             .read()
