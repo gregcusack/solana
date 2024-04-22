@@ -685,7 +685,7 @@ impl LocalCluster {
             *dest_pubkey
         );
         client
-            .try_send_transaction(&tx)
+            .try_send_transaction_blocking(&tx)
             .expect("client transfer should succeed");
         client
             .rpc_client()
@@ -759,7 +759,7 @@ impl LocalCluster {
                     .0,
             );
             client
-                .try_send_transaction_blocking(&transaction)
+                .try_send_transaction(&transaction)
                 .expect("should fund vote");
             client
                 .rpc_client()

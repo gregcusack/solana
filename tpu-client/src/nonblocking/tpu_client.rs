@@ -702,13 +702,13 @@ where
         self.leader_tpu_service.join().await;
     }
 
-    pub fn get_connection_cache(&self) -> Arc<ConnectionCache<P, M, C>>
+    pub fn get_connection_cache(&self) -> &Arc<ConnectionCache<P, M, C>>
     where
         P: ConnectionPool<NewConnectionConfig = C>,
         M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
         C: NewConnectionConfig,
     {
-        self.connection_cache.clone()
+        &self.connection_cache
     }
 
     pub fn get_leader_tpu_service(&self) -> &LeaderTpuService {

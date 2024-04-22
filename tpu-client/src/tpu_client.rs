@@ -116,36 +116,11 @@ where
             .tpu_client
             .get_leader_tpu_service()
             .leader_tpu_sockets(self.tpu_client.get_fanout_slots());
-        let cc = self.tpu_client.get_connection_cache();
+        let cache = self.tpu_client.get_connection_cache();
         for tpu_address in &leaders {
-            let conn = cc.get_connection(tpu_address);
-            match conn.send_data_async(wire_transaction.clone()) {
-                Ok(_) => println!("tpuclient send_data success"),
-                Err(err) => println!("tpuclient send_data failed: {err}"),
-            }
+            let conn = cache.get_connection(tpu_address);
+            conn.send_data_async(wire_transaction.clone())?;
         }
-
-        // match self.rpc_client().poll_for_signature_confirmation(
-        //     &transaction.signatures[0],
-        //     pending_confirmations,
-        // ) {
-        //     Ok(confirmed_blocks) => {
-        //         println!("tpuclient confirmed blocks found: {confirmed_blocks}");
-        //         // println!("thinclient num confirmed: {num_confirmed}");
-        //         // num_confirmed = confirmed_blocks;
-        //         if confirmed_blocks >= pending_confirmations {
-        //             println!("tpuclient confirmed blocks >= pending confirmations {confirmed_blocks} > {pending_confirmations}");
-        //             return Ok(transaction.signatures[0]);
-        //         }
-        //         // Since network has seen the transaction, wait longer to receive
-        //         // all pending confirmations. Resending the transaction could result into
-        //         // extra transaction fees
-        //         // wait_time = wait_time.max(
-        //         //     MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
-        //         // );
-        //     }
-        //     Err(err) => println!("tpuclient error polling for signature confirmation: err: {err}"),
-        // }
 
         if let Ok(confirmed_blocks) = self
             .rpc_client()
