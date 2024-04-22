@@ -729,7 +729,8 @@ impl LocalCluster {
         // client
             // .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 5, 0)
             // .expect("should work lol");
-        client.send_and_confirm_transaction_blocking(&tx).expect("suh");
+        // client.send_and_confirm_transaction_blocking(&tx).expect("suh");
+        client.send_and_confirm_transaction_blocking2(&tx).expect("suh");
         println!("####################### try_send_tx END #######################");
         let res = client
             .rpc_client()

@@ -665,6 +665,14 @@ where
         self.connection_cache.clone()
     }
 
+    pub fn get_leader_tpu_service(&self) -> &LeaderTpuService {
+        &self.leader_tpu_service
+    }
+
+    pub fn get_fanout_slots(&self) -> u64 {
+        self.fanout_slots
+    }
+
     /// Create a new client that disconnects when dropped
     pub async fn new(
         name: &'static str,
@@ -928,7 +936,7 @@ impl LeaderTpuService {
         self.recent_slots.estimated_current_slot()
     }
 
-    fn leader_tpu_sockets(&self, fanout_slots: u64) -> Vec<SocketAddr> {
+    pub fn leader_tpu_sockets(&self, fanout_slots: u64) -> Vec<SocketAddr> {
         let current_slot = self.recent_slots.estimated_current_slot();
         self.leader_tpu_cache
             .read()
