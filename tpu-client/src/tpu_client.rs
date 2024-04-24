@@ -104,7 +104,11 @@ where
         self.invoke(self.tpu_client.try_send_transaction(transaction))
     }
 
-    pub fn try_send_transaction_blocking(
+    /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
+    /// size
+    /// Waits for signature confirmation before returning
+    /// Returns the transaction signature
+    pub fn send_and_confirm_transaction(
         &self,
         transaction: &Transaction,
     ) -> TransportResult<Signature> {
@@ -165,13 +169,6 @@ where
             self.tpu_client
                 .try_send_wire_transaction_batch(wire_transactions),
         )
-    }
-
-    pub fn send_and_confirm_transaction(
-        &self,
-        transaction: &Transaction,
-    ) -> TransportResult<Signature> {
-        self.invoke(self.tpu_client.send_and_confirm_transaction(transaction))
     }
 
     /// Create a new client that disconnects when dropped

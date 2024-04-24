@@ -685,7 +685,7 @@ impl LocalCluster {
             *dest_pubkey
         );
         client
-            .try_send_transaction_blocking(&tx)
+            .send_and_confirm_transaction(&tx)
             .expect("client transfer should succeed");
         client
             .rpc_client()
