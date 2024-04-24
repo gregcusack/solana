@@ -9,7 +9,7 @@ use {
     solana_accounts_db::{
         hardened_unpack::open_genesis_config, utils::create_accounts_run_and_snapshot_dirs,
     },
-    solana_client::thin_client::ThinClient,
+    solana_client::{connection_cache::ConnectionCache, tpu_client::TpuClientConfig},
     solana_core::{
         consensus::{
             tower_storage::FileTowerStorage, Tower, SWITCH_FORK_THRESHOLD, VOTE_THRESHOLD_DEPTH,
@@ -62,7 +62,7 @@ use {
     },
     solana_sdk::{
         account::AccountSharedData,
-        client::{AsyncClient, SyncClient},
+        client::AsyncClient,
         clock::{self, Slot, DEFAULT_TICKS_PER_SLOT, MAX_PROCESSING_AGE},
         commitment_config::CommitmentConfig,
         epoch_schedule::{DEFAULT_SLOTS_PER_EPOCH, MINIMUM_SLOTS_PER_EPOCH},
@@ -76,6 +76,7 @@ use {
         vote::state::TowerSync,
     },
     solana_streamer::socket::SocketAddrSpace,
+    solana_tpu_client::tpu_client::TpuClient,
     solana_turbine::broadcast_stage::{
         broadcast_duplicates_run::{BroadcastDuplicatesConfig, ClusterPartition},
         BroadcastStageType,
@@ -216,17 +217,28 @@ fn test_local_cluster_signature_subscribe() {
         .unwrap();
     let non_bootstrap_info = cluster.get_contact_info(&non_bootstrap_id).unwrap();
 
-    let (rpc, tpu) = cluster_tests::get_client_facing_addr(
-        cluster.connection_cache.protocol(),
-        non_bootstrap_info,
-    );
-    let tx_client = ThinClient::new(rpc, tpu, cluster.connection_cache.clone());
+    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
+    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
+
+    let cache = match &*cluster.connection_cache {
+        ConnectionCache::Quic(cache) => cache,
+        ConnectionCache::Udp(_) => panic!("Expected a Quic ConnectionCache. Got UDP"),
+    };
+
+    let tx_client = TpuClient::new_with_connection_cache(
+        Arc::new(RpcClient::new(rpc_url)),
+        rpc_pubsub_url.as_str(),
+        TpuClientConfig::default(),
+        cache.clone(),
+    )
+    .unwrap();
 
     let (blockhash, _) = tx_client
+        .rpc_client()
         .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
         .unwrap();
 
-    let mut transaction = system_transaction::transfer(
+    let transaction = system_transaction::transfer(
         &cluster.funding_keypair,
         &solana_sdk::pubkey::new_rand(),
         10,
@@ -244,8 +256,12 @@ fn test_local_cluster_signature_subscribe() {
     .unwrap();
 
     tx_client
-        .retry_transfer(&cluster.funding_keypair, &mut transaction, 5)
-        .unwrap();
+        .try_send_transaction(&transaction)
+        .expect("should execute transfer");
+
+    // tx_client
+    //     .retry_transfer(&cluster.funding_keypair, &mut transaction, 5)
+    //     .unwrap();
 
     let mut got_received_notification = false;
     loop {
@@ -422,11 +438,21 @@ fn test_mainnet_beta_cluster_type() {
     .unwrap();
     assert_eq!(cluster_nodes.len(), 1);
 
-    let (rpc, tpu) = cluster_tests::get_client_facing_addr(
-        cluster.connection_cache.protocol(),
-        &cluster.entry_point_info,
-    );
-    let client = ThinClient::new(rpc, tpu, cluster.connection_cache.clone());
+    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
+    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
+
+    let cache = match &*cluster.connection_cache {
+        ConnectionCache::Quic(cache) => cache,
+        ConnectionCache::Udp(_) => panic!("Expected a Quic ConnectionCache. Got UDP"),
+    };
+
+    let client = TpuClient::new_with_connection_cache(
+        Arc::new(RpcClient::new(rpc_url)),
+        rpc_pubsub_url.as_str(),
+        TpuClientConfig::default(),
+        cache.clone(),
+    )
+    .unwrap();
 
     // Programs that are available at epoch 0
     for program_id in [
@@ -444,8 +470,10 @@ fn test_mainnet_beta_cluster_type() {
             (
                 program_id,
                 client
+                    .rpc_client()
                     .get_account_with_commitment(program_id, CommitmentConfig::processed())
                     .unwrap()
+                    .value
             ),
             (_program_id, Some(_))
         );
@@ -457,8 +485,10 @@ fn test_mainnet_beta_cluster_type() {
             (
                 program_id,
                 client
+                    .rpc_client()
                     .get_account_with_commitment(program_id, CommitmentConfig::processed())
                     .unwrap()
+                    .value
             ),
             (program_id, None)
         );
@@ -2670,12 +2700,22 @@ fn test_oc_bad_signatures() {
     );
 
     // 3) Start up a spy to listen for and push votes to leader TPU
-    let (rpc, tpu) = cluster_tests::get_client_facing_addr(
-        cluster.connection_cache.protocol(),
-        &cluster.entry_point_info,
-    );
-    let client = ThinClient::new(rpc, tpu, cluster.connection_cache.clone());
-    let cluster_funding_keypair = cluster.funding_keypair.insecure_clone();
+    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
+    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
+
+    let cache = match &*cluster.connection_cache {
+        ConnectionCache::Quic(cache) => cache,
+        ConnectionCache::Udp(_) => panic!("Expected a Quic ConnectionCache. Got UDP"),
+    };
+
+    let client = TpuClient::new_with_connection_cache(
+        Arc::new(RpcClient::new(rpc_url)),
+        rpc_pubsub_url.as_str(),
+        TpuClientConfig::default(),
+        cache.clone(),
+    )
+    .unwrap();
+
     let voter_thread_sleep_ms: usize = 100;
     let num_votes_simulated = Arc::new(AtomicUsize::new(0));
     let gossip_voter = cluster_tests::start_gossip_voter(
@@ -2710,7 +2750,7 @@ fn test_oc_bad_signatures() {
                 let vote_slots: Vec<Slot> = vec![vote_slot];
 
                 let bad_authorized_signer_keypair = Keypair::new();
-                let mut vote_tx = vote_transaction::new_vote_transaction(
+                let vote_tx = vote_transaction::new_vote_transaction(
                     vote_slots,
                     vote_hash,
                     leader_vote_tx.message.recent_blockhash,
@@ -2721,8 +2761,8 @@ fn test_oc_bad_signatures() {
                     None,
                 );
                 client
-                    .retry_transfer(&cluster_funding_keypair, &mut vote_tx, 5)
-                    .unwrap();
+                    .try_send_transaction(&vote_tx)
+                    .expect("Should execute vote_tx");
 
                 num_votes_simulated.fetch_add(1, Ordering::Relaxed);
             }
