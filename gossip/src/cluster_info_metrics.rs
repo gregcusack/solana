@@ -610,6 +610,46 @@ pub(crate) fn submit_gossip_stats(
             stats.gossip_pong_msg_verify_fail.clear(),
             i64
         ),
+        (
+            "ci_count_push",
+            crds_stats.ci_count_push,
+            i64
+        ),
+        (
+            "lci_count_push",
+            crds_stats.lci_count_push,
+            i64
+        ),
+        (
+            "ci_count_pullres",
+            crds_stats.ci_count_pullres,
+            i64
+        ),
+        (
+            "lci_count_pullres",
+            crds_stats.lci_count_pullres,
+            i64
+        ),
+        (
+            "ci_count_pullreq",
+            crds_stats.ci_count_pullreq,
+            i64
+        ),
+        (
+            "lci_count_pullreq",
+            crds_stats.lci_count_pullreq,
+            i64
+        ),
+        (
+            "ci_count_local",
+            crds_stats.ci_count_local,
+            i64
+        ),
+        (
+            "lci_count_local",
+            crds_stats.lci_count_local,
+            i64
+        ),
     );
     datapoint_info!(
         "cluster_info_crds_stats",

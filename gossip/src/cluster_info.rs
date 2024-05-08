@@ -1890,21 +1890,21 @@ impl ClusterInfo {
                     //TODO: possibly tune this parameter
                     //we saw a deadlock passing an self.read().unwrap().timeout into sleep
                     // println!("greg: in gossip()");
-                    self.push_self();
-                    self.refresh_push_active_set(
-                        &recycler,
-                        &stakes,
-                        gossip_validators.as_ref(),
-                        &sender,
-                    );
+                    // self.push_self();
+                    // self.refresh_push_active_set(
+                    //     &recycler,
+                    //     &stakes,
+                    //     gossip_validators.as_ref(),
+                    //     &sender,
+                    // );
                     if start - last_push > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
-                        // self.push_self();
-                        // self.refresh_push_active_set(
-                        //     &recycler,
-                        //     &stakes,
-                        //     gossip_validators.as_ref(),
-                        //     &sender,
-                        // );
+                        self.push_self();
+                        self.refresh_push_active_set(
+                            &recycler,
+                            &stakes,
+                            gossip_validators.as_ref(),
+                            &sender,
+                        );
                         last_push = timestamp();
                     }
                     let elapsed = timestamp() - start;

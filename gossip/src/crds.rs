@@ -86,15 +86,15 @@ pub struct Crds {
     // Mapping from nodes' pubkeys to their respective shred-version.
     shred_versions: HashMap<Pubkey, u16>,
     stats: Mutex<CrdsStats>,
-    ci_count_push: u64,
-    lci_count_push: u64,
-    ci_count_pullres: u64,
-    lci_count_pullres: u64,
-    ci_count_pullreq: u64,
-    lci_count_pullreq: u64,
-    ci_count_local: u64,
-    lci_count_local: u64,
-    id: Option<Pubkey>, // our pubkey
+    // ci_count_push: u64,
+    // lci_count_push: u64,
+    // ci_count_pullres: u64,
+    // lci_count_pullres: u64,
+    // ci_count_pullreq: u64,
+    // lci_count_pullreq: u64,
+    // ci_count_local: u64,
+    // lci_count_local: u64,
+    // id: Option<Pubkey>, // our pubkey
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -128,6 +128,14 @@ pub(crate) struct CrdsStats {
     /// and that message was later received via a PushMessage
     pub(crate) num_redundant_pull_responses: u64,
     pub(crate) num_duplicate_push_messages: u64,
+    pub(crate) ci_count_push: u64,
+    pub(crate) lci_count_push: u64,
+    pub(crate) ci_count_pullres: u64,
+    pub(crate) lci_count_pullres: u64,
+    pub(crate) ci_count_pullreq: u64,
+    pub(crate) lci_count_pullreq: u64,
+    pub(crate) ci_count_local: u64,
+    pub(crate) lci_count_local: u64,
 }
 
 /// This structure stores some local metadata associated with the CrdsValue
@@ -196,15 +204,15 @@ impl Default for Crds {
             purged: VecDeque::default(),
             shred_versions: HashMap::default(),
             stats: Mutex::<CrdsStats>::default(),
-            ci_count_push: 0,
-            lci_count_push: 0,
-            ci_count_pullres: 0,
-            lci_count_pullres: 0,
-            ci_count_pullreq: 0,
-            lci_count_pullreq: 0,
-            ci_count_local: 0,
-            lci_count_local: 0,
-            id: None,
+            // ci_count_push: 0,
+            // lci_count_push: 0,
+            // ci_count_pullres: 0,
+            // lci_count_pullres: 0,
+            // ci_count_pullreq: 0,
+            // lci_count_pullreq: 0,
+            // ci_count_local: 0,
+            // lci_count_local: 0,
+            // id: None,
         }
     }
 }
@@ -260,12 +268,14 @@ impl Crds {
                 if matches!(route, GossipRoute::PushMessage(_)) {
                     match &value.value.data {
                         CrdsData::ContactInfo(_) => {
-                            self.ci_count_push += 1;
-                            info!("greg: push CI, pk: {:?}, {}", self.id, self.ci_count_push);
+                            // self.ci_count_push += 1;
+                            stats.ci_count_push += 1;
+                            // info!("greg: push CI, pk: {:?}, {}", self.id, self.ci_count_push);
                         },
                         CrdsData::LegacyContactInfo(_) => {
-                            self.lci_count_push += 1;
-                            info!("greg: push LCI, pk: {:?}, {}", self.id, self.lci_count_push);
+                            stats.lci_count_push += 1;
+                            // self.lci_count_push += 1;
+                            // info!("greg: push LCI, pk: {:?}, {}", self.id, self.lci_count_push);
                         }
                         _ => (),
                     }
@@ -273,12 +283,14 @@ impl Crds {
                 if matches!(route, GossipRoute::PullResponse) {
                     match &value.value.data {
                         CrdsData::ContactInfo(_) => {
-                            self.ci_count_pullres += 1;
-                            info!("greg: pullres CI, pk: {:?}, {}", self.id, self.ci_count_pullres);
+                            stats.ci_count_pullres += 1;
+                            // self.ci_count_pullres += 1;
+                            // info!("greg: pullres CI, pk: {:?}, {}", self.id, self.ci_count_pullres);
                         },
                         CrdsData::LegacyContactInfo(_) => {
-                            self.lci_count_pullres += 1;
-                            info!("greg: pullres LCI, pk: {:?}, {}", self.id, self.lci_count_pullres);
+                            stats.lci_count_pullres += 1;
+                            // self.lci_count_pullres += 1;
+                            // info!("greg: pullres LCI, pk: {:?}, {}", self.id, self.lci_count_pullres);
                         }
                         _ => (),
                     }
@@ -286,12 +298,14 @@ impl Crds {
                 if matches!(route, GossipRoute::PullRequest) {
                     match &value.value.data {
                         CrdsData::ContactInfo(_) => {
-                            self.ci_count_pullreq += 1;
-                            info!("greg: pullreq CI, pk: {:?}, {}", self.id, self.ci_count_pullreq);
+                            stats.ci_count_pullreq += 1;
+                            // self.ci_count_pullreq += 1;
+                            // info!("greg: pullreq CI, pk: {:?}, {}", self.id, self.ci_count_pullreq);
                         },
                         CrdsData::LegacyContactInfo(_) => {
-                            self.lci_count_pullreq += 1;
-                            info!("greg: pullreq LCI, pk: {:?}, {}", self.id, self.lci_count_pullreq);
+                            stats.lci_count_pullreq += 1;
+                            // self.lci_count_pullreq += 1;
+                            // info!("greg: pullreq LCI, pk: {:?}, {}", self.id, self.lci_count_pullreq);
                         }
                         _ => (),
                     }
@@ -299,18 +313,20 @@ impl Crds {
                 if matches!(route, GossipRoute::LocalMessage) {
                     match &value.value.data {
                         CrdsData::ContactInfo(_) => {
-                            if self.id.is_none() {
-                                self.id = Some(value.value.pubkey())
-                            }
-                            self.ci_count_local += 1;
-                            info!("greg: local CI, pk: {:?}, {}", self.id, self.ci_count_local);
+                            // if self.id.is_none() {
+                                // self.id = Some(value.value.pubkey())
+                            // }
+                            stats.ci_count_local += 1;
+                            // self.ci_count_local += 1;
+                            // info!("greg: local CI, pk: {:?}, {}", self.id, self.ci_count_local);
                         },
                         CrdsData::LegacyContactInfo(_) => {
-                            if self.id.is_none() {
-                                self.id = Some(value.value.pubkey())
-                            }
-                            self.lci_count_local += 1;
-                            info!("greg: local LCI, pk: {:?}, {}", self.id, self.lci_count_local);
+                            // if self.id.is_none() {
+                            //     self.id = Some(value.value.pubkey())
+                            // }
+                            stats.lci_count_local += 1;
+                            // self.lci_count_local += 1;
+                            // info!("greg: local LCI, pk: {:?}, {}", self.id, self.lci_count_local);
                         }
                         _ => (),
                     }
@@ -344,12 +360,14 @@ impl Crds {
                 if matches!(route, GossipRoute::PushMessage(_)) {
                     match &value.value.data {
                         CrdsData::ContactInfo(_) => {
-                            self.ci_count_push += 1;
-                            info!("greg: push CI, pk: {:?}, {}", self.id, self.ci_count_push);
+                            // self.ci_count_push += 1;
+                            stats.ci_count_push += 1;
+                            // info!("greg: push CI, pk: {:?}, {}", self.id, self.ci_count_push);
                         },
                         CrdsData::LegacyContactInfo(_) => {
-                            self.lci_count_push += 1;
-                            info!("greg: push LCI, pk: {:?}, {}", self.id, self.lci_count_push);
+                            stats.lci_count_push += 1;
+                            // self.lci_count_push += 1;
+                            // info!("greg: push LCI, pk: {:?}, {}", self.id, self.lci_count_push);
                         }
                         _ => (),
                     }
@@ -357,12 +375,14 @@ impl Crds {
                 if matches!(route, GossipRoute::PullResponse) {
                     match &value.value.data {
                         CrdsData::ContactInfo(_) => {
-                            self.ci_count_pullres += 1;
-                            info!("greg: pullres CI, pk: {:?}, {}", self.id, self.ci_count_pullres);
+                            stats.ci_count_pullres += 1;
+                            // self.ci_count_pullres += 1;
+                            // info!("greg: pullres CI, pk: {:?}, {}", self.id, self.ci_count_pullres);
                         },
                         CrdsData::LegacyContactInfo(_) => {
-                            self.lci_count_pullres += 1;
-                            info!("greg: pullres LCI, pk: {:?}, {}", self.id, self.lci_count_pullres);
+                            stats.lci_count_pullres += 1;
+                            // self.lci_count_pullres += 1;
+                            // info!("greg: pullres LCI, pk: {:?}, {}", self.id, self.lci_count_pullres);
                         }
                         _ => (),
                     }
@@ -370,12 +390,14 @@ impl Crds {
                 if matches!(route, GossipRoute::PullRequest) {
                     match &value.value.data {
                         CrdsData::ContactInfo(_) => {
-                            self.ci_count_pullreq += 1;
-                            info!("greg: pullreq CI, pk: {:?}, {}", self.id, self.ci_count_pullreq);
+                            stats.ci_count_pullreq += 1;
+                            // self.ci_count_pullreq += 1;
+                            // info!("greg: pullreq CI, pk: {:?}, {}", self.id, self.ci_count_pullreq);
                         },
                         CrdsData::LegacyContactInfo(_) => {
-                            self.lci_count_pullreq += 1;
-                            info!("greg: pullreq LCI, pk: {:?}, {}", self.id, self.lci_count_pullreq);
+                            stats.lci_count_pullreq += 1;
+                            // self.lci_count_pullreq += 1;
+                            // info!("greg: pullreq LCI, pk: {:?}, {}", self.id, self.lci_count_pullreq);
                         }
                         _ => (),
                     }
@@ -383,18 +405,20 @@ impl Crds {
                 if matches!(route, GossipRoute::LocalMessage) {
                     match &value.value.data {
                         CrdsData::ContactInfo(_) => {
-                            if self.id.is_none() {
-                                self.id = Some(value.value.pubkey())
-                            }
-                            self.ci_count_local += 1;
-                            info!("greg: local CI, pk: {:?}, {}", self.id, self.ci_count_local);
+                            // if self.id.is_none() {
+                                // self.id = Some(value.value.pubkey())
+                            // }
+                            stats.ci_count_local += 1;
+                            // self.ci_count_local += 1;
+                            // info!("greg: local CI, pk: {:?}, {}", self.id, self.ci_count_local);
                         },
                         CrdsData::LegacyContactInfo(_) => {
-                            if self.id.is_none() {
-                                self.id = Some(value.value.pubkey())
-                            }
-                            self.lci_count_local += 1;
-                            info!("greg: local LCI, pk: {:?}, {}", self.id, self.lci_count_local);
+                            // if self.id.is_none() {
+                            //     self.id = Some(value.value.pubkey())
+                            // }
+                            stats.lci_count_local += 1;
+                            // self.lci_count_local += 1;
+                            // info!("greg: local LCI, pk: {:?}, {}", self.id, self.lci_count_local);
                         }
                         _ => (),
                     }
