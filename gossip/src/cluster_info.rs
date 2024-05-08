@@ -1581,6 +1581,7 @@ impl ClusterInfo {
         let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
             .map(CrdsData::LegacyContactInfo)
             .expect("Operator must spin up node with valid contact-info");
+        // let self_info = CrdsData::ContactInfo(self.my_contact_info());
         let self_info = CrdsValue::new_signed(self_info, &self.keypair());
         let pulls = pulls
             .into_iter()
