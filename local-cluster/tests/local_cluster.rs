@@ -2235,7 +2235,7 @@ fn create_snapshot_to_hard_fork(
 }
 
 #[test]
-#[ignore]
+// #[ignore]
 #[serial]
 fn test_hard_fork_with_gap_in_roots() {
     solana_logger::setup_with_default(RUST_LOG_FILTER);

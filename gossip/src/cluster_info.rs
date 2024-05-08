@@ -1609,11 +1609,13 @@ impl ClusterInfo {
     }
     fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
         let self_id = self.id();
+        // println!("greg: this node pk: {:?}", self_id);
         let (mut push_messages, num_entries, num_nodes) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
         };
+        // println!("pushing messages. num_entries: {num_entries}");
         self.stats
             .push_fanout_num_entries
             .add_relaxed(num_entries as u64);
@@ -1887,14 +1889,22 @@ impl ClusterInfo {
                     entrypoints_processed = entrypoints_processed || self.process_entrypoints();
                     //TODO: possibly tune this parameter
                     //we saw a deadlock passing an self.read().unwrap().timeout into sleep
+                    // println!("greg: in gossip()");
+                    self.push_self();
+                    self.refresh_push_active_set(
+                        &recycler,
+                        &stakes,
+                        gossip_validators.as_ref(),
+                        &sender,
+                    );
                     if start - last_push > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
-                        self.push_self();
-                        self.refresh_push_active_set(
-                            &recycler,
-                            &stakes,
-                            gossip_validators.as_ref(),
-                            &sender,
-                        );
+                        // self.push_self();
+                        // self.refresh_push_active_set(
+                        //     &recycler,
+                        //     &stakes,
+                        //     gossip_validators.as_ref(),
+                        //     &sender,
+                        // );
                         last_push = timestamp();
                     }
                     let elapsed = timestamp() - start;

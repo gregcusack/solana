@@ -207,7 +207,9 @@ impl CrdsGossipPush {
                 |node| value.should_force_push(node),
                 stakes,
             );
+            // println!("greg: {:?} getting nodes for pushing data", pubkey);
             for node in nodes.take(self.push_fanout) {
+                // println!("greg: {:?} fanout node: {:?}", pubkey, node);
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
             }
