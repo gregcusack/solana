@@ -9,7 +9,6 @@ use {
     solana_accounts_db::{
         hardened_unpack::open_genesis_config, utils::create_accounts_run_and_snapshot_dirs,
     },
-    solana_client::{connection_cache::ConnectionCache, tpu_client::TpuClientConfig},
     solana_core::{
         consensus::{
             tower_storage::FileTowerStorage, Tower, SWITCH_FORK_THRESHOLD, VOTE_THRESHOLD_DEPTH,
@@ -76,7 +75,6 @@ use {
         vote::state::TowerSync,
     },
     solana_streamer::socket::SocketAddrSpace,
-    solana_tpu_client::tpu_client::TpuClient,
     solana_turbine::broadcast_stage::{
         broadcast_duplicates_run::{BroadcastDuplicatesConfig, ClusterPartition},
         BroadcastStageType,
@@ -217,21 +215,7 @@ fn test_local_cluster_signature_subscribe() {
         .unwrap();
     let non_bootstrap_info = cluster.get_contact_info(&non_bootstrap_id).unwrap();
 
-    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
-    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
-
-    let cache = match &*cluster.connection_cache {
-        ConnectionCache::Quic(cache) => cache,
-        ConnectionCache::Udp(_) => panic!("Expected a Quic ConnectionCache. Got UDP"),
-    };
-
-    let tx_client = TpuClient::new_with_connection_cache(
-        Arc::new(RpcClient::new(rpc_url)),
-        rpc_pubsub_url.as_str(),
-        TpuClientConfig::default(),
-        cache.clone(),
-    )
-    .unwrap();
+    let tx_client = cluster.build_tpu_quic_client().unwrap();
 
     let (blockhash, _) = tx_client
         .rpc_client()
@@ -258,10 +242,6 @@ fn test_local_cluster_signature_subscribe() {
     tx_client
         .try_send_transaction(&transaction)
         .expect("should execute transfer");
-
-    // tx_client
-    //     .retry_transfer(&cluster.funding_keypair, &mut transaction, 5)
-    //     .unwrap();
 
     let mut got_received_notification = false;
     loop {
@@ -438,21 +418,7 @@ fn test_mainnet_beta_cluster_type() {
     .unwrap();
     assert_eq!(cluster_nodes.len(), 1);
 
-    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
-    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
-
-    let cache = match &*cluster.connection_cache {
-        ConnectionCache::Quic(cache) => cache,
-        ConnectionCache::Udp(_) => panic!("Expected a Quic ConnectionCache. Got UDP"),
-    };
-
-    let client = TpuClient::new_with_connection_cache(
-        Arc::new(RpcClient::new(rpc_url)),
-        rpc_pubsub_url.as_str(),
-        TpuClientConfig::default(),
-        cache.clone(),
-    )
-    .unwrap();
+    let client = cluster.build_tpu_quic_client().unwrap();
 
     // Programs that are available at epoch 0
     for program_id in [
@@ -2700,21 +2666,7 @@ fn test_oc_bad_signatures() {
     );
 
     // 3) Start up a spy to listen for and push votes to leader TPU
-    let rpc_pubsub_url = format!("ws://{}/", cluster.entry_point_info.rpc_pubsub().unwrap());
-    let rpc_url = format!("http://{}", cluster.entry_point_info.rpc().unwrap());
-
-    let cache = match &*cluster.connection_cache {
-        ConnectionCache::Quic(cache) => cache,
-        ConnectionCache::Udp(_) => panic!("Expected a Quic ConnectionCache. Got UDP"),
-    };
-
-    let client = TpuClient::new_with_connection_cache(
-        Arc::new(RpcClient::new(rpc_url)),
-        rpc_pubsub_url.as_str(),
-        TpuClientConfig::default(),
-        cache.clone(),
-    )
-    .unwrap();
+    let client = cluster.build_tpu_quic_client().unwrap();
 
     let voter_thread_sleep_ms: usize = 100;
     let num_votes_simulated = Arc::new(AtomicUsize::new(0));

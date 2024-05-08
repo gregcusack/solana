@@ -501,12 +501,10 @@ impl LocalCluster {
                 &validator_pubkey,
                 stake * 2 + 2,
             );
-
             info!(
                 "validator {} balance {}",
                 validator_pubkey, validator_balance
             );
-
             Self::setup_vote_and_stake_accounts(
                 &client,
                 voting_keypair.as_ref().unwrap(),
