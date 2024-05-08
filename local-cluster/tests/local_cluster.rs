@@ -2235,7 +2235,7 @@ fn create_snapshot_to_hard_fork(
 }
 
 #[test]
-#[ignore]
+// #[ignore]
 #[serial]
 fn test_hard_fork_with_gap_in_roots() {
     solana_logger::setup_with_default(RUST_LOG_FILTER);
@@ -5701,7 +5701,7 @@ fn test_randomly_mixed_block_verification_methods_between_bootstrap_and_not() {
 
 /// Forks previous marked invalid should be marked as such in fork choice on restart
 #[test]
-#[ignore]
+// #[ignore]
 #[serial]
 fn test_invalid_forks_persisted_on_restart() {
     solana_logger::setup_with("info,solana_metrics=off,solana_ledger=off");
