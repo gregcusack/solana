@@ -88,7 +88,6 @@ pub fn spend_and_verify_all_nodes<S: ::std::hash::BuildHasher + Sync + Send>(
             return;
         }
         let random_keypair = Keypair::new();
-
         let client = new_tpu_quic_client(ingress_node, connection_cache.clone()).unwrap();
 
         let bal = client
@@ -103,10 +102,17 @@ pub fn spend_and_verify_all_nodes<S: ::std::hash::BuildHasher + Sync + Send>(
             .rpc_client()
             .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
             .unwrap();
-        let transaction =
+        let mut transaction =
             system_transaction::transfer(funding_keypair, &random_keypair.pubkey(), 1, blockhash);
         let confs = VOTE_THRESHOLD_DEPTH + 1;
-        let sig = client.send_and_confirm_transaction(&transaction).unwrap();
+        let sig = client
+            .send_and_confirm_transaction_with_retries(
+                &[funding_keypair],
+                &mut transaction,
+                10,
+                confs,
+            )
+            .unwrap();
         for validator in &cluster_nodes {
             if ignore_nodes.contains(validator.pubkey()) {
                 continue;
@@ -161,14 +167,16 @@ pub fn send_many_transactions(
             .unwrap();
         let transfer_amount = thread_rng().gen_range(1..max_tokens_per_transfer);
 
-        let transaction = system_transaction::transfer(
+        let mut transaction = system_transaction::transfer(
             funding_keypair,
             &random_keypair.pubkey(),
             transfer_amount,
             blockhash,
         );
 
-        client.try_send_transaction(&transaction).unwrap();
+        client
+            .send_and_confirm_transaction_with_retries(&[funding_keypair], &mut transaction, 5, 0)
+            .unwrap();
 
         expected_balances.insert(random_keypair.pubkey(), transfer_amount);
     }
@@ -292,7 +300,7 @@ pub fn kill_entry_and_spend_and_verify_rest(
                 .rpc_client()
                 .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
                 .unwrap();
-            let transaction = system_transaction::transfer(
+            let mut transaction = system_transaction::transfer(
                 funding_keypair,
                 &random_keypair.pubkey(),
                 1,
@@ -301,7 +309,12 @@ pub fn kill_entry_and_spend_and_verify_rest(
 
             let confs = VOTE_THRESHOLD_DEPTH + 1;
             let sig = {
-                let sig = client.send_and_confirm_transaction(&transaction);
+                let sig = client.send_and_confirm_transaction_with_retries(
+                    &[funding_keypair],
+                    &mut transaction,
+                    5,
+                    confs,
+                );
                 match sig {
                     Err(e) => {
                         result = Err(e);
@@ -500,7 +513,6 @@ fn poll_all_nodes_for_signature(
             continue;
         }
         let client = new_tpu_quic_client(validator, connection_cache.clone()).unwrap();
-
         client
             .rpc_client()
             .poll_for_signature_confirmation(sig, confs)?;

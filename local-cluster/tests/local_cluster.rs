@@ -367,6 +367,7 @@ fn test_restart_node() {
             ticks_per_slot,
             slots_per_epoch,
             stakers_slot_offset: slots_per_epoch,
+            skip_warmup_slots: true,
             ..ClusterConfig::default()
         },
         SocketAddrSpace::Unspecified,
@@ -1227,6 +1228,7 @@ fn test_snapshot_restart_tower() {
             safe_clone_config(&leader_snapshot_test_config.validator_config),
             safe_clone_config(&validator_snapshot_test_config.validator_config),
         ],
+        skip_warmup_slots: true,
         ..ClusterConfig::default()
     };
 

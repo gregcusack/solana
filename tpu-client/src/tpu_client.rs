@@ -1,6 +1,7 @@
 pub use crate::nonblocking::tpu_client::TpuSenderError;
 use {
     crate::nonblocking::tpu_client::TpuClient as NonblockingTpuClient,
+    log::*,
     rayon::iter::{IntoParallelIterator, ParallelIterator},
     solana_connection_cache::{
         client_connection::ClientConnection,
@@ -11,7 +12,7 @@ use {
     solana_rpc_client::rpc_client::RpcClient,
     solana_sdk::{
         client::AsyncClient,
-        clock::Slot,
+        clock::{Slot, MAX_PROCESSING_AGE},
         signature::Signature,
         transaction::{Transaction, VersionedTransaction},
         transport::Result as TransportResult,
@@ -20,6 +21,7 @@ use {
         collections::VecDeque,
         net::UdpSocket,
         sync::{Arc, RwLock},
+        time::Instant,
     },
 };
 #[cfg(feature = "spinner")]
@@ -106,33 +108,56 @@ where
 
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
+    /// Attempts to send and confirm tx "tries" times
     /// Waits for signature confirmation before returning
     /// Returns the transaction signature
-    pub fn send_and_confirm_transaction(
+    pub fn send_and_confirm_transaction_with_retries<T: Signers + ?Sized>(
         &self,
-        transaction: &Transaction,
+        keypairs: &T,
+        transaction: &mut Transaction,
+        tries: usize,
+        pending_confirmations: usize,
     ) -> TransportResult<Signature> {
-        let pending_confirmations: usize = 0;
-        let wire_transaction =
-            bincode::serialize(&transaction).expect("transaction serialization failed");
+        for x in 0..tries {
+            let now = Instant::now();
+            let mut num_confirmed = 0;
+            let mut wait_time = MAX_PROCESSING_AGE;
+            // resend the same transaction until the transaction has no chance of succeeding
+            let wire_transaction =
+                bincode::serialize(&transaction).expect("transaction serialization failed");
 
-        let leaders = self
-            .tpu_client
-            .get_leader_tpu_service()
-            .leader_tpu_sockets(self.tpu_client.get_fanout_slots());
-        let cache = self.tpu_client.get_connection_cache();
-        for tpu_address in &leaders {
-            let conn = cache.get_connection(tpu_address);
-            conn.send_data_async(wire_transaction.clone())?;
-        }
+            while now.elapsed().as_secs() < wait_time as u64 {
+                let leaders = self
+                    .tpu_client
+                    .get_leader_tpu_service()
+                    .leader_tpu_sockets(self.tpu_client.get_fanout_slots());
+                if num_confirmed == 0 {
+                    for tpu_address in &leaders {
+                        let cache = self.tpu_client.get_connection_cache();
+                        let conn = cache.get_connection(tpu_address);
+                        conn.send_data_async(wire_transaction.clone())?;
+                    }
+                }
 
-        if let Ok(confirmed_blocks) = self
-            .rpc_client()
-            .poll_for_signature_confirmation(&transaction.signatures[0], pending_confirmations)
-        {
-            if confirmed_blocks >= pending_confirmations {
-                return Ok(transaction.signatures[0]);
+                if let Ok(confirmed_blocks) = self.rpc_client().poll_for_signature_confirmation(
+                    &transaction.signatures[0],
+                    pending_confirmations,
+                ) {
+                    num_confirmed = confirmed_blocks;
+                    if confirmed_blocks >= pending_confirmations {
+                        return Ok(transaction.signatures[0]);
+                    }
+                    // Since network has seen the transaction, wait longer to receive
+                    // all pending confirmations. Resending the transaction could result into
+                    // extra transaction fees
+                    wait_time = wait_time.max(
+                        MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
+                    );
+                }
             }
+            info!("{} tries failed transfer", x);
+            let blockhash = self.rpc_client().get_latest_blockhash()?;
+            transaction.sign(keypairs, blockhash);
         }
         Err(std::io::Error::new(
             std::io::ErrorKind::Other,

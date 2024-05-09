@@ -675,7 +675,7 @@ impl LocalCluster {
             .rpc_client()
             .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
             .unwrap();
-        let tx = system_transaction::transfer(source_keypair, dest_pubkey, lamports, blockhash);
+        let mut tx = system_transaction::transfer(source_keypair, dest_pubkey, lamports, blockhash);
         info!(
             "executing transfer of {} from {} to {}",
             lamports,
@@ -683,7 +683,7 @@ impl LocalCluster {
             *dest_pubkey
         );
         client
-            .send_and_confirm_transaction(&tx)
+            .send_and_confirm_transaction_with_retries(&[source_keypair], &mut tx, 10, 0)
             .expect("client transfer should succeed");
         client
             .rpc_client()
@@ -777,7 +777,7 @@ impl LocalCluster {
                 amount,
             );
             let message = Message::new(&instructions, Some(&from_account.pubkey()));
-            let transaction = Transaction::new(
+            let mut transaction = Transaction::new(
                 &[from_account.as_ref(), &stake_account_keypair],
                 message,
                 client
@@ -788,7 +788,7 @@ impl LocalCluster {
             );
 
             client
-                .send_and_confirm_transaction(&transaction)
+                .send_and_confirm_transaction_with_retries(&[from_account], &mut transaction, 5, 0)
                 .expect("delegate stake");
             client
                 .rpc_client()
