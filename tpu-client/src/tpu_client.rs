@@ -2,15 +2,25 @@ pub use crate::nonblocking::tpu_client::TpuSenderError;
 use {
     crate::nonblocking::tpu_client::TpuClient as NonblockingTpuClient,
     rayon::iter::{IntoParallelIterator, ParallelIterator},
-    solana_connection_cache::connection_cache::{
-        ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
+    solana_connection_cache::{
+        client_connection::ClientConnection,
+        connection_cache::{
+            ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
+        },
     },
     solana_rpc_client::rpc_client::RpcClient,
-    solana_sdk::{clock::Slot, transaction::Transaction, transport::Result as TransportResult},
+    solana_sdk::{
+        client::AsyncClient,
+        clock::{Slot, MAX_PROCESSING_AGE},
+        signature::Signature,
+        transaction::{Transaction, VersionedTransaction},
+        transport::Result as TransportResult,
+    },
     std::{
         collections::VecDeque,
         net::UdpSocket,
         sync::{Arc, RwLock},
+        time::Instant,
     },
 };
 #[cfg(feature = "spinner")]
@@ -95,6 +105,66 @@ where
         self.invoke(self.tpu_client.try_send_transaction(transaction))
     }
 
+    /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
+    /// size
+    /// Attempts to send and confirm tx "tries" times
+    /// Waits for signature confirmation before returning
+    /// Returns the transaction signature
+    pub fn send_and_confirm_transaction_with_retries<T: Signers + ?Sized>(
+        &self,
+        keypairs: &T,
+        transaction: &mut Transaction,
+        tries: usize,
+        pending_confirmations: usize,
+    ) -> TransportResult<Signature> {
+        for x in 0..tries {
+            let now = Instant::now();
+            let mut num_confirmed = 0;
+            let mut wait_time = MAX_PROCESSING_AGE;
+            // resend the same transaction until the transaction has no chance of succeeding
+            let wire_transaction =
+                bincode::serialize(&transaction).expect("transaction serialization failed");
+
+            while now.elapsed().as_secs() < wait_time as u64 {
+                let leaders = self
+                    .tpu_client
+                    .get_leader_tpu_service()
+                    .leader_tpu_sockets(self.tpu_client.get_fanout_slots());
+                if num_confirmed == 0 {
+                    for tpu_address in &leaders {
+                        let cache = self.tpu_client.get_connection_cache();
+                        let conn = cache.get_connection(tpu_address);
+                        conn.send_data_async(wire_transaction.clone())?;
+                    }
+                }
+
+                if let Ok(confirmed_blocks) = self.rpc_client().poll_for_signature_confirmation(
+                    &transaction.signatures[0],
+                    pending_confirmations,
+                ) {
+                    num_confirmed = confirmed_blocks;
+                    if confirmed_blocks >= pending_confirmations {
+                        return Ok(transaction.signatures[0]);
+                    }
+                    // Since network has seen the transaction, wait longer to receive
+                    // all pending confirmations. Resending the transaction could result into
+                    // extra transaction fees
+                    wait_time = wait_time.max(
+                        MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
+                    );
+                }
+            }
+            log::info!("{x} tries failed transfer");
+            let blockhash = self.rpc_client().get_latest_blockhash()?;
+            transaction.sign(keypairs, blockhash);
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "failed to confirm transaction".to_string(),
+        )
+        .into())
+    }
+
     /// Serialize and send a batch of transactions to the current and upcoming leader TPUs according
     /// to fanout size
     /// Returns the last error if all sends fail
@@ -113,6 +183,16 @@ where
     /// Returns the last error if all sends fail
     pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>) -> TransportResult<()> {
         self.invoke(self.tpu_client.try_send_wire_transaction(wire_transaction))
+    }
+
+    pub fn try_send_wire_transaction_batch(
+        &self,
+        wire_transactions: Vec<Vec<u8>>,
+    ) -> TransportResult<()> {
+        self.invoke(
+            self.tpu_client
+                .try_send_wire_transaction_batch(wire_transactions),
+        )
     }
 
     /// Create a new client that disconnects when dropped
@@ -184,6 +264,35 @@ where
         // `block_in_place()` only panics if called from a current_thread runtime, which is the
         // lesser evil.
         tokio::task::block_in_place(move || self.rpc_client.runtime().block_on(f))
+    }
+}
+
+impl<P, M, C> AsyncClient for TpuClient<P, M, C>
+where
+    P: ConnectionPool<NewConnectionConfig = C>,
+    M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+    C: NewConnectionConfig,
+{
+    fn async_send_versioned_transaction(
+        &self,
+        transaction: VersionedTransaction,
+    ) -> TransportResult<Signature> {
+        let wire_transaction =
+            bincode::serialize(&transaction).expect("serialize Transaction in send_batch");
+        self.send_wire_transaction(wire_transaction);
+        Ok(transaction.signatures[0])
+    }
+
+    fn async_send_versioned_transaction_batch(
+        &self,
+        batch: Vec<VersionedTransaction>,
+    ) -> TransportResult<()> {
+        let buffers = batch
+            .into_par_iter()
+            .map(|tx| bincode::serialize(&tx).expect("serialize Transaction in send_batch"))
+            .collect::<Vec<_>>();
+        self.try_send_wire_transaction_batch(buffers)?;
+        Ok(())
     }
 }
 
