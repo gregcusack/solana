@@ -1,12 +1,10 @@
 pub use crate::nonblocking::tpu_client::TpuSenderError;
 use {
     crate::nonblocking::tpu_client::TpuClient as NonblockingTpuClient,
+    log::*,
     rayon::iter::{IntoParallelIterator, ParallelIterator},
-    solana_connection_cache::{
-        client_connection::ClientConnection,
-        connection_cache::{
-            ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
-        },
+    solana_connection_cache::connection_cache::{
+        ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
     },
     solana_rpc_client::rpc_client::RpcClient,
     solana_sdk::{
@@ -114,28 +112,30 @@ where
         &self,
         keypairs: &T,
         transaction: &mut Transaction,
-        tries: usize,
+        attempts: usize,
         pending_confirmations: usize,
     ) -> TransportResult<Signature> {
-        for x in 0..tries {
+        for attempt in 0..attempts {
             let now = Instant::now();
             let mut num_confirmed = 0;
             let mut wait_time = MAX_PROCESSING_AGE;
             // resend the same transaction until the transaction has no chance of succeeding
             let wire_transaction =
-                bincode::serialize(&transaction).expect("transaction serialization failed");
+                bincode::serialize(&transaction).expect("should serialize transaction");
 
             while now.elapsed().as_secs() < wait_time as u64 {
-                let leaders = self
-                    .tpu_client
-                    .get_leader_tpu_service()
-                    .leader_tpu_sockets(self.tpu_client.get_fanout_slots());
+                // let leaders = self
+                //     .tpu_client
+                //     .get_leader_tpu_service()
+                //     .leader_tpu_sockets(self.tpu_client.get_fanout_slots());
                 if num_confirmed == 0 {
-                    for tpu_address in &leaders {
-                        let cache = self.tpu_client.get_connection_cache();
-                        let conn = cache.get_connection(tpu_address);
-                        conn.send_data_async(wire_transaction.clone())?;
-                    }
+                    // for tpu_address in &leaders {
+                    // let cache = self.tpu_client.get_connection_cache();
+                    // let conn = cache.get_connection(tpu_address);
+                    // conn.send_data_async(wire_transaction.clone())?;
+                    // }
+                    println!("send wire tx");
+                    self.send_wire_transaction(wire_transaction.clone());
                 }
 
                 if let Ok(confirmed_blocks) = self.rpc_client().poll_for_signature_confirmation(
@@ -154,7 +154,7 @@ where
                     );
                 }
             }
-            log::info!("{x} tries failed transfer");
+            info!("{attempt} tries failed transfer");
             let blockhash = self.rpc_client().get_latest_blockhash()?;
             transaction.sign(keypairs, blockhash);
         }
@@ -278,7 +278,7 @@ where
         transaction: VersionedTransaction,
     ) -> TransportResult<Signature> {
         let wire_transaction =
-            bincode::serialize(&transaction).expect("serialize Transaction in send_batch");
+            bincode::serialize(&transaction).expect("should serialize Transaction in send_batch");
         self.send_wire_transaction(wire_transaction);
         Ok(transaction.signatures[0])
     }
@@ -289,7 +289,7 @@ where
     ) -> TransportResult<()> {
         let buffers = batch
             .into_par_iter()
-            .map(|tx| bincode::serialize(&tx).expect("serialize Transaction in send_batch"))
+            .map(|tx| bincode::serialize(&tx).expect("should serialize Transaction in send_batch"))
             .collect::<Vec<_>>();
         self.try_send_wire_transaction_batch(buffers)?;
         Ok(())
