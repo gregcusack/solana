@@ -83,7 +83,7 @@ use {
     solana_vote::vote_parser,
     solana_vote_program::vote_state::MAX_LOCKOUT_HISTORY,
     std::{
-        borrow::Cow,
+        borrow::{Borrow, Cow},
         collections::{HashMap, HashSet, VecDeque},
         fmt::Debug,
         fs::{self, File},
@@ -145,6 +145,7 @@ pub(crate) const CRDS_UNIQUE_PUBKEY_CAPACITY: usize = 8192;
 const MIN_STAKE_FOR_GOSSIP: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 /// Minimum number of staked nodes for enforcing stakes in gossip.
 const MIN_NUM_STAKED_NODES: usize = 500;
+const PUSH_PREFIX: &[u8] = "SOLANA_PUSH_MESSAGE".as_bytes();
 
 // Must have at least one socket to monitor the TVU port
 // The unsafes are safe because we're using fixed, known non-zero values
@@ -183,6 +184,74 @@ pub struct ClusterInfo {
     instance: RwLock<NodeInstance>,
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
+}
+
+#[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub(crate) struct PushData {
+    /// Pubkey of the node that sent this push data
+    pubkey: Pubkey,
+    /// CrdsValues that need to be pushed
+    data: Vec<CrdsValue>,
+    /// Signature of this Push Message
+    signature: Signature,
+}
+
+impl PushData {
+    /// Currently only used in tests
+    /// Need to wait for network upgrade before sending out PushMessage(Pubkey, PushData)
+    pub fn _new(self_keypair: &Keypair, data: Vec<CrdsValue>) -> Self {
+        let mut push_data = PushData {
+            pubkey: self_keypair.pubkey(),
+            data,
+            signature: Signature::default(),
+        };
+        push_data.sign(self_keypair);
+        push_data
+    }
+
+    pub fn data(&self) -> Vec<CrdsValue> {
+        self.data.clone()
+    }
+
+    pub fn set_data(&mut self, data: Vec<CrdsValue>) {
+        self.data = data
+    }
+}
+
+impl Signable for PushData {
+    fn pubkey(&self) -> Pubkey {
+        self.pubkey
+    }
+
+    fn signable_data(&self) -> Cow<[u8]> {
+        #[derive(Serialize)]
+        struct SignData<'a> {
+            prefix: &'a [u8],
+            pubkey: &'a Pubkey,
+            data: &'a [CrdsValue],
+        }
+        let data = SignData {
+            prefix: PUSH_PREFIX,
+            pubkey: &self.pubkey,
+            data: &self.data,
+        };
+        Cow::Owned(serialize(&data).expect("serialize PruneData"))
+    }
+
+    fn set_signature(&mut self, signature: Signature) {
+        self.signature = signature
+    }
+
+    fn get_signature(&self) -> Signature {
+        self.signature
+    }
+
+    fn verify(&self) -> bool {
+        let signed_data = self.signable_data();
+        self.get_signature()
+            .verify(self.pubkey().as_ref(), signed_data.borrow())
+    }
 }
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
@@ -281,7 +350,8 @@ pub(crate) enum Protocol {
     /// Gossip protocol messages
     PullRequest(CrdsFilter, CrdsValue),
     PullResponse(Pubkey, Vec<CrdsValue>),
-    PushMessage(Pubkey, Vec<CrdsValue>),
+    LegacyPushMessage(Pubkey, Vec<CrdsValue>),
+    PushMessage(Pubkey, PushData),
     // TODO: Remove the redundant outer pubkey here,
     // and use the inner PruneData.pubkey instead.
     PruneMessage(Pubkey, PruneData),
@@ -315,7 +385,7 @@ impl Protocol {
                     Some(Protocol::PullResponse(from, data))
                 }
             }
-            Protocol::PushMessage(from, data) => {
+            Protocol::LegacyPushMessage(from, data) => {
                 let size = data.len();
                 let data: Vec<_> = data.into_par_iter().filter(Signable::verify).collect();
                 if size != data.len() {
@@ -326,7 +396,29 @@ impl Protocol {
                 if data.is_empty() {
                     None
                 } else {
-                    Some(Protocol::PushMessage(from, data))
+                    Some(Protocol::LegacyPushMessage(from, data))
+                }
+            }
+            Protocol::PushMessage(from, mut push_data) => {
+                if push_data.verify() {
+                    let crds_data = push_data.data();
+                    let size = crds_data.len();
+                    let crds_data: Vec<_> =
+                        crds_data.into_par_iter().filter(Signable::verify).collect();
+                    if size != crds_data.len() {
+                        stats
+                            .gossip_push_msg_verify_fail
+                            .add_relaxed((size - crds_data.len()) as u64);
+                    }
+                    if crds_data.is_empty() {
+                        None
+                    } else {
+                        push_data.set_data(crds_data);
+                        Some(Protocol::PushMessage(from, push_data))
+                    }
+                } else {
+                    stats.gossip_pull_response_verify_fail.add_relaxed(1);
+                    None
                 }
             }
             Protocol::PruneMessage(_, ref data) => {
@@ -365,7 +457,8 @@ impl Sanitize for Protocol {
                 val.sanitize()
             }
             Protocol::PullResponse(_, val) => val.sanitize(),
-            Protocol::PushMessage(_, val) => val.sanitize(),
+            Protocol::LegacyPushMessage(_, val) => val.sanitize(),
+            Protocol::PushMessage(_, val) => val.data().sanitize(),
             Protocol::PruneMessage(from, val) => {
                 if *from != val.pubkey {
                     Err(SanitizeError::InvalidValue)
@@ -1646,7 +1739,7 @@ impl ClusterInfo {
             .into_iter()
             .flat_map(|(peer, msgs)| {
                 Self::split_gossip_messages(PUSH_MESSAGE_MAX_PAYLOAD_SIZE, msgs)
-                    .map(move |payload| (peer, Protocol::PushMessage(self_id, payload)))
+                    .map(move |payload| (peer, Protocol::LegacyPushMessage(self_id, payload)))
             })
             .collect();
         self.stats
@@ -2487,9 +2580,13 @@ impl ClusterInfo {
                     check_duplicate_instance(&data)?;
                     pull_responses.append(&mut data);
                 }
-                Protocol::PushMessage(from, data) => {
+                Protocol::LegacyPushMessage(from, data) => {
                     check_duplicate_instance(&data)?;
                     push_messages.push((from, data));
+                }
+                Protocol::PushMessage(from, push_data) => {
+                    check_duplicate_instance(&push_data.data())?;
+                    push_messages.push((from, push_data.data()));
                 }
                 Protocol::PruneMessage(_from, data) => prune_messages.push(data),
                 Protocol::PingMessage(ping) => ping_messages.push((from_addr, ping)),
@@ -3118,7 +3215,7 @@ pub fn push_messages_to_peer(
     socket_addr_space: &SocketAddrSpace,
 ) -> Result<(), GossipError> {
     let reqs: Vec<_> = ClusterInfo::split_gossip_messages(PUSH_MESSAGE_MAX_PAYLOAD_SIZE, messages)
-        .map(move |payload| (peer_gossip, Protocol::PushMessage(self_id, payload)))
+        .map(move |payload| (peer_gossip, Protocol::LegacyPushMessage(self_id, payload)))
         .collect();
     let packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
         &PacketBatchRecycler::default(),
@@ -3193,8 +3290,17 @@ fn filter_on_shred_version(
                 Some(msg)
             }
         }
-        Protocol::PushMessage(from, values) => {
+        Protocol::LegacyPushMessage(from, values) => {
             filter_values(from, values, &stats.skip_push_message_shred_version);
+            if values.is_empty() {
+                None
+            } else {
+                Some(msg)
+            }
+        }
+        Protocol::PushMessage(from, push_data) => {
+            let mut values = push_data.data();
+            filter_values(from, &mut values, &stats.skip_push_message_shred_version);
             if values.is_empty() {
                 None
             } else {
@@ -3413,7 +3519,7 @@ mod tests {
             let accounts_hash = AccountsHashes::new_rand(&mut rng, None);
             let crds_value =
                 CrdsValue::new_signed(CrdsData::AccountsHashes(accounts_hash), &Keypair::new());
-            let message = Protocol::PushMessage(Pubkey::new_unique(), vec![crds_value]);
+            let message = Protocol::LegacyPushMessage(Pubkey::new_unique(), vec![crds_value]);
             let socket = new_rand_socket_addr(&mut rng);
             assert!(Packet::from_data(Some(&socket), message).is_ok());
         }
@@ -3443,7 +3549,7 @@ mod tests {
         };
         let crds_value =
             CrdsValue::new_signed(CrdsData::SnapshotHashes(snapshot_hashes), &Keypair::new());
-        let message = Protocol::PushMessage(Pubkey::new_unique(), vec![crds_value]);
+        let message = Protocol::LegacyPushMessage(Pubkey::new_unique(), vec![crds_value]);
         let socket = new_rand_socket_addr(&mut rng);
         assert!(Packet::from_data(Some(&socket), message).is_ok());
     }
@@ -3486,7 +3592,7 @@ mod tests {
 
     #[test]
     fn test_push_message_max_payload_size() {
-        let header = Protocol::PushMessage(Pubkey::default(), Vec::default());
+        let header = Protocol::LegacyPushMessage(Pubkey::default(), Vec::default());
         assert_eq!(
             PUSH_MESSAGE_MAX_PAYLOAD_SIZE,
             PACKET_DATA_SIZE - serialized_size(&header).unwrap() as usize
@@ -3529,7 +3635,7 @@ mod tests {
             let value = CrdsValue::new_signed(data, &keypair);
             let pull_response = Protocol::PullResponse(keypair.pubkey(), vec![value.clone()]);
             assert!(serialized_size(&pull_response).unwrap() < PACKET_DATA_SIZE as u64);
-            let push_message = Protocol::PushMessage(keypair.pubkey(), vec![value.clone()]);
+            let push_message = Protocol::LegacyPushMessage(keypair.pubkey(), vec![value.clone()]);
             assert!(serialized_size(&push_message).unwrap() < PACKET_DATA_SIZE as u64);
         }
     }
@@ -4148,7 +4254,7 @@ mod tests {
                     .iter()
                     .map(|v| serialized_size(v).unwrap())
                     .sum::<u64>();
-            let message = Protocol::PushMessage(self_pubkey, values);
+            let message = Protocol::LegacyPushMessage(self_pubkey, values);
             assert_eq!(serialized_size(&message).unwrap(), size);
             // Assert that the message fits into a packet.
             assert!(Packet::from_data(Some(&socket), message).is_ok());
@@ -4861,5 +4967,75 @@ mod tests {
         let trace = cluster_info43.rpc_info_trace();
         info!("rpc:\n{}", trace);
         assert_eq!(trace.len(), 335);
+    }
+
+    #[test]
+    fn test_push_data_sign_and_verify() {
+        let keypair = Keypair::new();
+        let snapshot_hashes = SnapshotHashes {
+            from: Pubkey::new_unique(),
+            full: (Slot::default(), Hash::default()),
+            incremental: vec![(Slot::default(), Hash::default()); MAX_INCREMENTAL_SNAPSHOT_HASHES],
+            wallclock: timestamp(),
+        };
+        let crds_value =
+            CrdsValue::new_signed(CrdsData::SnapshotHashes(snapshot_hashes), &Keypair::new());
+
+        let push_data = PushData::_new(&keypair, vec![crds_value]);
+
+        assert!(push_data.verify(), "Signature should be valid");
+    }
+
+    #[test]
+    fn test_push_message_sign_and_verify() {
+        // crds value created by sender of this value.
+        let mut rng = rand::thread_rng();
+        let keypair = Keypair::new();
+        let pubkey = keypair.pubkey();
+        let accounts_hash = AccountsHashes::new_rand(&mut rng, Some(pubkey));
+        let crds_value = CrdsValue::new_signed(CrdsData::AccountsHashes(accounts_hash), &keypair);
+
+        let push_data = PushData::_new(&keypair, vec![crds_value]);
+
+        let message = Protocol::PushMessage(pubkey, push_data);
+
+        // Verify the message
+        let stats = GossipStats::default();
+        let verified_message = message.par_verify(&stats);
+
+        assert!(
+            verified_message.is_some(),
+            "PushMessage should be verified successfully"
+        );
+    }
+
+    #[test]
+    fn test_push_message_one_hop_sign_and_verify() {
+        // crds value created by owner but sent to another node (relay).
+        // relay signs PushData. PushData verified verified and then CrdsValue verified
+        // PushData and CrdsValue have different owners.
+        let mut rng = rand::thread_rng();
+        let keypair_owner = Keypair::new();
+        let pubkey_owner = keypair_owner.pubkey();
+
+        let keypair_relay = Keypair::new();
+        let pubkey_relay = keypair_relay.pubkey();
+
+        let accounts_hash = AccountsHashes::new_rand(&mut rng, Some(pubkey_owner));
+        let crds_value =
+            CrdsValue::new_signed(CrdsData::AccountsHashes(accounts_hash), &keypair_owner);
+
+        let push_data = PushData::_new(&keypair_relay, vec![crds_value]);
+
+        let message = Protocol::PushMessage(pubkey_relay, push_data);
+
+        // Verify the message
+        let stats = GossipStats::default();
+        let verified_message = message.par_verify(&stats);
+
+        assert!(
+            verified_message.is_some(),
+            "PushMessage should be verified successfully"
+        );
     }
 }
