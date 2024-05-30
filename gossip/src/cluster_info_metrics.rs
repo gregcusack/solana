@@ -115,7 +115,7 @@ pub struct GossipStats {
     pub(crate) gossip_pull_request_verify_fail: Counter,
     pub(crate) gossip_pull_response_verify_fail: Counter,
     pub(crate) gossip_push_msg_verify_fail: Counter,
-    pub(crate) gossip_push_msg_signature_fail: Counter,
+    pub(crate) gossip_signed_push_msg_signature_fail: Counter,
     pub(crate) gossip_transmit_loop_iterations_since_last_report: Counter,
     pub(crate) gossip_transmit_loop_time: Counter,
     pub(crate) handle_batch_ping_messages_time: Counter,
@@ -597,8 +597,8 @@ pub(crate) fn submit_gossip_stats(
             i64
         ),
         (
-            "gossip_push_msg_signature_fail",
-            stats.gossip_push_msg_signature_fail.clear(),
+            "gossip_signed_push_msg_signature_fail",
+            stats.gossip_signed_push_msg_signature_fail.clear(),
             i64
         ),
         (

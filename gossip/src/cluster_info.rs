@@ -417,7 +417,7 @@ impl Protocol {
                         Some(Protocol::PushMessage(from, push_data))
                     }
                 } else {
-                    stats.gossip_pull_response_verify_fail.add_relaxed(1);
+                    stats.gossip_signed_push_msg_signature_fail.add_relaxed(1);
                     None
                 }
             }
