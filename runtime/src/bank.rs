@@ -193,6 +193,7 @@ use {
         path::PathBuf,
         rc::Rc,
         slice,
+        str::FromStr,
         sync::{
             atomic::{
                 AtomicBool, AtomicI64, AtomicU64, AtomicUsize,
@@ -4791,7 +4792,7 @@ impl Bank {
         let pre_account_state_info =
             self.get_transaction_account_state_info(&transaction_context, tx.message());
 
-        let log_collector = if enable_log_recording {
+        let log_collector = if true {
             match log_messages_bytes_limit {
                 None => Some(LogCollector::new_ref()),
                 Some(log_messages_bytes_limit) => Some(LogCollector::new_ref_with_limit(Some(
@@ -4867,6 +4868,10 @@ impl Bank {
                     .map(|log_collector| log_collector.into_inner().into_messages())
                     .ok()
             });
+
+        if format!("{:?}", tx.signature()).contains("[Signature as it appears in the Explorer]") {
+            println!("greg log: {}", log_messages.as_ref().unwrap().join("\n"));
+        }
 
         let inner_instructions = if enable_cpi_recording {
             Some(inner_instructions_list_from_instruction_trace(
@@ -6923,6 +6928,9 @@ impl Bank {
     /// Hash the `accounts` HashMap. This represents a validator's interpretation
     ///  of the delta of the ledger since the last vote and up to now
     fn hash_internal_state(&self) -> Hash {
+        if self.slot() == 505 {
+            println!("greg log: Account details: {:?}", self.get_account_with_fixed_root(&Pubkey::from_str("GQ8n6cxZ5awp9MhcniQS3LJ9ArCXAUUH19nVBUYWpzLv").unwrap()));
+        }
         let slot = self.slot();
         let ignore = (!self.is_partitioned_rewards_feature_enabled()
             && (self

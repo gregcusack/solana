@@ -141,6 +141,7 @@ name = "agave-ledger-tool"
 version = "1.18.14"
 dependencies = [
  "assert_cmd",
+ "base64 0.21.7",
  "bs58",
  "bytecount",
  "chrono",
@@ -180,6 +181,7 @@ dependencies = [
  "solana-transaction-status",
  "solana-unified-scheduler-pool",
  "solana-version",
+ "solana-vote",
  "solana-vote-program",
  "solana_rbpf",
  "thiserror",

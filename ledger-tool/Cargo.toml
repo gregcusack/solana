@@ -10,6 +10,7 @@ license = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+base64 = { workspace = true }
 bs58 = { workspace = true }
 chrono = { workspace = true, features = ["default"] }
 clap = { workspace = true }
@@ -47,6 +48,7 @@ solana-streamer = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-unified-scheduler-pool = { workspace = true }
 solana-version = { workspace = true }
+solana-vote = { workspace = true }
 solana-vote-program = { workspace = true }
 solana_rbpf = { workspace = true, features = ["debugger"] }
 thiserror = { workspace = true }
