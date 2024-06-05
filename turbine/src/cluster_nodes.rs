@@ -15,13 +15,7 @@ use {
     solana_ledger::shred::ShredId,
     solana_runtime::bank::Bank,
     solana_sdk::{
-        clock::{Epoch, Slot},
-        feature_set,
-        genesis_config::ClusterType,
-        native_token::LAMPORTS_PER_SOL,
-        pubkey::Pubkey,
-        signature::{Keypair, Signer},
-        timing::timestamp,
+        clock::{Epoch, Slot}, feature_set, genesis_config::ClusterType, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signature::{Keypair, Signer}, signers::Signers, timing::timestamp
     },
     solana_streamer::socket::SocketAddrSpace,
     std::{
@@ -123,12 +117,14 @@ impl<T> ClusterNodes<T> {
             }
             match node.contact_info().map(ContactInfo::wallclock) {
                 None => {
+                    info!("greg: dead node pubkey: {}", node.pubkey());
                     num_nodes_dead += 1;
                     stake_dead += node.stake;
                 }
                 Some(wallclock) => {
                     let age = now.saturating_sub(wallclock);
                     if age > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS {
+                        info!("greg1: stale node pubkey: {}", node.pubkey());
                         num_nodes_stale += 1;
                         stake_stale += node.stake;
                     }

@@ -86,6 +86,7 @@ pub struct Crds {
     // Mapping from nodes' pubkeys to their respective shred-version.
     shred_versions: HashMap<Pubkey, u16>,
     stats: Mutex<CrdsStats>,
+    last_dead_stale_check: u64,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -187,6 +188,7 @@ impl Default for Crds {
             purged: VecDeque::default(),
             shred_versions: HashMap::default(),
             stats: Mutex::<CrdsStats>::default(),
+            last_dead_stale_check: 0,
         }
     }
 }
@@ -233,6 +235,11 @@ impl Crds {
         now: u64,
         route: GossipRoute,
     ) -> Result<(), CrdsError> {
+        // if now >= self.last_dead_stale_check + 10_000 {
+        //     self.get_dead_stale_nodes();
+        //     // Update the last execution time
+        //     self.last_dead_stale_check = now;
+        // }
         let label = value.label();
         let pubkey = value.pubkey();
         let value = VersionedCrdsValue::new(value, self.cursor, now, route);
@@ -244,6 +251,7 @@ impl Crds {
                 self.shards.insert(entry_index, &value);
                 match &value.value.data {
                     CrdsData::ContactInfo(node) => {
+                        // info!("contactinfo success: pk: {}, ip: {:?}", node.pubkey(), node.addrs());
                         self.nodes.insert(entry_index);
                         self.shred_versions.insert(pubkey, node.shred_version());
                     }
@@ -271,6 +279,7 @@ impl Crds {
                 self.shards.insert(entry_index, &value);
                 match &value.value.data {
                     CrdsData::ContactInfo(node) => {
+                        // info!("contactinfo update: pk: {}, ip: {:?}", node.pubkey(), node.addrs());
                         self.shred_versions.insert(pubkey, node.shred_version());
                         // self.nodes does not need to be updated since the
                         // entry at this index was and stays contact-info.
@@ -307,6 +316,12 @@ impl Crds {
                     value.value.label(),
                     value.value.wallclock(),
                 );
+                // match &value.value.data {
+                //     CrdsData::ContactInfo(node) => {
+                //         info!("contactinfo fail: pk: {}, ip: {:?}", node.pubkey(), node.addrs());
+                //     }
+                //     _ => (),
+                // }
                 // Identify if the message is outdated (as opposed to
                 // duplicate) by comparing value hashes.
                 if entry.get().value_hash != value.value_hash {
@@ -338,6 +353,22 @@ impl Crds {
 
     pub(crate) fn get_shred_version(&self, pubkey: &Pubkey) -> Option<u16> {
         self.shred_versions.get(pubkey).copied()
+    }
+
+    pub(crate) fn get_dead_stale_nodes(&self) {
+        for node in self.get_nodes() {
+            match node.value.contact_info().map(ContactInfo::wallclock) {
+                None => {
+                    info!("greg: dead node pubkey: {}", node.value.pubkey());
+                }
+                Some(wallclock) => {
+                    let age = solana_sdk::timing::timestamp().saturating_sub(wallclock);
+                    if age > 15000 {
+                        info!("greg2: stale node pubkey: {}", node.value.pubkey());
+                    }
+                }
+            }
+        }
     }
 
     /// Returns all entries which are ContactInfo.

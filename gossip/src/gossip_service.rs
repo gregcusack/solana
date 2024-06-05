@@ -300,7 +300,8 @@ fn spy(
             met_criteria = true;
         }
         if i % 20 == 0 {
-            info!("discovering...\n{}", spy_ref.contact_info_trace());
+            // info!("discovering...\n{}", spy_ref.contact_info_trace());
+            error!("discovering...\n{}", spy_ref.contact_info_trace());
         }
         sleep(Duration::from_millis(
             crate::cluster_info::GOSSIP_SLEEP_MILLIS,

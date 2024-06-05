@@ -194,6 +194,10 @@ impl ContactInfo {
         }
     }
 
+    pub fn addrs(&self) -> &Vec<IpAddr> {
+        &self.addrs
+    }
+
     #[inline]
     pub fn pubkey(&self) -> &Pubkey {
         &self.pubkey

@@ -326,6 +326,42 @@ fn process_rpc_url(
 fn main() -> Result<(), Box<dyn error::Error>> {
     solana_logger::setup_with_default_filter();
 
+    // use std::collections::HashMap;
+    // use std::fs::File;
+    // use std::io::BufReader;
+    // use serde::Deserialize;
+
+    // #[derive(Deserialize)]
+    // struct StakeValidator {
+    //     identityPubkey: Pubkey,
+    //     activatedStake: u64,
+    // }
+
+    // #[derive(Deserialize)]
+    // struct Stakes {
+    //     validators: Vec<StakeValidator>,
+    // }
+
+    // let file = File::open("/home/sol/dev/solana/stakes.json")?;
+    // let reader = BufReader::new(file);
+
+    // // Parse the JSON data
+    // let stakes: Stakes = serde_json::from_reader(reader)?;
+
+    // // Create a HashMap to store the identityPubkey and activatedStake
+    // let mut stake_map: HashMap<String, u64> = HashMap::new();
+
+    // // Insert each validator's identityPubkey and activatedStake into the HashMap
+    // for validator in stakes.validators {
+    //     stake_map.insert(validator.identityPubkey, validator.activatedStake);
+    // }
+
+    // // Print the HashMap
+    // for (pubkey, stake) in &stake_map {
+    //     println!("Pubkey: {}, Stake: {}", pubkey, stake);
+    // }
+
+
     let matches = parse_matches();
     let socket_addr_space = SocketAddrSpace::new(matches.is_present("allow_private_addr"));
     match matches.subcommand() {

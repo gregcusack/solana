@@ -83,6 +83,7 @@ use {
     solana_vote::vote_parser,
     solana_vote_program::vote_state::MAX_LOCKOUT_HISTORY,
     std::{
+        cmp::Reverse,
         borrow::Cow,
         collections::{HashMap, HashSet, VecDeque},
         fmt::Debug,
@@ -146,6 +147,52 @@ const MIN_STAKE_FOR_GOSSIP: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 /// Minimum number of staked nodes for enforcing stakes in gossip.
 const MIN_NUM_STAKED_NODES: usize = 500;
 
+#[allow(clippy::large_enum_variant)]
+enum NodeId2 {
+    // TVU node obtained through gossip (staked or not).
+    ContactInfo(ContactInfo),
+    // Staked node with no contact-info in gossip table.
+    Pubkey(Pubkey),
+}
+
+pub struct Node2 {
+    node: NodeId2,
+    stake: u64,
+}
+
+impl Node2 {
+    #[inline]
+    fn pubkey(&self) -> Pubkey {
+        match &self.node {
+            NodeId2::Pubkey(pubkey) => *pubkey,
+            NodeId2::ContactInfo(node) => *node.pubkey(),
+        }
+    }
+
+    #[inline]
+    fn contact_info(&self) -> Option<&ContactInfo> {
+        match &self.node {
+            NodeId2::Pubkey(_) => None,
+            NodeId2::ContactInfo(node) => Some(node),
+        }
+    }
+}
+
+impl From<ContactInfo> for NodeId2 {
+    fn from(node: ContactInfo) -> Self {
+        NodeId2::ContactInfo(node)
+    }
+}
+
+impl From<Pubkey> for NodeId2 {
+    fn from(pubkey: Pubkey) -> Self {
+        NodeId2::Pubkey(pubkey)
+    }
+}
+
+// Limit number of nodes per IP address.
+const MAX_NUM_NODES_PER_IP_ADDRESS: usize = 10;
+
 // Must have at least one socket to monitor the TVU port
 // The unsafes are safe because we're using fixed, known non-zero values
 pub const MINIMUM_NUM_TVU_SOCKETS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(1) };
@@ -183,6 +230,7 @@ pub struct ClusterInfo {
     instance: RwLock<NodeInstance>,
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
+    last_dead_stale_check: u64,
 }
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
@@ -436,6 +484,7 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
+            last_dead_stale_check: 0,
         };
         me.insert_self();
         me.push_self();
@@ -797,11 +846,29 @@ impl ClusterInfo {
 
     pub fn contact_info_trace(&self) -> String {
         let now = timestamp();
+        /*
         let mut shred_spy_nodes = 0usize;
         let mut total_spy_nodes = 0usize;
         let mut different_shred_nodes = 0usize;
         let my_pubkey = self.id();
         let my_shred_version = self.my_shred_version();
+        */
+        let mut num_nodes = 0;
+        let mut num_nodes_stale = 0;
+        let mut stale_nodes = vec![];
+
+        for (node, _) in self.all_peers().iter() {
+            let age = now.saturating_sub(node.wallclock());
+
+            num_nodes += 1;
+            if age > 15000 {
+                num_nodes_stale += 1;
+                stale_nodes.push(node.pubkey().clone());
+            }
+        }
+        format!("{num_nodes} nodes total, {num_nodes_stale} nodes stale\nstale nodes:\n{}",
+            stale_nodes.into_iter().join("\n"))
+        /*
         let nodes: Vec<_> = self
             .all_peers()
             .into_iter()
@@ -871,6 +938,7 @@ impl ClusterInfo {
                 "".to_string()
             }
         )
+        */
     }
 
     // TODO: This has a race condition if called from more than one thread.
@@ -1654,7 +1722,7 @@ impl ClusterInfo {
             .add_relaxed(messages.len() as u64);
         messages
     }
-
+    
     // Generate new push and pull requests
     fn generate_new_gossip_requests(
         &self,
@@ -1709,8 +1777,7 @@ impl ClusterInfo {
                 recycler,
                 "run_gossip",
                 &reqs,
-            );
-            self.stats
+            );            self.stats
                 .packets_sent_gossip_requests_count
                 .add_relaxed(packet_batch.len() as u64);
             sender.send(packet_batch)?;
@@ -1718,7 +1785,88 @@ impl ClusterInfo {
         self.stats
             .gossip_transmit_loop_iterations_since_last_report
             .add_relaxed(1);
+        self.get_dead_stale_nodes_2(stakes);
         Ok(())
+    }
+
+    fn get_dead_stale_nodes_2(&self, stakes: &HashMap<Pubkey, u64>) {
+        let should_dedup_addrs = true;
+        let mut counts = {
+            let capacity = if should_dedup_addrs { stakes.len() } else { 0 };
+            HashMap::<IpAddr, usize>::with_capacity(capacity)
+        };
+        let nodes: Vec<Node2> =  std::iter::once({
+            let stake = stakes.get(&self.id()).copied().unwrap_or_default();
+            let node = NodeId2::from(self.my_contact_info());
+            Node2 { node, stake }
+        })
+        // All known tvu-peers from gossip.
+        .chain(self.tvu_peers().into_iter().map(|node| {
+            let stake = stakes.get(node.pubkey()).copied().unwrap_or_default();
+            let node = NodeId2::from(node);
+            Node2 { node, stake }
+        }))
+        // All staked nodes.
+        .chain(
+            stakes
+                .iter()
+                .filter(|(_, stake)| **stake > 0)
+                .map(|(&pubkey, &stake)| Node2 {
+                    node: NodeId2::from(pubkey),
+                    stake,
+                }),
+        )
+        .sorted_by_key(|node| Reverse((node.stake, node.pubkey())))
+        // Since sorted_by_key is stable, in case of duplicates, this
+        // will keep nodes with contact-info.
+        .dedup_by(|a, b| a.pubkey() == b.pubkey())
+        .filter_map(|node| {
+            if !should_dedup_addrs
+                || node
+                    .contact_info()
+                    .and_then(|node| node.tvu(contact_info::Protocol::UDP).ok())
+                    .map(|addr| {
+                        *counts
+                            .entry(addr.ip())
+                            .and_modify(|count| *count += 1)
+                            .or_insert(1)
+                    })
+                    <= Some(MAX_NUM_NODES_PER_IP_ADDRESS)
+            {
+                Some(node)
+            } else {
+                // If the node is not staked, drop it entirely. Otherwise, keep the
+                // pubkey for deterministic shuffle, but strip the contact-info so
+                // that no more packets are sent to this node.
+                (node.stake > 0u64).then(|| Node2 {
+                    node: NodeId2::from(node.pubkey()),
+                    stake: node.stake,
+                })
+            }
+        })
+        .collect();
+
+        let mut stale_count = 0;
+        let mut dead_count = 0;
+        for node in &nodes {
+            // if node.stake > 0 {
+            //     info!("node stake: {}", node.stake);
+            // }
+            match node.contact_info().map(ContactInfo::wallclock) {
+                None => {
+                    // info!("greg: dead node pubkey: {}", node.pubkey());
+                    dead_count += 1;
+                }
+                Some(wallclock) => {
+                    let age = solana_sdk::timing::timestamp().saturating_sub(wallclock);
+                    if age > 15_000 {
+                        // info!("greg: stale node pubkey: {}", node.pubkey());
+                        stale_count += 1;
+                    }
+                }
+            }
+        }
+        info!("nodes len: {}, dead: {dead_count}, stale: {stale_count}", nodes.len());
     }
 
     fn process_entrypoints(&self) -> bool {
