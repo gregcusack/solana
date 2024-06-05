@@ -346,7 +346,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         validators: Vec<StakeValidator>,
     }
 
-    let file = File::open("/home/sol/dev/solana/stakes.json")?;
+    let file = File::open("/home/sol/dev/solana/stakes2.json")?;
     let reader = BufReader::new(file);
 
     // Parse the JSON data
