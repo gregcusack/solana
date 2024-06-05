@@ -20,7 +20,7 @@ use {
     },
     solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
     std::{
-        collections::HashSet,
+        collections::{HashMap, HashSet},
         net::{SocketAddr, TcpListener, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -44,6 +44,7 @@ impl GossipService {
         should_check_duplicate_instance: bool,
         stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
         exit: Arc<AtomicBool>,
+        stake_map: Option<HashMap<Pubkey, u64>>,
     ) -> Self {
         let (request_sender, request_receiver) = unbounded();
         let gossip_socket = Arc::new(gossip_socket);
@@ -82,7 +83,7 @@ impl GossipService {
         let t_gossip =
             cluster_info
                 .clone()
-                .gossip(bank_forks, response_sender, gossip_validators, exit);
+                .gossip(bank_forks, response_sender, gossip_validators, exit, stake_map);
         let t_responder = streamer::responder(
             "Gossip",
             gossip_socket,
@@ -125,6 +126,7 @@ pub fn discover_cluster(
         None, // my_gossip_addr
         0,    // my_shred_version
         socket_addr_space,
+        None,
     )?;
     Ok(validators)
 }
@@ -139,6 +141,7 @@ pub fn discover(
     my_gossip_addr: Option<&SocketAddr>,
     my_shred_version: u16,
     socket_addr_space: SocketAddrSpace,
+    stake_map: Option<HashMap<Pubkey, u64>>,
 ) -> std::io::Result<(
     Vec<ContactInfo>, // all gossip peers
     Vec<ContactInfo>, // tvu peers (validators)
@@ -153,6 +156,7 @@ pub fn discover(
         my_shred_version,
         true, // should_check_duplicate_instance,
         socket_addr_space,
+        stake_map,
     );
 
     let id = spy_ref.id();
@@ -321,6 +325,7 @@ pub fn make_gossip_node(
     shred_version: u16,
     should_check_duplicate_instance: bool,
     socket_addr_space: SocketAddrSpace,
+    stake_map: Option<HashMap<Pubkey, u64>>,
 ) -> (GossipService, Option<TcpListener>, Arc<ClusterInfo>) {
     let (node, gossip_socket, ip_echo) = if let Some(gossip_addr) = gossip_addr {
         ClusterInfo::gossip_node(keypair.pubkey(), gossip_addr, shred_version)
@@ -340,6 +345,7 @@ pub fn make_gossip_node(
         should_check_duplicate_instance,
         None,
         exit,
+        stake_map,
     );
     (gossip_service, ip_echo, cluster_info)
 }
@@ -375,6 +381,7 @@ mod tests {
             true, // should_check_duplicate_instance
             None,
             exit.clone(),
+            None,
         );
         exit.store(true, Ordering::Relaxed);
         d.join().unwrap();

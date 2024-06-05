@@ -546,6 +546,7 @@ pub fn start_gossip_voter(
         0,
         false,
         SocketAddrSpace::Unspecified,
+        None,
     );
 
     // Wait for peer discovery

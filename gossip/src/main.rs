@@ -18,6 +18,8 @@ use {
         net::{IpAddr, Ipv4Addr, SocketAddr},
         process::exit,
         time::Duration,
+        str::FromStr,
+        collections::HashMap,
     },
 };
 
@@ -212,7 +214,7 @@ fn process_spy_results(
     }
 }
 
-fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std::io::Result<()> {
+fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace, stake_map: &HashMap<Pubkey, u64>) -> std::io::Result<()> {
     let num_nodes_exactly = matches
         .value_of("num_nodes_exactly")
         .map(|num| num.to_string().parse().unwrap());
@@ -252,6 +254,7 @@ fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std:
         Some(&gossip_addr), // my_gossip_addr
         shred_version,
         socket_addr_space,
+        Some(stake_map.clone()),
     )?;
 
     process_spy_results(
@@ -293,6 +296,7 @@ fn process_rpc_url(
         None,                     // my_gossip_addr
         shred_version,
         socket_addr_space,
+        None,
     )?;
 
     let rpc_addrs: Vec<_> = validators
@@ -326,37 +330,38 @@ fn process_rpc_url(
 fn main() -> Result<(), Box<dyn error::Error>> {
     solana_logger::setup_with_default_filter();
 
-    // use std::collections::HashMap;
-    // use std::fs::File;
-    // use std::io::BufReader;
-    // use serde::Deserialize;
+    use std::collections::HashMap;
+    use std::fs::File;
+    use std::io::BufReader;
+    use serde::Deserialize;
 
-    // #[derive(Deserialize)]
-    // struct StakeValidator {
-    //     identityPubkey: Pubkey,
-    //     activatedStake: u64,
-    // }
+    #[derive(Deserialize)]
+    struct StakeValidator {
+        identityPubkey: String,
+        activatedStake: u64,
+    }
 
-    // #[derive(Deserialize)]
-    // struct Stakes {
-    //     validators: Vec<StakeValidator>,
-    // }
+    #[derive(Deserialize)]
+    struct Stakes {
+        validators: Vec<StakeValidator>,
+    }
 
-    // let file = File::open("/home/sol/dev/solana/stakes.json")?;
-    // let reader = BufReader::new(file);
+    let file = File::open("/home/sol/dev/solana/stakes.json")?;
+    let reader = BufReader::new(file);
 
-    // // Parse the JSON data
-    // let stakes: Stakes = serde_json::from_reader(reader)?;
+    // Parse the JSON data
+    let stakes: Stakes = serde_json::from_reader(reader)?;
 
-    // // Create a HashMap to store the identityPubkey and activatedStake
-    // let mut stake_map: HashMap<String, u64> = HashMap::new();
+    // Create a HashMap to store the identityPubkey and activatedStake
+    let mut stake_map: HashMap<Pubkey, u64> = HashMap::new();
 
-    // // Insert each validator's identityPubkey and activatedStake into the HashMap
-    // for validator in stakes.validators {
-    //     stake_map.insert(validator.identityPubkey, validator.activatedStake);
-    // }
+    // Insert each validator's identityPubkey and activatedStake into the HashMap
+    for validator in stakes.validators {
+        let pubkey = Pubkey::from_str(&validator.identityPubkey).unwrap();
+        stake_map.insert(pubkey, validator.activatedStake);
+    }
 
-    // // Print the HashMap
+    // Print the HashMap
     // for (pubkey, stake) in &stake_map {
     //     println!("Pubkey: {}, Stake: {}", pubkey, stake);
     // }
@@ -366,7 +371,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let socket_addr_space = SocketAddrSpace::new(matches.is_present("allow_private_addr"));
     match matches.subcommand() {
         ("spy", Some(matches)) => {
-            process_spy(matches, socket_addr_space)?;
+            process_spy(matches, socket_addr_space, &stake_map)?;
         }
         ("rpc-url", Some(matches)) => {
             process_rpc_url(matches, socket_addr_space)?;

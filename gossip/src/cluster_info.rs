@@ -148,6 +148,7 @@ const MIN_STAKE_FOR_GOSSIP: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 const MIN_NUM_STAKED_NODES: usize = 500;
 
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 enum NodeId2 {
     // TVU node obtained through gossip (staked or not).
     ContactInfo(ContactInfo),
@@ -155,9 +156,25 @@ enum NodeId2 {
     Pubkey(Pubkey),
 }
 
+impl std::fmt::Display for NodeId2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeId2::ContactInfo(contact_info) => write!(f, "{}", contact_info.pubkey()),
+            NodeId2::Pubkey(pubkey) => write!(f, "{}", pubkey),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Node2 {
     node: NodeId2,
     stake: u64,
+}
+
+impl std::fmt::Display for Node2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Node: {}, Stake: {}", self.node, self.stake)
+    }
 }
 
 impl Node2 {
@@ -1764,6 +1781,7 @@ impl ClusterInfo {
         stakes: &HashMap<Pubkey, u64>,
         sender: &PacketBatchSender,
         generate_pull_requests: bool,
+        stake_map: Option<HashMap<Pubkey, u64>>,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_transmit_loop_time);
         let reqs = self.generate_new_gossip_requests(
@@ -1785,17 +1803,19 @@ impl ClusterInfo {
         self.stats
             .gossip_transmit_loop_iterations_since_last_report
             .add_relaxed(1);
-        self.get_dead_stale_nodes_2(stakes);
+        self.get_dead_stale_nodes_2(&stake_map.unwrap());
         Ok(())
     }
 
     fn get_dead_stale_nodes_2(&self, stakes: &HashMap<Pubkey, u64>) {
+        // let mut stakes = stakes.clone();
+        // stakes.clear();
         let should_dedup_addrs = true;
         let mut counts = {
             let capacity = if should_dedup_addrs { stakes.len() } else { 0 };
             HashMap::<IpAddr, usize>::with_capacity(capacity)
         };
-        let nodes: Vec<Node2> =  std::iter::once({
+        let n: Vec<Node2> =  std::iter::once({
             let stake = stakes.get(&self.id()).copied().unwrap_or_default();
             let node = NodeId2::from(self.my_contact_info());
             Node2 { node, stake }
@@ -1803,48 +1823,86 @@ impl ClusterInfo {
         // All known tvu-peers from gossip.
         .chain(self.tvu_peers().into_iter().map(|node| {
             let stake = stakes.get(node.pubkey()).copied().unwrap_or_default();
+            // info!("bruh: {}", node.pubkey());
             let node = NodeId2::from(node);
             Node2 { node, stake }
         }))
-        // All staked nodes.
-        .chain(
-            stakes
-                .iter()
-                .filter(|(_, stake)| **stake > 0)
-                .map(|(&pubkey, &stake)| Node2 {
-                    node: NodeId2::from(pubkey),
-                    stake,
-                }),
-        )
-        .sorted_by_key(|node| Reverse((node.stake, node.pubkey())))
-        // Since sorted_by_key is stable, in case of duplicates, this
-        // will keep nodes with contact-info.
-        .dedup_by(|a, b| a.pubkey() == b.pubkey())
-        .filter_map(|node| {
-            if !should_dedup_addrs
-                || node
-                    .contact_info()
-                    .and_then(|node| node.tvu(contact_info::Protocol::UDP).ok())
-                    .map(|addr| {
-                        *counts
-                            .entry(addr.ip())
-                            .and_modify(|count| *count += 1)
-                            .or_insert(1)
-                    })
-                    <= Some(MAX_NUM_NODES_PER_IP_ADDRESS)
-            {
-                Some(node)
-            } else {
-                // If the node is not staked, drop it entirely. Otherwise, keep the
-                // pubkey for deterministic shuffle, but strip the contact-info so
-                // that no more packets are sent to this node.
-                (node.stake > 0u64).then(|| Node2 {
-                    node: NodeId2::from(node.pubkey()),
-                    stake: node.stake,
-                })
-            }
-        })
         .collect();
+
+        let node_stakes: Vec<Node2> = stakes
+            .iter()
+            .filter(|(_, stake)| **stake > 0)
+            .map(|(&pubkey, &stake)| Node2 {
+                node: NodeId2::from(pubkey),
+                stake,
+            })
+            .sorted_by_key(|node| Reverse((node.stake, node.pubkey())))
+            .collect();
+        // All staked nodes.
+        // .chain(
+        //     stakes
+        //         .iter()
+        //         .filter(|(_, stake)| **stake > 0)
+        //         .map(|(&pubkey, &stake)| Node2 {
+        //             node: NodeId2::from(pubkey),
+        //             stake,
+        //         }),
+        // )
+        // .sorted_by_key(|node| Reverse((node.stake, node.pubkey())))
+        // .collect();
+        info!("nodes from gossip. len: {}", n.len());
+        info!("nodes from stakes. len: {}", node_stakes.len());
+        info!("gossip nodes");
+        for node in n.iter() {
+            info!("{node}");
+        }
+        info!("staked nodes");
+        for node in node_stakes.iter() {
+            info!("{node}");
+        }
+
+        let n: Vec<Node2> = n.into_iter().chain(node_stakes).collect();
+
+        // info!("nodes pre dedup");
+        // for node in n.iter() {
+        //     info!("{node}");
+        // }
+        info!("nodes pre dedup len: {}", n.len());
+
+        let n: Vec<Node2> = n.into_iter().dedup_by(|a, b| a.pubkey() == b.pubkey()).collect();
+        info!("nodes post dedup len: {}", n.len());
+
+
+        let mut nodes = n
+            .into_iter()
+            // Since sorted_by_key is stable, in case of duplicates, this
+            // will keep nodes with contact-info.
+            .dedup_by(|a, b| a.pubkey() == b.pubkey())
+            .filter_map(|node| {
+                if !should_dedup_addrs
+                    || node
+                        .contact_info()
+                        .and_then(|node| node.tvu(contact_info::Protocol::UDP).ok())
+                        .map(|addr| {
+                            *counts
+                                .entry(addr.ip())
+                                .and_modify(|count| *count += 1)
+                                .or_insert(1)
+                        })
+                        <= Some(MAX_NUM_NODES_PER_IP_ADDRESS)
+                {
+                    Some(node)
+                } else {
+                    // If the node is not staked, drop it entirely. Otherwise, keep the
+                    // pubkey for deterministic shuffle, but strip the contact-info so
+                    // that no more packets are sent to this node.
+                    (node.stake > 0u64).then(|| Node2 {
+                        node: NodeId2::from(node.pubkey()),
+                        stake: node.stake,
+                    })
+                }
+            })
+            .collect::<Vec<Node2>>();
 
         let mut stale_count = 0;
         let mut dead_count = 0;
@@ -1969,6 +2027,7 @@ impl ClusterInfo {
         sender: PacketBatchSender,
         gossip_validators: Option<HashSet<Pubkey>>,
         exit: Arc<AtomicBool>,
+        stake_map: Option<HashMap<Pubkey, u64>>,
     ) -> JoinHandle<()> {
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(std::cmp::min(get_thread_count(), 8))
@@ -2032,6 +2091,7 @@ impl ClusterInfo {
                         &stakes,
                         &sender,
                         generate_pull_requests,
+                        stake_map.clone(),
                     );
                     if exit.load(Ordering::Relaxed) {
                         return;

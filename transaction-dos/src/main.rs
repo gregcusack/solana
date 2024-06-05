@@ -603,6 +603,7 @@ fn main() {
             None,                    // my_gossip_addr
             0,                       // my_shred_version
             SocketAddrSpace::Unspecified,
+            None,
         )
         .unwrap_or_else(|err| {
             eprintln!("Failed to discover {entrypoint_addr} node: {err:?}");
