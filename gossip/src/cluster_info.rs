@@ -804,6 +804,54 @@ impl ClusterInfo {
         let mut different_shred_nodes = 0usize;
         let my_pubkey = self.id();
         let my_shred_version = self.my_shred_version();
+        // */
+        let mut num_nodes = 0;
+        let mut num_nodes_stale = 0;
+        let mut stale_nodes = vec![];
+
+        for (node, _) in self.all_peers().iter() {
+            let age = now.saturating_sub(node.wallclock());
+
+            num_nodes += 1;
+            if age > 15000 {
+                num_nodes_stale += 1;
+                stale_nodes.push(node.pubkey().clone());
+            }
+        }
+        let mut version_map: HashMap<String, u64>= HashMap::default();
+        info!("all observed nodes");
+        for (contact_info, _) in self.all_peers().iter() {
+            let version = match self.get_node_version(&contact_info.pubkey()) {
+                Some(v) => v.to_string(),
+                None => "unknown".to_string(),
+            };
+            // let version = self.get_node_version(&contact_info.pubkey()).unwrap().to_string();
+            // let version = contact_info.version().to_string();
+            *version_map.entry(version).or_insert(0) += 1;
+        }
+
+        // format!("{num_nodes} nodes total, {num_nodes_stale} nodes stale\nstale nodes:\n{}",
+        //     stale_nodes.into_iter().join("\n"))
+
+        // version_map.iter()
+        //     .map(|(version, count)| format!("Version: {}, Count: {}", version.to_string(), count))
+        //     .collect::<Vec<_>>()
+        //     .join("\n")
+
+        let mut sorted_versions: Vec<_> = version_map.iter().collect();
+        sorted_versions.sort_by(|a, b| b.1.cmp(a.1));
+
+        let res = sorted_versions.iter()
+            .map(|(version, count)| format!("Version: {}, Count: {}", version.to_string(), count))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!("Total nodes: {num_nodes}\nNode versions:\n{res}")
+
+        // format!("{num_nodes} nodes total, {num_nodes_stale} nodes stale\nstale nodes:\n{:?}",
+        //     version_map.into_iter().join("\n"))
+        
+        /*
         let nodes: Vec<_> = self
             .all_peers()
             .into_iter()
@@ -873,6 +921,7 @@ impl ClusterInfo {
                 "".to_string()
             }
         )
+        */
     }
 
     // TODO: This has a race condition if called from more than one thread.
