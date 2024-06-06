@@ -883,9 +883,34 @@ impl ClusterInfo {
                 stale_nodes.push(node.pubkey().clone());
             }
         }
-        "".to_string()
+        let mut version_map: HashMap<String, u64>= HashMap::default();
+        info!("all observed nodes");
+        for (contact_info, _) in self.all_peers().iter() {
+            let version = contact_info.version().to_string();
+            *version_map.entry(version).or_insert(0) += 1;
+        }
+
         // format!("{num_nodes} nodes total, {num_nodes_stale} nodes stale\nstale nodes:\n{}",
         //     stale_nodes.into_iter().join("\n"))
+
+        // version_map.iter()
+        //     .map(|(version, count)| format!("Version: {}, Count: {}", version.to_string(), count))
+        //     .collect::<Vec<_>>()
+        //     .join("\n")
+
+        let mut sorted_versions: Vec<_> = version_map.iter().collect();
+        sorted_versions.sort_by(|a, b| b.1.cmp(a.1));
+
+        let res = sorted_versions.iter()
+            .map(|(version, count)| format!("Version: {}, Count: {}", version.to_string(), count))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!("Total nodes: {num_nodes}\nNode versions:\n{res}")
+
+        // format!("{num_nodes} nodes total, {num_nodes_stale} nodes stale\nstale nodes:\n{:?}",
+        //     version_map.into_iter().join("\n"))
+        
         /*
         let nodes: Vec<_> = self
             .all_peers()
@@ -1804,191 +1829,102 @@ impl ClusterInfo {
         self.stats
             .gossip_transmit_loop_iterations_since_last_report
             .add_relaxed(1);
-        self.get_dead_stale_nodes_2(&stake_map.unwrap());
+        // self.get_dead_stale_nodes_2(&stake_map.unwrap());
         Ok(())
     }
 
-    fn get_dead_stale_nodes_2(&self, stakes: &HashMap<Pubkey, u64>) {
-        // let mut stakes = stakes.clone();
-        // stakes.clear();
-        let should_dedup_addrs = true;
-        let mut counts = {
-            let capacity = if should_dedup_addrs { stakes.len() } else { 0 };
-            HashMap::<IpAddr, usize>::with_capacity(capacity)
-        };
-        let nodes_all: Vec<Node2> =  std::iter::once({
-                let stake = stakes.get(&self.id()).copied().unwrap_or_default();
-                let node = NodeId2::from(self.my_contact_info());
-                Node2 { node, stake }
-            })
-            // All known tvu-peers from gossip.
-            .chain(self.tvu_peers().into_iter().map(|node| {
-                let stake = stakes.get(node.pubkey()).copied().unwrap_or_default();
-                // info!("bruh: {}", node.pubkey());
-                let node = NodeId2::from(node);
-                Node2 { node, stake }
-            }))
-            .chain(
-                stakes
-                .iter()
-                .filter(|(_, stake)| **stake > 0)
-                .map(|(&pubkey, &stake)| Node2 {
-                    node: NodeId2::from(pubkey),
-                    stake,
-                })
-            )
-            .sorted_by_key(|node| Reverse((node.stake, node.pubkey())))
-            // Since sorted_by_key is stable, in case of duplicates, this
-            // will keep nodes with contact-info.
-            .dedup_by(|a, b| a.pubkey() == b.pubkey())
-            .filter_map(|node| {
-                if !should_dedup_addrs
-                    || node
-                        .contact_info()
-                        .and_then(|node| node.tvu(contact_info::Protocol::UDP).ok())
-                        .map(|addr| {
-                            *counts
-                                .entry(addr.ip())
-                                .and_modify(|count| *count += 1)
-                                .or_insert(1)
-                        })
-                        <= Some(MAX_NUM_NODES_PER_IP_ADDRESS)
-                {
-                    Some(node)
-                } else {
-                    // If the node is not staked, drop it entirely. Otherwise, keep the
-                    // pubkey for deterministic shuffle, but strip the contact-info so
-                    // that no more packets are sent to this node.
-                    (node.stake > 0u64).then(|| Node2 {
-                        node: NodeId2::from(node.pubkey()),
-                        stake: node.stake,
-                    })
-                }
-            })
-            .collect();
+    // fn get_dead_stale_nodes_2(&self, stakes: &HashMap<Pubkey, u64>) {
+    //     // let mut stakes = stakes.clone();
+    //     // stakes.clear();
+    //     let should_dedup_addrs = true;
+    //     let mut counts = {
+    //         let capacity = if should_dedup_addrs { stakes.len() } else { 0 };
+    //         HashMap::<IpAddr, usize>::with_capacity(capacity)
+    //     };
+    //     let nodes_all: Vec<Node2> =  std::iter::once({
+    //             let stake = stakes.get(&self.id()).copied().unwrap_or_default();
+    //             let node = NodeId2::from(self.my_contact_info());
+    //             Node2 { node, stake }
+    //         })
+    //         // All known tvu-peers from gossip.
+    //         .chain(self.tvu_peers().into_iter().map(|node| {
+    //             let stake = stakes.get(node.pubkey()).copied().unwrap_or_default();
+    //             // info!("bruh: {}", node.pubkey());
+    //             let node = NodeId2::from(node);
+    //             Node2 { node, stake }
+    //         }))
+    //         .chain(
+    //             stakes
+    //             .iter()
+    //             .filter(|(_, stake)| **stake > 0)
+    //             .map(|(&pubkey, &stake)| Node2 {
+    //                 node: NodeId2::from(pubkey),
+    //                 stake,
+    //             })
+    //         )
+    //         .sorted_by_key(|node| Reverse((node.stake, node.pubkey())))
+    //         // Since sorted_by_key is stable, in case of duplicates, this
+    //         // will keep nodes with contact-info.
+    //         .dedup_by(|a, b| a.pubkey() == b.pubkey())
+    //         .filter_map(|node| {
+    //             if !should_dedup_addrs
+    //                 || node
+    //                     .contact_info()
+    //                     .and_then(|node| node.tvu(contact_info::Protocol::UDP).ok())
+    //                     .map(|addr| {
+    //                         *counts
+    //                             .entry(addr.ip())
+    //                             .and_modify(|count| *count += 1)
+    //                             .or_insert(1)
+    //                     })
+    //                     <= Some(MAX_NUM_NODES_PER_IP_ADDRESS)
+    //             {
+    //                 Some(node)
+    //             } else {
+    //                 // If the node is not staked, drop it entirely. Otherwise, keep the
+    //                 // pubkey for deterministic shuffle, but strip the contact-info so
+    //                 // that no more packets are sent to this node.
+    //                 (node.stake > 0u64).then(|| Node2 {
+    //                     node: NodeId2::from(node.pubkey()),
+    //                     stake: node.stake,
+    //                 })
+    //             }
+    //         })
+    //         .collect();
 
-
-        // let n: Vec<Node2> =  std::iter::once({
-        //     let stake = stakes.get(&self.id()).copied().unwrap_or_default();
-        //     let node = NodeId2::from(self.my_contact_info());
-        //     Node2 { node, stake }
-        // })
-        // // All known tvu-peers from gossip.
-        // .chain(self.tvu_peers().into_iter().map(|node| {
-        //     let stake = stakes.get(node.pubkey()).copied().unwrap_or_default();
-        //     // info!("bruh: {}", node.pubkey());
-        //     let node = NodeId2::from(node);
-        //     Node2 { node, stake }
-        // }))
-        // .collect();
-
-        // let node_stakes: Vec<Node2> = stakes
-        //     .iter()
-        //     .filter(|(_, stake)| **stake > 0)
-        //     .map(|(&pubkey, &stake)| Node2 {
-        //         node: NodeId2::from(pubkey),
-        //         stake,
-        //     })
-        //     .sorted_by_key(|node| Reverse((node.stake, node.pubkey())))
-        //     .collect();
-        // // All staked nodes.
-        // // .chain(
-        // //     stakes
-        // //         .iter()
-        // //         .filter(|(_, stake)| **stake > 0)
-        // //         .map(|(&pubkey, &stake)| Node2 {
-        // //             node: NodeId2::from(pubkey),
-        // //             stake,
-        // //         }),
-        // // )
-        // // .sorted_by_key(|node| Reverse((node.stake, node.pubkey())))
-        // // .collect();
-        // info!("nodes from gossip. len: {}", n.len());
-        // info!("nodes from stakes. len: {}", node_stakes.len());
-        // // info!("gossip nodes");
-        // // for node in n.iter() {
-        // //     info!("{node}");
-        // // }
-        // // info!("staked nodes");
-        // // for node in node_stakes.iter() {
-        // //     info!("{node}");
-        // // }
-
-        // let n: Vec<Node2> = n.into_iter().chain(node_stakes).collect();
-
-        // let n: Vec<Node2> = n.into_iter().sorted_by_key(|node| Reverse((node.stake, node.pubkey()))).collect();
-        // info!("sorted chained nodes. len: {}", n.len());
-        // // for node in n.iter() {
-        // //     info!("{node}");
-        // // }
-        // // info!("nodes pre dedup");
-        // // for node in n.iter() {
-        // //     info!("{node}");
-        // // }
-        // info!("nodes pre dedup len: {}", n.len());
-
-        // let n: Vec<Node2> = n.into_iter().dedup_by(|a, b| a.pubkey() == b.pubkey()).collect();
-        // info!("nodes post dedup len: {}", n.len());
-
-
-        // let mut nodes = n
-        //     .into_iter()
-        //     // Since sorted_by_key is stable, in case of duplicates, this
-        //     // will keep nodes with contact-info.
-        //     .dedup_by(|a, b| a.pubkey() == b.pubkey())
-        //     .filter_map(|node| {
-        //         if !should_dedup_addrs
-        //             || node
-        //                 .contact_info()
-        //                 .and_then(|node| node.tvu(contact_info::Protocol::UDP).ok())
-        //                 .map(|addr| {
-        //                     *counts
-        //                         .entry(addr.ip())
-        //                         .and_modify(|count| *count += 1)
-        //                         .or_insert(1)
-        //                 })
-        //                 <= Some(MAX_NUM_NODES_PER_IP_ADDRESS)
-        //         {
-        //             Some(node)
-        //         } else {
-        //             // If the node is not staked, drop it entirely. Otherwise, keep the
-        //             // pubkey for deterministic shuffle, but strip the contact-info so
-        //             // that no more packets are sent to this node.
-        //             (node.stake > 0u64).then(|| Node2 {
-        //                 node: NodeId2::from(node.pubkey()),
-        //                 stake: node.stake,
-        //             })
+    //     let mut stale_count = 0;
+    //     let mut dead_count = 0;
+    //     let mut stale_nodes = vec![];
+    //     let mut dead_nodes = vec![];
+    //     for node in &nodes_all {
+    //         match node.contact_info().map(ContactInfo::wallclock) {
+    //             None => {
+    //                 // info!("greg: dead node pubkey: {}", node.pubkey());
+    //                 dead_nodes.push(node.pubkey());
+    //                 dead_count += 1;
+    //             }
+    //             Some(wallclock) => {
+    //                 let age = solana_sdk::timing::timestamp().saturating_sub(wallclock);
+    //                 if age > 15_000 {
+    //                     stale_nodes.push(node.pubkey());
+    //                     // info!("greg: stale node pubkey: {}", node.pubkey());
+    //                     stale_count += 1;
+    //                 }
+    //             }
+    //         }
+    //     }
+        // info!("all observed nodes: {}")
+        // for node in nodes_all.iter() {
+        //     match node.contact_info().map(ContactInfo::version) {
+        //         None => info!("no version for: {}", node.pubkey()),
+        //         Some(version) => {
+        //             info!("pk: {}, version: {}", node.pubkey(), version);
         //         }
-        //     })
-        //     .collect::<Vec<Node2>>();
-
-        let mut stale_count = 0;
-        let mut dead_count = 0;
-        let mut stale_nodes = vec![];
-        let mut dead_nodes = vec![];
-        for node in &nodes_all {
-            // if node.stake > 0 {
-            //     info!("node stake: {}", node.stake);
-            // }
-            match node.contact_info().map(ContactInfo::wallclock) {
-                None => {
-                    // info!("greg: dead node pubkey: {}", node.pubkey());
-                    dead_nodes.push(node.pubkey());
-                    dead_count += 1;
-                }
-                Some(wallclock) => {
-                    let age = solana_sdk::timing::timestamp().saturating_sub(wallclock);
-                    if age > 15_000 {
-                        stale_nodes.push(node.pubkey());
-                        // info!("greg: stale node pubkey: {}", node.pubkey());
-                        stale_count += 1;
-                    }
-                }
-            }
-        }
-        info!("nodes len: {}, dead: {dead_count}, stale: {stale_count}", nodes_all.len());
-        info!("stale nodes: {}", stale_nodes.into_iter().join("\n"));
-        info!("dead nodes: {}", dead_nodes.into_iter().join("\n"));
+        //     }
+        // }
+        // info!("nodes len: {}, dead: {dead_count}, stale: {stale_count}", nodes_all.len());
+        // info!("stale nodes: {}", stale_nodes.into_iter().join("\n"));
+        // info!("dead nodes: {}", dead_nodes.into_iter().join("\n"));
     }
 
     fn process_entrypoints(&self) -> bool {

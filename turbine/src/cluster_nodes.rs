@@ -117,14 +117,12 @@ impl<T> ClusterNodes<T> {
             }
             match node.contact_info().map(ContactInfo::wallclock) {
                 None => {
-                    info!("greg: dead node pubkey: {}", node.pubkey());
                     num_nodes_dead += 1;
                     stake_dead += node.stake;
                 }
                 Some(wallclock) => {
                     let age = now.saturating_sub(wallclock);
                     if age > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS {
-                        info!("greg1: stale node pubkey: {}", node.pubkey());
                         num_nodes_stale += 1;
                         stake_stale += node.stake;
                     }

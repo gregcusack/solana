@@ -103,7 +103,6 @@ impl VoteAccounts {
                         .values()
                         .filter(|(stake, _)| *stake != 0u64)
                         .filter_map(|(stake, vote_account)| {
-                            println!("greg stake: {stake}");
                             Some((vote_account.node_pubkey()?, stake))
                         })
                         .into_grouping_map()
