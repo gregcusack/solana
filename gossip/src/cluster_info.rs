@@ -820,6 +820,7 @@ impl ClusterInfo {
                 stale_nodes.push(node.pubkey().clone());
             }
         }
+        let mut key_to_version_list: Vec<(Pubkey, String)> = Vec::default();
         let mut version_map: HashMap<String, u64>= HashMap::default();
         info!("all observed nodes");
         for (contact_info, _) in self.all_peers().iter() {
@@ -829,7 +830,8 @@ impl ClusterInfo {
             };
             // let version = self.get_node_version(&contact_info.pubkey()).unwrap().to_string();
             // let version = contact_info.version().to_string();
-            *version_map.entry(version).or_insert(0) += 1;
+            *version_map.entry(version.clone()).or_insert(0) += 1;
+            key_to_version_list.push((*contact_info.pubkey(), version));
         }
 
         // format!("{num_nodes} nodes total, {num_nodes_stale} nodes stale\nstale nodes:\n{}",
@@ -848,7 +850,13 @@ impl ClusterInfo {
             .collect::<Vec<_>>()
             .join("\n");
 
-        format!("Total nodes: {num_nodes}\nNode versions:\n{res}")
+        let key_version_str = key_to_version_list
+            .into_iter()
+            .map(|(pubkey, version)| format!("Pubkey: {}, Version: {}", pubkey, version))
+            .join("\n");
+
+        format!("Total nodes: {num_nodes}\nNode versions:\n{res}\nhost_ids_and_versions:\n{key_version_str}")
+
 
         // format!("{num_nodes} nodes total, {num_nodes_stale} nodes stale\nstale nodes:\n{:?}",
         //     version_map.into_iter().join("\n"))
