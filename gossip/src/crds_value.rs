@@ -673,6 +673,13 @@ impl CrdsValue {
         }
     }
 
+    pub(crate) fn legacy_contact_info(&self) -> Option<&LegacyContactInfo> {
+        match &self.data {
+            CrdsData::LegacyContactInfo(contact_info) => Some(contact_info),
+            _ => None,
+        }
+    }
+
     pub(crate) fn epoch_slots(&self) -> Option<&EpochSlots> {
         match &self.data {
             CrdsData::EpochSlots(_, slots) => Some(slots),

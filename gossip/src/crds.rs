@@ -71,6 +71,7 @@ pub struct Crds {
     cursor: Cursor, // Next insert ordinal location.
     shards: CrdsShards,
     nodes: IndexSet<usize>, // Indices of nodes' ContactInfo.
+    nodes_lci: IndexSet<usize>,
     // Indices of Votes keyed by insert order.
     votes: BTreeMap<u64 /*insert order*/, usize /*index*/>,
     // Indices of EpochSlots keyed by insert order.
@@ -179,6 +180,7 @@ impl Default for Crds {
             cursor: Cursor::default(),
             shards: CrdsShards::new(CRDS_SHARDS_BITS),
             nodes: IndexSet::default(),
+            nodes_lci: IndexSet::default(),
             votes: BTreeMap::default(),
             epoch_slots: BTreeMap::default(),
             duplicate_shreds: BTreeMap::default(),
@@ -255,6 +257,9 @@ impl Crds {
                     }
                     CrdsData::DuplicateShred(_, _) => {
                         self.duplicate_shreds.insert(value.ordinal, entry_index);
+                    }
+                    CrdsData::LegacyContactInfo(_) => {
+                        self.nodes_lci.insert(entry_index);
                     }
                     _ => (),
                 };
@@ -343,6 +348,10 @@ impl Crds {
     /// Returns all entries which are ContactInfo.
     pub(crate) fn get_nodes(&self) -> impl Iterator<Item = &VersionedCrdsValue> {
         self.nodes.iter().map(move |i| self.table.index(*i))
+    }
+
+    pub(crate) fn get_nodes_lci(&self) -> impl Iterator<Item = &VersionedCrdsValue> {
+        self.nodes_lci.iter().map(move |i| self.table.index(*i))
     }
 
     /// Returns ContactInfo of all known nodes.
