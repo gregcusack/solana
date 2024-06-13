@@ -844,12 +844,14 @@ impl ClusterInfo {
         sorted_versions.sort_by(|a, b| b.1.cmp(a.1));
 
         let res = sorted_versions.iter()
+            // .filter(|(version, _)| version.to_string() == "unknown")
             .map(|(version, count)| format!("Version: {}, Count: {}", version.to_string(), count))
             .collect::<Vec<_>>()
             .join("\n");
 
         let key_version_str = key_to_version_list
             .into_iter()
+            .filter(|(_, version)| version.to_string() == "unknown")
             .map(|(pubkey, version)| format!("Pubkey: {}, Version: {}", pubkey, version))
             .join("\n");
 
