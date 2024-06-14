@@ -3302,16 +3302,27 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
     pings: &mut Vec<(SocketAddr, Protocol /* ::PingMessage */)>,
 ) -> bool {
     let (pubkey, addr) = match &value.data {
-        CrdsData::ContactInfo(node) => (node.pubkey(), node.gossip()),
-        CrdsData::LegacyContactInfo(node) => (node.pubkey(), node.gossip()),
+        CrdsData::ContactInfo(node) => {
+            info!("greg CI pk: {}, addr: {:?}", node.pubkey(), node.gossip());
+            (node.pubkey(), node.gossip())
+        },
+        CrdsData::LegacyContactInfo(node) => {
+            info!("greg LCI pk: {}, addr: {:?}", node.pubkey(), node.gossip());
+            (node.pubkey(), node.gossip())
+        },
         _ => return true, // If not a contact-info, nothing to verify.
     };
     // For (sufficiently) staked nodes, don't bother with ping/pong.
-    if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
+    let stake_val = stakes.get(pubkey);
+    if stake_val >= Some(&MIN_STAKE_FOR_GOSSIP) {
+        info!("greg stake val pk: {}, stake: {:?}", pubkey, stake_val);
         return true;
+    } else {
+        info!("greg stake val is NONE: pk: {}, stake: {:?}", pubkey, stake_val);
     }
     // Invalid addresses are not verifiable.
     let Some(addr) = addr.ok().filter(|addr| socket_addr_space.check(addr)) else {
+        info!("greg addr not verifiable: pk: {pubkey}");
         return false;
     };
     let (out, ping) = {
@@ -3323,6 +3334,7 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
     if let Some(ping) = ping {
         pings.push((addr, Protocol::PingMessage(ping)));
     }
+    info!("greg ping result: pk: {}, res: {}", pubkey, out);
     out
 }
 
