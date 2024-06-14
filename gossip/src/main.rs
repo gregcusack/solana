@@ -283,6 +283,20 @@ fn process_rpc_url(
     let entrypoint_addr = parse_entrypoint(matches);
     let timeout = value_t_or_exit!(matches, "timeout", u64);
     let shred_version = value_t_or_exit!(matches, "shred_version", u16);
+
+    let gossip_host = parse_gossip_host(matches, entrypoint_addr);
+    let gossip_addr = SocketAddr::new(
+        gossip_host,
+        value_t!(matches, "gossip_port", u16).unwrap_or_else(|_| {
+            solana_net_utils::find_available_port_in_range(
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                (0, 1),
+            )
+            .expect("unable to find an available gossip port")
+        }),
+    );
+    // println!("my gossip addr: {:?}", gossip_addr);
+
     let (_all_peers, validators) = discover(
         None, // keypair
         entrypoint_addr.as_ref(),
@@ -290,7 +304,7 @@ fn process_rpc_url(
         Duration::from_secs(timeout),
         None,                     // find_nodes_by_pubkey
         entrypoint_addr.as_ref(), // find_node_by_gossip_addr
-        None,                     // my_gossip_addr
+        Some(&gossip_addr),                     // my_gossip_addr
         shred_version,
         socket_addr_space,
     )?;
