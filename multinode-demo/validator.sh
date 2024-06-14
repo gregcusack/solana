@@ -334,8 +334,10 @@ setup_validator_accounts() {
   return 0
 }
 
-# shellcheck disable=SC2086
+# shellcheck disable=SC2086'
+echo "greg about to run gossip"
 rpc_url=$($solana_gossip --allow-private-addr rpc-url --timeout 180 --entrypoint "$gossip_entrypoint")
+echo "greg ran gossip"
 
 [[ -r "$identity" ]] || $solana_keygen new --no-passphrase -so "$identity"
 [[ -r "$vote_account" ]] || $solana_keygen new --no-passphrase -so "$vote_account"

@@ -467,6 +467,7 @@ startClients() {
 
 sanity() {
   declare skipBlockstreamerSanity=$1
+  echo "greg running sanity"
 
   $metricsWriteDatapoint "testnet-deploy net-sanity-begin=1"
 
