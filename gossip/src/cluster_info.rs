@@ -802,14 +802,17 @@ impl ClusterInfo {
         let my_pubkey = self.id();
         let my_shred_version = self.my_shred_version();
         // */
-        let mut num_nodes = 0;
+        // let mut num_nodes = 0;
         let mut num_nodes_stale = 0;
         let mut stale_nodes = vec![];
+
+        let mut pubkeys: HashSet<Pubkey> = HashSet::new();
 
         for (node, _) in self.all_peers().iter() {
             let age = now.saturating_sub(node.wallclock());
 
-            num_nodes += 1;
+            // num_nodes += 1;
+            pubkeys.insert(node.pubkey().clone());
             if age > 15000 {
                 num_nodes_stale += 1;
                 stale_nodes.push(node.pubkey().clone());
@@ -818,7 +821,8 @@ impl ClusterInfo {
         for (node, _) in self.all_peers_lci().iter() {
             let age = now.saturating_sub(node.wallclock());
 
-            num_nodes += 1;
+            // num_nodes += 1;
+            pubkeys.insert(node.pubkey().clone());
             if age > 15000 {
                 num_nodes_stale += 1;
                 stale_nodes.push(node.pubkey().clone());
@@ -863,6 +867,8 @@ impl ClusterInfo {
             .into_iter()
             .map(|(pubkey, version)| format!("Pubkey: {}, Version: {}", pubkey, version))
             .join("\n");
+
+        let num_nodes = pubkeys.len();
 
         format!("Total nodes: {num_nodes}\nNode versions:\n{res}\nhost_ids_and_versions:\n{key_version_str}")
 
@@ -1417,8 +1423,18 @@ impl ClusterInfo {
         let gossip_crds = self.gossip.crds.read().unwrap();
         gossip_crds
             .get_nodes_lci()
-            .map(|x| (x.value.legacy_contact_info().unwrap().clone(), x.local_timestamp))
+            .filter_map(|x| {
+                if let Some(contact_info) = x.value.legacy_contact_info() {
+                    Some((contact_info.clone(), x.local_timestamp))
+                } else {
+                    None
+                }
+            })
             .collect()
+        // gossip_crds
+        //     .get_nodes_lci()
+        //     .map(|x| (x.value.legacy_contact_info().unwrap().clone(), x.local_timestamp))
+        //     .collect()
     }
 
     pub fn gossip_peers(&self) -> Vec<ContactInfo> {
