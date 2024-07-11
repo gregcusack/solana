@@ -154,6 +154,9 @@ pub struct GossipStats {
     pub(crate) process_pull_response_len: Counter,
     pub(crate) process_pull_response_success: Counter,
     pub(crate) process_pull_response_timeout: Counter,
+    pub(crate) process_pull_response_sum_of_parts: Counter,
+    pub(crate) filtered_pulls_expired_timeout: Counter,
+    pub(crate) failed_insert_after_check: Counter,
     pub(crate) process_push_message: Counter,
     pub(crate) prune_message_count: Counter,
     pub(crate) prune_message_len: Counter,
@@ -314,6 +317,21 @@ pub(crate) fn submit_gossip_stats(
         (
             "process_pull_resp_timeout",
             stats.process_pull_response_timeout.clear(),
+            i64
+        ),
+        (
+            "process_pull_response_sum_of_parts",
+            stats.process_pull_response_sum_of_parts.clear(),
+            i64
+        ),
+        (
+            "filtered_pulls_expired_timeout",
+            stats.filtered_pulls_expired_timeout.clear(),
+            i64
+        ),
+        (
+            "failed_insert_after_check",
+            stats.failed_insert_after_check.clear(),
             i64
         ),
         (

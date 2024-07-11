@@ -201,6 +201,7 @@ pub struct ProcessPullStats {
     pub failed_insert: usize,
     pub failed_timeout: usize,
     pub timeout_count: usize,
+    pub failed_insert_after_check: usize,
 }
 
 pub struct CrdsGossipPull {
@@ -388,9 +389,15 @@ impl CrdsGossipPull {
             if let Ok(()) = crds.insert(response, now, GossipRoute::PullResponse) {
                 num_inserts += 1;
                 owners.insert(owner);
+            } else {
+                //greg: shouldn't fail here since we check if !crds.upserts(&response) in `filter_pull_responses`
+                // could be race condition though...
+                // shows up periodically! but very small amount
+                stats.failed_insert_after_check += 1;
+                // stats.failed_insert += 1;
             }
         }
-        stats.success += num_inserts;
+        stats.success += num_inserts; // counting successful inserts here
         self.num_pulls.fetch_add(num_inserts, Ordering::Relaxed);
         for owner in owners {
             crds.update_record_timestamp(&owner, now);

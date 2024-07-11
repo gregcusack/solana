@@ -2123,6 +2123,8 @@ impl ClusterInfo {
     ) -> PacketBatch {
         const DEFAULT_EPOCH_DURATION_MS: u64 = DEFAULT_SLOTS_PER_EPOCH * DEFAULT_MS_PER_SLOT;
         let mut time = Measure::start("handle_pull_requests");
+        // here we pass in all the callers of the pull request. Aka the nodes that created the pull request and sent to us
+        // we get all of the most recent callers (CrdsValues -> ContactInfo)
         let callers = crds_value::filter_current(requests.iter().map(|r| &r.caller));
         {
             let _st = ScopedTimer::from(&self.stats.process_pull_requests);
@@ -2253,6 +2255,8 @@ impl ClusterInfo {
             self.gossip
                 .filter_pull_responses(timeouts, crds_values, timestamp(), &mut pull_stats)
         };
+        let sum_of_parts = filtered_pulls.len() + filtered_pulls_expired_timeout.len() + failed_inserts.len();
+        let filtered_pulls_expired_timeout_len = filtered_pulls_expired_timeout.len();
         if !filtered_pulls.is_empty()
             || !filtered_pulls_expired_timeout.is_empty()
             || !failed_inserts.is_empty()
@@ -2268,6 +2272,7 @@ impl ClusterInfo {
         }
         self.stats.process_pull_response_count.add_relaxed(1);
         self.stats.process_pull_response_len.add_relaxed(len as u64);
+        self.stats.filtered_pulls_expired_timeout.add_relaxed(filtered_pulls_expired_timeout_len as u64);
         self.stats
             .process_pull_response_timeout
             .add_relaxed(pull_stats.timeout_count as u64);
@@ -2280,6 +2285,16 @@ impl ClusterInfo {
         self.stats
             .process_pull_response_success
             .add_relaxed(pull_stats.success as u64);
+        self.stats.failed_insert_after_check.add_relaxed(pull_stats.failed_insert_after_check as u64);
+
+        self.stats.process_pull_response_sum_of_parts.add_relaxed(sum_of_parts as u64);
+
+        
+        // info!("all crds_values in PullResp: {:?}", len);
+        // info!("filtered_pulls_len: {}", filtered_pulls.len());
+        // info!("filtered_pulls_expired_timeout_len: {}", filtered_pulls_expired_timeout.len());
+        // info!("failed_inserts_len: {}", failed_inserts.len());
+        // info!("all crds vs. sum of parts: {}, {}", len, filtered_pulls.len() + filtered_pulls_expired_timeout.len() + failed_inserts.len());
 
         (
             pull_stats.failed_insert + pull_stats.failed_timeout,

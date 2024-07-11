@@ -148,6 +148,8 @@ impl CrdsGossipPush {
                     Ok(()) => {
                         received_cache.record(origin, from, /*num_dups:*/ 0);
                         origins.insert(origin);
+                        // update record timestamp
+                        crds.update_record_timestamp(&origin, now); //greg: 
                     }
                     Err(CrdsError::DuplicatePush(num_dups)) => {
                         received_cache.record(origin, from, usize::from(num_dups));

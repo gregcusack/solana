@@ -314,10 +314,10 @@ impl Crds {
                     Err(CrdsError::InsertFailed)
                 } else if matches!(route, GossipRoute::PushMessage(_)) {
                     let entry = entry.get_mut();
-                    if entry.num_push_recv == Some(0) {
+                    if entry.num_push_recv == Some(0) { // already received via pull response
                         stats.num_redundant_pull_responses += 1;
                     } else {
-                        stats.num_duplicate_push_messages += 1;
+                        stats.num_duplicate_push_messages += 1; // already received via push or some other method
                     }
                     let num_push_dups = entry.num_push_recv.unwrap_or_default();
                     entry.num_push_recv = Some(num_push_dups.saturating_add(1));

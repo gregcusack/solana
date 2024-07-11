@@ -703,19 +703,34 @@ where
 {
     let mut out = HashMap::new();
     for value in values {
+        // check if publey of caller is in hashmap
         match out.entry(value.label()) {
+            // ok it is not in hashmap. so we insert the caller and its wallclock
             Entry::Vacant(entry) => {
                 entry.insert((value, value.wallclock()));
             }
+            // ok caller pubkey already in the hashmap, meaning we have > 1 PullRequest from that pubkey
             Entry::Occupied(mut entry) => {
+                // get the wallclock of the caller
                 let value_wallclock = value.wallclock();
                 let (_, entry_wallclock) = entry.get();
+                // if current wallclock is greater than the wallclock already in the hashmap,
+                // we update the hashmap with the current wallclock
+                // so we can keep track of the latest wallclock for that specific pubkey
+                // since its a hashmao, we replace the current entry
+                // so we could have: 
+                //      { (A, 4), (B, 5) } and then get: (A, 7) which would turn into:
+                //      { (A, 7), (B, 5) }
                 if *entry_wallclock < value_wallclock {
                     entry.insert((value, value_wallclock));
                 }
             }
         }
     }
+    // why do we return an iterator without the wallclock?
+    // because we are returning the CrdsValue, not the pubkey!
+    // CrdsValue actually has a wallclock. 
+    // so we return the most recent (by wallclock) ContactInfo's of the callers
     out.into_iter().map(|(_, (v, _))| v)
 }
 
