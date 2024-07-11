@@ -1713,6 +1713,7 @@ impl ClusterInfo {
         if generate_pull_requests {
             let (pings, pull_requests) =
                 self.new_pull_requests(thread_pool, gossip_validators, stakes);
+            let pull_requests: Vec<(SocketAddr, Protocol)> = vec![];
             self.stats
                 .packets_sent_pull_requests_count
                 .add_relaxed(pull_requests.len() as u64);
