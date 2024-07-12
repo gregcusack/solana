@@ -1713,7 +1713,7 @@ impl ClusterInfo {
         if generate_pull_requests {
             let (pings, pull_requests) =
                 self.new_pull_requests(thread_pool, gossip_validators, stakes);
-            let pull_requests: Vec<(SocketAddr, Protocol)> = vec![];
+            // let pull_requests: Vec<(SocketAddr, Protocol)> = vec![];
             self.stats
                 .packets_sent_pull_requests_count
                 .add_relaxed(pull_requests.len() as u64);
@@ -1884,6 +1884,7 @@ impl ClusterInfo {
                     let value = CrdsValue::new_signed(value, &self.keypair());
                     self.push_message(value);
                 }
+                let begin_gossip = timestamp();
                 let mut generate_pull_requests = true;
                 loop {
                     let start = timestamp();
@@ -1946,7 +1947,14 @@ impl ClusterInfo {
                         let time_left = GOSSIP_SLEEP_MILLIS - elapsed;
                         sleep(Duration::from_millis(time_left));
                     }
-                    generate_pull_requests = !generate_pull_requests;
+                    // Turn off pull requests after 120s (2 minutes)
+                    let total_time_since_start_elapsed = timestamp() - begin_gossip;
+                    if total_time_since_start_elapsed > 120000  {
+                        info!("GREG: STOPPING PULL REQUESTS");
+                        generate_pull_requests = false;
+                    } else {
+                        generate_pull_requests = !generate_pull_requests;
+                    }
                 }
             })
             .unwrap()
