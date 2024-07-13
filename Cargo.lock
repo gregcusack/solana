@@ -221,6 +221,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "agave-transaction-ffi"
+version = "2.1.0"
+
+[[package]]
 name = "agave-transaction-view"
 version = "2.1.0"
 dependencies = [
