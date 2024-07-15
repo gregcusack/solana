@@ -1650,13 +1650,34 @@ impl ClusterInfo {
             }
         }
     }
-    fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
+    fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>, stopper_flag: bool) -> Vec<(SocketAddr, Protocol)> {
         let self_id = self.id();
-        let (mut push_messages, num_entries, num_nodes) = {
+        let (mut push_messages_start, num_entries, num_nodes) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
         };
+        let mut push_messages: HashMap<Pubkey, Vec<CrdsValue>> = HashMap::new();
+        if stopper_flag {
+            push_messages = push_messages_start
+                .into_iter()
+                .map(|(key, values)| {
+                    let filtered_values: Vec<CrdsValue> = values
+                        .into_iter()
+                        .filter(|value| matches!(value.data, CrdsData::ContactInfo(_) | CrdsData::LegacyContactInfo(_)))
+                        // .filter(|value| matches!(value.data, CrdsData::LegacyContactInfo(_) | CrdsData::Vote(_,_) | CrdsData::Version(_)))
+                        .collect();
+                    (key, filtered_values)
+                })
+                .filter(|(_, values)| !values.is_empty())
+                .collect();
+            info!("greg: push messages len: {}", push_messages.len());
+        } else {
+            push_messages = push_messages_start;
+            info!("greg:  stopper flag false. push messages len: {}", push_messages.len());
+        }
+        info!("greg: outside if: push messages len: {}", push_messages.len());
+
         self.stats
             .push_fanout_num_entries
             .add_relaxed(num_entries as u64);
@@ -1700,13 +1721,14 @@ impl ClusterInfo {
         gossip_validators: Option<&HashSet<Pubkey>>,
         stakes: &HashMap<Pubkey, u64>,
         generate_pull_requests: bool,
+        stopper_flag: bool,
     ) -> Vec<(SocketAddr, Protocol)> {
         self.trim_crds_table(CRDS_UNIQUE_PUBKEY_CAPACITY, stakes);
         // This will flush local pending push messages before generating
         // pull-request bloom filters, preventing pull responses to return the
         // same values back to the node itself. Note that packets will arrive
         // and are processed out of order.
-        let mut out: Vec<_> = self.new_push_requests(stakes);
+        let mut out: Vec<_> = self.new_push_requests(stakes, stopper_flag);
         self.stats
             .packets_sent_push_messages_count
             .add_relaxed(out.len() as u64);
@@ -1735,6 +1757,7 @@ impl ClusterInfo {
         stakes: &HashMap<Pubkey, u64>,
         sender: &PacketBatchSender,
         generate_pull_requests: bool,
+        stopper_flag: bool,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_transmit_loop_time);
         let reqs = self.generate_new_gossip_requests(
@@ -1742,6 +1765,7 @@ impl ClusterInfo {
             gossip_validators,
             stakes,
             generate_pull_requests,
+            stopper_flag,
         );
         if !reqs.is_empty() {
             let packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
@@ -1886,6 +1910,7 @@ impl ClusterInfo {
                 }
                 let begin_gossip = timestamp();
                 let mut generate_pull_requests = true;
+                let mut stopper_flag = false;
                 loop {
                     let start = timestamp();
                     if self.contact_debug_interval != 0
@@ -1924,6 +1949,7 @@ impl ClusterInfo {
                         &stakes,
                         &sender,
                         generate_pull_requests,
+                        stopper_flag,
                     );
                     if exit.load(Ordering::Relaxed) {
                         return;
@@ -1949,7 +1975,10 @@ impl ClusterInfo {
                     }
                     // Turn off pull requests after 120s (2 minutes)
                     let total_time_since_start_elapsed = timestamp() - begin_gossip;
-                    if total_time_since_start_elapsed > 120000  {
+                    if total_time_since_start_elapsed > 120000 {
+                        stopper_flag = true;
+                    }
+                    if stopper_flag  {
                         info!("GREG: STOPPING PULL REQUESTS");
                         generate_pull_requests = false;
                     } else {
@@ -2435,7 +2464,8 @@ impl ClusterInfo {
         self.stats
             .push_response_count
             .add_relaxed(packet_batch.len() as u64);
-        let new_push_requests = self.new_push_requests(stakes);
+        let new_push_requests = self.new_push_requests(stakes, false);
+        info!("greg new_push_requests in handle_batch_push_messages: {}", new_push_requests.len());
         self.stats
             .push_message_pushes
             .add_relaxed(new_push_requests.len() as u64);
