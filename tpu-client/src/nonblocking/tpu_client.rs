@@ -503,19 +503,21 @@ where
         Self::new_with_connection_cache(rpc_client, websocket_url, config, connection_cache).await
     }
 
-    /// Try to create LeaderTpuService
+    /// Create LeaderTpuService
     /// Retries until successful or timeout is reached
-    async fn try_create_leader_tpu_service(
+    async fn create_leader_tpu_service(
         rpc_client: Arc<RpcClient>,
         websocket_url: &str,
         exit: Arc<AtomicBool>,
-        timeout_seconds: u64,
+        timeout_duration: Duration,
     ) -> Result<LeaderTpuService> {
-        let start = tokio::time::Instant::now();
+        let start = Instant::now();
         loop {
-            if start.elapsed().as_secs() > timeout_seconds {
+            if start.elapsed() > timeout_duration {
                 return Err(TpuSenderError::Custom(format!(
-                    "Failed to create LeaderTpuService within {timeout_seconds}s timeout"
+                    "Failed to create LeaderTpuService connecting to: {}, timeout: {}s",
+                    websocket_url,
+                    timeout_duration.as_secs()
                 )));
             }
 
@@ -528,10 +530,7 @@ where
             .await
             {
                 Ok(service) => return Ok(service),
-                Err(_) => {
-                    warn!("Failed to create TpuLeaderService. Will retry in 1 second");
-                    sleep(Duration::from_secs(1)).await;
-                }
+                Err(_) => sleep(Duration::from_secs(1)).await,
             }
         }
     }
@@ -545,11 +544,11 @@ where
     ) -> Result<Self> {
         const TPU_LEADER_SERVICE_CREATION_TIMEOUT: u64 = 20;
         let exit = Arc::new(AtomicBool::new(false));
-        let leader_tpu_service = Self::try_create_leader_tpu_service(
+        let leader_tpu_service = Self::create_leader_tpu_service(
             rpc_client.clone(),
             websocket_url,
             exit.clone(),
-            TPU_LEADER_SERVICE_CREATION_TIMEOUT,
+            Duration::from_secs(TPU_LEADER_SERVICE_CREATION_TIMEOUT),
         )
         .await?;
 
