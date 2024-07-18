@@ -503,38 +503,6 @@ where
         Self::new_with_connection_cache(rpc_client, websocket_url, config, connection_cache).await
     }
 
-    /// Create LeaderTpuService
-    /// Retries until successful or timeout is reached
-    async fn create_leader_tpu_service(
-        rpc_client: Arc<RpcClient>,
-        websocket_url: &str,
-        exit: Arc<AtomicBool>,
-        timeout_duration: Duration,
-    ) -> Result<LeaderTpuService> {
-        let start = Instant::now();
-        loop {
-            if start.elapsed() > timeout_duration {
-                return Err(TpuSenderError::Custom(format!(
-                    "Failed to create LeaderTpuService connecting to: {}, timeout: {}s",
-                    websocket_url,
-                    timeout_duration.as_secs()
-                )));
-            }
-
-            match LeaderTpuService::new(
-                rpc_client.clone(),
-                websocket_url,
-                M::PROTOCOL,
-                exit.clone(),
-            )
-            .await
-            {
-                Ok(service) => return Ok(service),
-                Err(_) => sleep(Duration::from_secs(1)).await,
-            }
-        }
-    }
-
     /// Create a new client that disconnects when dropped
     pub async fn new_with_connection_cache(
         rpc_client: Arc<RpcClient>,
@@ -542,15 +510,10 @@ where
         config: TpuClientConfig,
         connection_cache: Arc<ConnectionCache<P, M, C>>,
     ) -> Result<Self> {
-        const TPU_LEADER_SERVICE_CREATION_TIMEOUT: u64 = 20;
         let exit = Arc::new(AtomicBool::new(false));
-        let leader_tpu_service = Self::create_leader_tpu_service(
-            rpc_client.clone(),
-            websocket_url,
-            exit.clone(),
-            Duration::from_secs(TPU_LEADER_SERVICE_CREATION_TIMEOUT),
-        )
-        .await?;
+        let leader_tpu_service =
+            create_leader_tpu_service::<P, M, C>(rpc_client.clone(), websocket_url, exit.clone())
+                .await?;
 
         Ok(Self {
             fanout_slots: config.fanout_slots.clamp(1, MAX_FANOUT_SLOTS),
@@ -957,5 +920,40 @@ async fn maybe_fetch_cache_info(
         maybe_cluster_nodes,
         maybe_epoch_info,
         maybe_slot_leaders,
+    }
+}
+
+/// Create LeaderTpuService
+/// Retries until successful or timeout is reached
+async fn create_leader_tpu_service<P, M, C>(
+    rpc_client: Arc<RpcClient>,
+    websocket_url: &str,
+    exit: Arc<AtomicBool>,
+) -> Result<LeaderTpuService>
+where
+    P: ConnectionPool<NewConnectionConfig = C>,
+    M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
+    C: NewConnectionConfig,
+{
+    let start = Instant::now();
+    let tpu_leader_service_creation_timeout = Duration::from_secs(20);
+    loop {
+        if start.elapsed() > tpu_leader_service_creation_timeout {
+            return Err(TpuSenderError::Custom(format!(
+                "Failed to create LeaderTpuService connecting to: {}, timeout: {}s",
+                websocket_url,
+                tpu_leader_service_creation_timeout.as_secs()
+            )));
+        }
+
+        match LeaderTpuService::new(rpc_client.clone(), websocket_url, M::PROTOCOL, exit.clone())
+            .await
+        {
+            Ok(service) => return Ok(service),
+            Err(e) => match e {
+                TpuSenderError::RpcError(_) => sleep(Duration::from_secs(1)).await,
+                _ => return Err(e),
+            },
+        }
     }
 }
