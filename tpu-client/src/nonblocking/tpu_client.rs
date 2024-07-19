@@ -17,7 +17,8 @@ use {
     solana_pubsub_client::nonblocking::pubsub_client::{PubsubClient, PubsubClientError},
     solana_rpc_client::nonblocking::rpc_client::RpcClient,
     solana_rpc_client_api::{
-        client_error::{Error as ClientError, Result as ClientResult},
+        client_error::{Error as ClientError, ErrorKind, Result as ClientResult},
+        request::RpcError,
         response::{RpcContactInfo, SlotUpdate},
     },
     solana_sdk::{
@@ -512,7 +513,7 @@ where
     ) -> Result<Self> {
         let exit = Arc::new(AtomicBool::new(false));
         let leader_tpu_service =
-            create_leader_tpu_service::<P, M, C>(rpc_client.clone(), websocket_url, exit.clone())
+            create_leader_tpu_service(rpc_client.clone(), websocket_url, M::PROTOCOL, exit.clone())
                 .await?;
 
         Ok(Self {
@@ -923,37 +924,45 @@ async fn maybe_fetch_cache_info(
     }
 }
 
+fn is_invalid_slot_range_error(client_error: &ClientError) -> bool {
+    if let ErrorKind::RpcError(RpcError::RpcResponseError { code, message, .. }) =
+        &client_error.kind
+    {
+        return *code == -32602
+            && message.contains("Invalid slot range: leader schedule for epoch");
+    }
+    false
+}
+
 /// Create LeaderTpuService
 /// Retries until successful or timeout is reached
-async fn create_leader_tpu_service<P, M, C>(
+async fn create_leader_tpu_service(
     rpc_client: Arc<RpcClient>,
     websocket_url: &str,
+    protocol: Protocol,
     exit: Arc<AtomicBool>,
-) -> Result<LeaderTpuService>
-where
-    P: ConnectionPool<NewConnectionConfig = C>,
-    M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
-    C: NewConnectionConfig,
-{
+) -> Result<LeaderTpuService> {
     let start = Instant::now();
     let tpu_leader_service_creation_timeout = Duration::from_secs(20);
     loop {
-        if start.elapsed() > tpu_leader_service_creation_timeout {
-            return Err(TpuSenderError::Custom(format!(
-                "Failed to create LeaderTpuService connecting to: {}, timeout: {}s",
-                websocket_url,
-                tpu_leader_service_creation_timeout.as_secs()
-            )));
-        }
-
-        match LeaderTpuService::new(rpc_client.clone(), websocket_url, M::PROTOCOL, exit.clone())
-            .await
+        match LeaderTpuService::new(rpc_client.clone(), websocket_url, protocol, exit.clone()).await
         {
             Ok(service) => return Ok(service),
-            Err(e) => match e {
-                TpuSenderError::RpcError(_) => sleep(Duration::from_secs(1)).await,
-                _ => return Err(e),
-            },
+            Err(TpuSenderError::RpcError(client_error)) => {
+                if is_invalid_slot_range_error(&client_error) {
+                    if start.elapsed() > tpu_leader_service_creation_timeout {
+                        return Err(TpuSenderError::Custom(format!(
+                            "Failed to create LeaderTpuService connecting to: {}, timeout: {}s",
+                            websocket_url,
+                            tpu_leader_service_creation_timeout.as_secs()
+                        )));
+                    }
+                    sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+                return Err(TpuSenderError::RpcError(client_error));
+            }
+            Err(e) => return Err(e),
         }
     }
 }
