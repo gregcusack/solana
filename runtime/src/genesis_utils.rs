@@ -14,7 +14,7 @@ use {
     },
     solana_stake_program::stake_state,
     solana_vote_program::vote_state,
-    std::borrow::Borrow,
+    std::{borrow::Borrow, collections::HashSet},
 };
 
 // Default amount received by the validator
@@ -197,6 +197,18 @@ pub fn activate_all_features(genesis_config: &mut GenesisConfig) {
     // Activate all features at genesis in development mode
     for feature_id in FeatureSet::default().inactive {
         activate_feature(genesis_config, feature_id);
+    }
+}
+
+pub fn activate_all_features_except(
+    genesis_config: &mut GenesisConfig,
+    features: &HashSet<Pubkey>,
+) {
+    // Activate all features at genesis in development mode except for those provided in "features" hashset
+    for feature_id in FeatureSet::default().inactive {
+        if !features.contains(&feature_id) {
+            activate_feature(genesis_config, feature_id);
+        }
     }
 }
 

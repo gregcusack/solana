@@ -37,7 +37,7 @@ use {
     solana_stake_program::stake_state,
     solana_vote_program::vote_state::{self, VoteState},
     std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         error,
         fs::File,
         io::{self, Read},
@@ -364,6 +364,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 ),
         )
         .arg(
+            Arg::with_name("deactivate_feature_set")
+                .long("deactivate-feature-set")
+                .value_name("Vec<Feature Pubkeys>")
+                .takes_value(true)
+                .multiple(true)
+                .help("A list of features in the genesis to disable. Compatable with ClusterType::Development")
+        )
+        .arg(
             Arg::with_name("max_genesis_archive_unpacked_size")
                 .long("max-genesis-archive-unpacked-size")
                 .value_name("NUMBER")
@@ -470,6 +478,20 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     };
 
     let cluster_type = cluster_type_of(&matches, "cluster_type").unwrap();
+
+    // Get the features to disable if provided
+    let deactivate_feature_set: HashSet<Pubkey> = matches
+        .values_of("deactivate_feature_set")
+        .map_or(HashSet::new(), |values| {
+            values
+                .map(|s| Pubkey::from_str(s).expect("Invalid Pubkey"))
+                .collect()
+        });
+
+    if cluster_type != ClusterType::Development && !deactivate_feature_set.is_empty() {
+        eprintln!("Error: The --deactivate-feature-set argument cannot be used with --cluster-type={cluster_type:?}");
+        std::process::exit(1);
+    }
 
     match matches.value_of("hashes_per_tick").unwrap() {
         "auto" => match cluster_type {
@@ -579,7 +601,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
     solana_stake_program::add_genesis_accounts(&mut genesis_config);
     if genesis_config.cluster_type == ClusterType::Development {
-        solana_runtime::genesis_utils::activate_all_features(&mut genesis_config);
+        if deactivate_feature_set.is_empty() {
+            solana_runtime::genesis_utils::activate_all_features(&mut genesis_config);
+        } else {
+            solana_runtime::genesis_utils::activate_all_features_except(
+                &mut genesis_config,
+                &deactivate_feature_set,
+            );
+        }
     }
 
     if let Some(files) = matches.values_of("primordial_accounts_file") {
