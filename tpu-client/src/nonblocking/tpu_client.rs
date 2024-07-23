@@ -513,7 +513,7 @@ where
     ) -> Result<Self> {
         let exit = Arc::new(AtomicBool::new(false));
         let leader_tpu_service =
-            create_leader_tpu_service(rpc_client.clone(), websocket_url, M::PROTOCOL, exit.clone())
+            LeaderTpuService::new(rpc_client.clone(), websocket_url, M::PROTOCOL, exit.clone())
                 .await?;
 
         Ok(Self {
@@ -723,9 +723,42 @@ impl LeaderTpuService {
 
         let recent_slots = RecentLeaderSlots::new(start_slot);
         let slots_in_epoch = rpc_client.get_epoch_info().await?.slots_in_epoch;
-        let leaders = rpc_client
-            .get_slot_leaders(start_slot, LeaderTpuCache::fanout(slots_in_epoch))
-            .await?;
+
+        // When a cluster is starting, we observe an invalid slot range failure that goes away after a
+        // retry. It seems as if the leader schedule is not available, but it should be. The logic
+        // below retries the RPC call in case of an invalid slot range error.
+        let tpu_leader_service_creation_timeout = Duration::from_secs(20);
+        let retry_interval = Duration::from_secs(1);
+        let leaders = timeout(tpu_leader_service_creation_timeout, async {
+            loop {
+                // TODO: The root cause appears to lie within the `rpc_client.get_slot_leaders()`.
+                // It might be worth debugging further and trying to understand why the RPC
+                // call fails. There may be a bug in the `get_slot_leaders()` logic or in the
+                // RPC implementation
+                match rpc_client
+                    .get_slot_leaders(start_slot, LeaderTpuCache::fanout(slots_in_epoch))
+                    .await
+                {
+                    Ok(leaders) => return Ok(leaders),
+                    Err(client_error) => {
+                        if is_invalid_slot_range_error(&client_error) {
+                            sleep(retry_interval).await;
+                            continue;
+                        } else {
+                            return Err(client_error);
+                        }
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|_| {
+            TpuSenderError::Custom(format!(
+                "Failed to get slot leaders connecting to: {}, timeout: {:?}. Invalid slot range",
+                websocket_url, tpu_leader_service_creation_timeout
+            ))
+        })??;
+
         let cluster_nodes = rpc_client.get_cluster_nodes().await?;
         let leader_tpu_cache = Arc::new(RwLock::new(LeaderTpuCache::new(
             start_slot,
@@ -932,37 +965,4 @@ fn is_invalid_slot_range_error(client_error: &ClientError) -> bool {
             && message.contains("Invalid slot range: leader schedule for epoch");
     }
     false
-}
-
-/// Create LeaderTpuService
-/// Retries until successful or timeout is reached
-async fn create_leader_tpu_service(
-    rpc_client: Arc<RpcClient>,
-    websocket_url: &str,
-    protocol: Protocol,
-    exit: Arc<AtomicBool>,
-) -> Result<LeaderTpuService> {
-    let start = Instant::now();
-    let tpu_leader_service_creation_timeout = Duration::from_secs(20);
-    loop {
-        match LeaderTpuService::new(rpc_client.clone(), websocket_url, protocol, exit.clone()).await
-        {
-            Ok(service) => return Ok(service),
-            Err(TpuSenderError::RpcError(client_error)) => {
-                if is_invalid_slot_range_error(&client_error) {
-                    if start.elapsed() > tpu_leader_service_creation_timeout {
-                        return Err(TpuSenderError::Custom(format!(
-                            "Failed to create LeaderTpuService connecting to: {}, timeout: {}s",
-                            websocket_url,
-                            tpu_leader_service_creation_timeout.as_secs()
-                        )));
-                    }
-                    sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-                return Err(TpuSenderError::RpcError(client_error));
-            }
-            Err(e) => return Err(e),
-        }
-    }
 }
