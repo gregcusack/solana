@@ -201,9 +201,12 @@ pub fn activate_all_features(genesis_config: &mut GenesisConfig) {
     }
 }
 
-pub fn deactivate_features(genesis_config: &mut GenesisConfig, features_to_skip: &Vec<Pubkey>) {
+pub fn deactivate_features(
+    genesis_config: &mut GenesisConfig,
+    features_to_deactivate: &Vec<Pubkey>,
+) {
     // Remove all features in `features_to_skip` from genesis
-    for deactivate_feature_pk in features_to_skip {
+    for deactivate_feature_pk in features_to_deactivate {
         if FEATURE_NAMES.contains_key(deactivate_feature_pk) {
             genesis_config.accounts.remove(deactivate_feature_pk);
         } else {
