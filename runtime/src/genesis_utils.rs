@@ -1,8 +1,9 @@
 use {
+    log::*,
     solana_sdk::{
         account::{Account, AccountSharedData},
         feature::{self, Feature},
-        feature_set::FeatureSet,
+        feature_set::{FeatureSet, FEATURE_NAMES},
         fee_calculator::FeeRateGovernor,
         genesis_config::{ClusterType, GenesisConfig},
         native_token::sol_to_lamports,
@@ -14,7 +15,7 @@ use {
     },
     solana_stake_program::stake_state,
     solana_vote_program::vote_state,
-    std::{borrow::Borrow, collections::HashSet},
+    std::borrow::Borrow,
 };
 
 // Default amount received by the validator
@@ -200,14 +201,16 @@ pub fn activate_all_features(genesis_config: &mut GenesisConfig) {
     }
 }
 
-pub fn activate_all_features_except(
-    genesis_config: &mut GenesisConfig,
-    features: &HashSet<Pubkey>,
-) {
-    // Activate all features at genesis in development mode except for those provided in "features" hashset
-    for feature_id in FeatureSet::default().inactive {
-        if !features.contains(&feature_id) {
-            activate_feature(genesis_config, feature_id);
+pub fn deactivate_features(genesis_config: &mut GenesisConfig, features_to_skip: &Vec<Pubkey>) {
+    // Remove all features in `features_to_skip` from genesis
+    for deactivate_feature_pk in features_to_skip {
+        if FEATURE_NAMES.contains_key(deactivate_feature_pk) {
+            genesis_config.accounts.remove(deactivate_feature_pk);
+        } else {
+            warn!(
+                "Feature {:?} set for deactivation is not a known Feature public key",
+                deactivate_feature_pk
+            );
         }
     }
 }
