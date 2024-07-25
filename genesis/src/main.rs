@@ -370,7 +370,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .value_name("FEATURE_PUBKEY")
                 .validator(is_pubkey)
                 .multiple(true)
-                .help("deactivate this feature in genesis. Compatable with ClusterType::Development"),
+                .help("Deactivate this feature in genesis. Compatible with --cluster-type development"),
         )
         .arg(
             Arg::with_name("max_genesis_archive_unpacked_size")
@@ -484,7 +484,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let features_to_deactivate = pubkeys_of(&matches, "deactivate_feature").unwrap_or_default();
 
     if cluster_type != ClusterType::Development && !features_to_deactivate.is_empty() {
-        eprintln!("Error: The --deactivate-feature-set argument cannot be used with --cluster-type={cluster_type:?}");
+        eprintln!("Error: The --deativate-feature argument cannot be used with --cluster-type={cluster_type:?}");
         std::process::exit(1);
     }
 
