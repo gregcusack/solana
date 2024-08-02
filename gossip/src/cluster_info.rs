@@ -2505,6 +2505,16 @@ impl ClusterInfo {
                 false
             }
         };
+        let mut verify_node_instance = |value: &CrdsValue| {
+            if self.verify_node_instance(value) {
+                info!("greg: node instance verify good");
+                true
+            } else {
+                info!("greg: node instance verify bad");
+                self.stats.num_unverifed_node_instances.add_relaxed(1);
+                false
+            }
+        };
         // Split packets based on their types.
         let mut pull_requests = vec![];
         let mut pull_responses = vec![];
@@ -2522,6 +2532,7 @@ impl ClusterInfo {
                 Protocol::PullResponse(_, mut data) => {
                     check_duplicate_instance(&data)?;
                     data.retain(&mut verify_gossip_addr);
+                    data.retain(&mut verify_node_instance);
                     if !data.is_empty() {
                         pull_responses.append(&mut data);
                     }
@@ -2529,6 +2540,7 @@ impl ClusterInfo {
                 Protocol::PushMessage(from, mut data) => {
                     check_duplicate_instance(&data)?;
                     data.retain(&mut verify_gossip_addr);
+                    data.retain(&mut verify_node_instance);
                     if !data.is_empty() {
                         push_messages.push((from, data));
                     }
@@ -2576,6 +2588,23 @@ impl ClusterInfo {
             response_sender,
         );
         Ok(())
+    }
+
+    fn verify_node_instance(&self, value: &CrdsValue) -> bool {
+        let pubkey = match &value.data {
+            CrdsData::NodeInstance(node) => node.from(),
+            _ => return true, // If not a NodeInstance, nothing to verify.
+        };
+        match self.lookup_contact_info(pubkey, |ci| ci.clone()) {
+            Some(_) => {
+                info!("greg: got contact info for pk: {pubkey:?}"); 
+                true
+            },
+            None => {
+                info!("greg: no contact info for pk: {pubkey:?}"); 
+                false // Need to receive contact info first
+            }
+        }
     }
 
     // Consumes packets received from the socket, deserializing, sanitizing and
@@ -3350,9 +3379,6 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
     let (pubkey, addr) = match &value.data {
         CrdsData::ContactInfo(node) => (node.pubkey(), node.gossip()),
         CrdsData::LegacyContactInfo(node) => (node.pubkey(), node.gossip()),
-        CrdsData::NodeInstance(node) => {
-            ClusterInfo::lookup_contact_info(&self, id, map)
-        }
         _ => return true, // If not a contact-info, nothing to verify.
     };
     // For (sufficiently) staked nodes, don't bother with ping/pong.
