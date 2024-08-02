@@ -2505,6 +2505,14 @@ impl ClusterInfo {
                 false
             }
         };
+        let mut verify_node_instance = |value: &CrdsValue| {
+            if self.verify_node_instance(value) {
+                true
+            } else {
+                self.stats.num_unverifed_node_instances.add_relaxed(1);
+                false
+            }
+        };
         // Split packets based on their types.
         let mut pull_requests = vec![];
         let mut pull_responses = vec![];
@@ -2522,6 +2530,7 @@ impl ClusterInfo {
                 Protocol::PullResponse(_, mut data) => {
                     check_duplicate_instance(&data)?;
                     data.retain(&mut verify_gossip_addr);
+                    data.retain(&mut verify_node_instance);
                     if !data.is_empty() {
                         pull_responses.append(&mut data);
                     }
@@ -2529,6 +2538,7 @@ impl ClusterInfo {
                 Protocol::PushMessage(from, mut data) => {
                     check_duplicate_instance(&data)?;
                     data.retain(&mut verify_gossip_addr);
+                    data.retain(&mut verify_node_instance);
                     if !data.is_empty() {
                         push_messages.push((from, data));
                     }
@@ -2576,6 +2586,20 @@ impl ClusterInfo {
             response_sender,
         );
         Ok(())
+    }
+
+    fn verify_node_instance(&self, value: &CrdsValue) -> bool {
+        let pubkey = match &value.data {
+            CrdsData::NodeInstance(node) => node.from(),
+            _ => return true, // If not a NodeInstance, nothing to verify.
+        };
+        // if contact info for the pubkey exists in the crds table, then the
+        // the contact info has already been verified. Therefore, the node
+        // instance is valid.
+        if self.lookup_contact_info(pubkey, |ci| ci.clone()).is_some() {
+            return true;
+        }
+        false
     }
 
     // Consumes packets received from the socket, deserializing, sanitizing and

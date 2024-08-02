@@ -455,6 +455,11 @@ impl NodeInstance {
         }
     }
 
+    #[inline]
+    pub fn from(&self) -> &Pubkey {
+        &self.from
+    }
+
     // Clones the value with an updated wallclock.
     pub(crate) fn with_wallclock(&self, wallclock: u64) -> Self {
         Self { wallclock, ..*self }
