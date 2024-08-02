@@ -2507,10 +2507,8 @@ impl ClusterInfo {
         };
         let mut verify_node_instance = |value: &CrdsValue| {
             if self.verify_node_instance(value) {
-                info!("greg: node instance verify good");
                 true
             } else {
-                info!("greg: node instance verify bad");
                 self.stats.num_unverifed_node_instances.add_relaxed(1);
                 false
             }
@@ -2595,16 +2593,13 @@ impl ClusterInfo {
             CrdsData::NodeInstance(node) => node.from(),
             _ => return true, // If not a NodeInstance, nothing to verify.
         };
-        match self.lookup_contact_info(pubkey, |ci| ci.clone()) {
-            Some(_) => {
-                info!("greg: got contact info for pk: {pubkey:?}"); 
-                true
-            },
-            None => {
-                info!("greg: no contact info for pk: {pubkey:?}"); 
-                false // Need to receive contact info first
-            }
+        // if contact info for the pubkey exists in the crds table, then the
+        // the contact info has already been verified. Therefore, the node
+        // instance is valid.
+        if self.lookup_contact_info(pubkey, |ci| ci.clone()).is_some() {
+            return true;
         }
+        false
     }
 
     // Consumes packets received from the socket, deserializing, sanitizing and
