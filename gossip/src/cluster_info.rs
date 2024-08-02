@@ -3350,6 +3350,9 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
     let (pubkey, addr) = match &value.data {
         CrdsData::ContactInfo(node) => (node.pubkey(), node.gossip()),
         CrdsData::LegacyContactInfo(node) => (node.pubkey(), node.gossip()),
+        CrdsData::NodeInstance(node) => {
+            ClusterInfo::lookup_contact_info(&self, id, map)
+        }
         _ => return true, // If not a contact-info, nothing to verify.
     };
     // For (sufficiently) staked nodes, don't bother with ping/pong.
