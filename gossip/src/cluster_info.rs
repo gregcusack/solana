@@ -26,8 +26,7 @@ use {
             CrdsFilter, CrdsTimeouts, ProcessPullStats, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
         },
         crds_value::{
-            self, CrdsData, CrdsValue, CrdsValueLabel, EpochSlotsIndex, LowestSlot, NodeInstance,
-            SnapshotHashes, Version, Vote, MAX_WALLCLOCK,
+            self, CrdsData, CrdsValue, CrdsValueLabel, EpochSlotsIndex, LegacyVersion, LowestSlot, NodeInstance, SnapshotHashes, Version, Vote, MAX_WALLCLOCK
         },
         duplicate_shred::DuplicateShred,
         epoch_slots::EpochSlots,
@@ -2513,6 +2512,7 @@ impl ClusterInfo {
                 false
             }
         };
+
         // Split packets based on their types.
         let mut pull_requests = vec![];
         let mut pull_responses = vec![];
@@ -2529,16 +2529,14 @@ impl ClusterInfo {
                 }
                 Protocol::PullResponse(_, mut data) => {
                     check_duplicate_instance(&data)?;
-                    data.retain(&mut verify_gossip_addr);
-                    data.retain(&mut verify_node_instance);
+                    data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
                     if !data.is_empty() {
                         pull_responses.append(&mut data);
                     }
                 }
                 Protocol::PushMessage(from, mut data) => {
                     check_duplicate_instance(&data)?;
-                    data.retain(&mut verify_gossip_addr);
-                    data.retain(&mut verify_node_instance);
+                    data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
                     if !data.is_empty() {
                         push_messages.push((from, data));
                     }
@@ -2591,7 +2589,18 @@ impl ClusterInfo {
     fn verify_node_instance(&self, value: &CrdsValue) -> bool {
         let pubkey = match &value.data {
             CrdsData::NodeInstance(node) => node.from(),
-            _ => return true, // If not a NodeInstance, nothing to verify.
+            CrdsData::Vote(_, vote) => &vote.from,
+            CrdsData::LowestSlot(_, slot) => &slot.from,
+            CrdsData::LegacySnapshotHashes(hash) => &hash.from,
+            CrdsData::AccountsHashes(hash) => &hash.from,
+            CrdsData::EpochSlots(_, slots) => &slots.from,
+            CrdsData::LegacyVersion(version) => &version.from,
+            CrdsData::Version(version) => &version.from,
+            CrdsData::DuplicateShred(_, shred) => &shred.from,
+            CrdsData::SnapshotHashes(hash) => &hash.from,
+            CrdsData::RestartLastVotedForkSlots(slots) => &slots.from,
+            CrdsData::RestartHeaviestFork(fork) => &fork.from,
+            _ => return true, // If not a ContactInfo or LegacyContactInfo, it will be caught by verify_gossip_addr
         };
         // if contact info for the pubkey exists in the crds table, then the
         // the contact info has already been verified. Therefore, the node
@@ -3394,6 +3403,14 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
         pings.push((addr, Protocol::PingMessage(ping)));
     }
     out
+}
+
+fn verify_incoming_crds_value<'a>(
+    value: &'a CrdsValue,
+    verify_gossip_addr: &mut impl FnMut(&'a CrdsValue) -> bool,
+    verify_node_instance: &mut impl FnMut(&'a CrdsValue) -> bool,
+) -> bool {
+    verify_gossip_addr(value) && verify_node_instance(value)
 }
 
 #[cfg(test)]
