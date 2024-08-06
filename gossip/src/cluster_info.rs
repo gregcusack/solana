@@ -2529,16 +2529,14 @@ impl ClusterInfo {
                 }
                 Protocol::PullResponse(_, mut data) => {
                     check_duplicate_instance(&data)?;
-                    data.retain(&mut verify_gossip_addr);
-                    data.retain(&mut verify_node_instance);
+                    data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
                     if !data.is_empty() {
                         pull_responses.append(&mut data);
                     }
                 }
                 Protocol::PushMessage(from, mut data) => {
                     check_duplicate_instance(&data)?;
-                    data.retain(&mut verify_gossip_addr);
-                    data.retain(&mut verify_node_instance);
+                    data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
                     if !data.is_empty() {
                         push_messages.push((from, data));
                     }
@@ -3394,6 +3392,14 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
         pings.push((addr, Protocol::PingMessage(ping)));
     }
     out
+}
+
+fn verify_incoming_crds_value<'a>(
+    value: &'a CrdsValue,
+    verify_gossip_addr: &mut impl FnMut(&'a CrdsValue) -> bool,
+    verify_node_instance: &mut impl FnMut(&'a CrdsValue) -> bool,
+) -> bool {
+    verify_gossip_addr(value) && verify_node_instance(value)
 }
 
 #[cfg(test)]
