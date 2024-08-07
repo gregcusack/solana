@@ -142,7 +142,7 @@ pub(crate) const CRDS_UNIQUE_PUBKEY_CAPACITY: usize = 8192;
 /// propagated through gossip (few types are exempted).
 const MIN_STAKE_FOR_GOSSIP: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 /// Minimum number of staked nodes for enforcing stakes in gossip.
-const MIN_NUM_STAKED_NODES: usize = 500;
+const MIN_NUM_STAKED_NODES: usize = 15;
 
 // Must have at least one socket to monitor the TVU port
 // The unsafes are safe because we're using fixed, known non-zero values
@@ -433,7 +433,12 @@ fn retain_staked(values: &mut Vec<CrdsValue>, stakes: &HashMap<Pubkey, u64>) {
             // Otherwise unstaked voting nodes will show up with no version in
             // the various dashboards.
             CrdsData::Version(_) => true,
-            CrdsData::NodeInstance(_) => false,
+            CrdsData::NodeInstance(_) => {
+                let stake = stakes.get(&value.pubkey()).copied();
+                let res = stake.unwrap_or_default() >= MIN_STAKE_FOR_GOSSIP;
+                info!("greg: node instance rx pk: {}, stake: {}, res: {}", value.pubkey(), stake.unwrap_or_default(), res);
+                return res;
+            },
             CrdsData::AccountsHashes(_) => true,
             CrdsData::LowestSlot(_, _)
             | CrdsData::LegacyVersion(_)
