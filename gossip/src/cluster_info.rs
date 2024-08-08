@@ -2505,6 +2505,14 @@ impl ClusterInfo {
                 false
             }
         };
+        let mut verify_node_instance = |value: &CrdsValue| {
+            if self.verify_node_instance(value) {
+                true
+            } else {
+                self.stats.num_unverifed_node_instances.add_relaxed(1);
+                false
+            }
+        };
         // Split packets based on their types.
         let mut pull_requests = vec![];
         let mut pull_responses = vec![];
@@ -2512,38 +2520,41 @@ impl ClusterInfo {
         let mut prune_messages = vec![];
         let mut ping_messages = vec![];
         let mut pong_messages = vec![];
-        for (from_addr, packet) in packets {
-            match packet {
-                Protocol::PullRequest(filter, caller) => {
-                    if verify_gossip_addr(&caller) {
-                        pull_requests.push((from_addr, filter, caller))
+        {
+            let _st_vec = ScopedTimer::from(&self.stats.populate_gossip_vectors_time);
+            for (from_addr, packet) in packets {
+                match packet {
+                    Protocol::PullRequest(filter, caller) => {
+                        if verify_gossip_addr(&caller) {
+                            pull_requests.push((from_addr, filter, caller))
+                        }
                     }
-                }
-                Protocol::PullResponse(_, mut data) => {
-                    check_duplicate_instance(&data)?;
-                    data.retain(&mut verify_gossip_addr);
-                    if !data.is_empty() {
-                        pull_responses.append(&mut data);
+                    Protocol::PullResponse(_, mut data) => {
+                        check_duplicate_instance(&data)?;
+                        data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
+                        if !data.is_empty() {
+                            pull_responses.append(&mut data);
+                        }
                     }
-                }
-                Protocol::PushMessage(from, mut data) => {
-                    check_duplicate_instance(&data)?;
-                    data.retain(&mut verify_gossip_addr);
-                    if !data.is_empty() {
-                        push_messages.push((from, data));
+                    Protocol::PushMessage(from, mut data) => {
+                        check_duplicate_instance(&data)?;
+                        data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
+                        if !data.is_empty() {
+                            push_messages.push((from, data));
+                        }
                     }
+                    Protocol::PruneMessage(_from, data) => prune_messages.push(data),
+                    Protocol::PingMessage(ping) => ping_messages.push((from_addr, ping)),
+                    Protocol::PongMessage(pong) => pong_messages.push((from_addr, pong)),
                 }
-                Protocol::PruneMessage(_from, data) => prune_messages.push(data),
-                Protocol::PingMessage(ping) => ping_messages.push((from_addr, ping)),
-                Protocol::PongMessage(pong) => pong_messages.push((from_addr, pong)),
             }
-        }
-        if self.require_stake_for_gossip(stakes) {
-            retain_staked(&mut pull_responses, stakes);
-            for (_, data) in &mut push_messages {
-                retain_staked(data, stakes);
+            if self.require_stake_for_gossip(stakes) {
+                retain_staked(&mut pull_responses, stakes);
+                for (_, data) in &mut push_messages {
+                    retain_staked(data, stakes);
+                }
+                push_messages.retain(|(_, data)| !data.is_empty());
             }
-            push_messages.retain(|(_, data)| !data.is_empty());
         }
         if !pings.is_empty() {
             self.stats
@@ -2576,6 +2587,20 @@ impl ClusterInfo {
             response_sender,
         );
         Ok(())
+    }
+
+    fn verify_node_instance(&self, value: &CrdsValue) -> bool {
+        let pubkey = match &value.data {
+            CrdsData::NodeInstance(node) => node.from(),
+            _ => return true, // If not a NodeInstance, nothing to verify.
+        };
+        // if contact info for the pubkey exists in the crds table, then the
+        // the contact info has already been verified. Therefore, the node
+        // instance is valid.
+        if self.lookup_contact_info(pubkey, |ci| ci.clone()).is_some() {
+            return true;
+        }
+        false
     }
 
     // Consumes packets received from the socket, deserializing, sanitizing and
@@ -3370,6 +3395,14 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
         pings.push((addr, Protocol::PingMessage(ping)));
     }
     out
+}
+
+fn verify_incoming_crds_value<'a>(
+    value: &'a CrdsValue,
+    verify_gossip_addr: &mut impl FnMut(&'a CrdsValue) -> bool,
+    verify_node_instance: &mut impl FnMut(&'a CrdsValue) -> bool,
+) -> bool {
+    verify_gossip_addr(value) && verify_node_instance(value)
 }
 
 #[cfg(test)]
