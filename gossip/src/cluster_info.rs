@@ -2520,38 +2520,41 @@ impl ClusterInfo {
         let mut prune_messages = vec![];
         let mut ping_messages = vec![];
         let mut pong_messages = vec![];
-        for (from_addr, packet) in packets {
-            match packet {
-                Protocol::PullRequest(filter, caller) => {
-                    if verify_gossip_addr(&caller) {
-                        pull_requests.push((from_addr, filter, caller))
+        {
+            let _st_vec = ScopedTimer::from(&self.stats.populate_gossip_vectors_time);
+            for (from_addr, packet) in packets {
+                match packet {
+                    Protocol::PullRequest(filter, caller) => {
+                        if verify_gossip_addr(&caller) {
+                            pull_requests.push((from_addr, filter, caller))
+                        }
                     }
-                }
-                Protocol::PullResponse(_, mut data) => {
-                    check_duplicate_instance(&data)?;
-                    data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
-                    if !data.is_empty() {
-                        pull_responses.append(&mut data);
+                    Protocol::PullResponse(_, mut data) => {
+                        check_duplicate_instance(&data)?;
+                        data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
+                        if !data.is_empty() {
+                            pull_responses.append(&mut data);
+                        }
                     }
-                }
-                Protocol::PushMessage(from, mut data) => {
-                    check_duplicate_instance(&data)?;
-                    data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
-                    if !data.is_empty() {
-                        push_messages.push((from, data));
+                    Protocol::PushMessage(from, mut data) => {
+                        check_duplicate_instance(&data)?;
+                        data.retain(|value| verify_incoming_crds_value(value, &mut verify_gossip_addr, &mut verify_node_instance));
+                        if !data.is_empty() {
+                            push_messages.push((from, data));
+                        }
                     }
+                    Protocol::PruneMessage(_from, data) => prune_messages.push(data),
+                    Protocol::PingMessage(ping) => ping_messages.push((from_addr, ping)),
+                    Protocol::PongMessage(pong) => pong_messages.push((from_addr, pong)),
                 }
-                Protocol::PruneMessage(_from, data) => prune_messages.push(data),
-                Protocol::PingMessage(ping) => ping_messages.push((from_addr, ping)),
-                Protocol::PongMessage(pong) => pong_messages.push((from_addr, pong)),
             }
-        }
-        if self.require_stake_for_gossip(stakes) {
-            retain_staked(&mut pull_responses, stakes);
-            for (_, data) in &mut push_messages {
-                retain_staked(data, stakes);
+            if self.require_stake_for_gossip(stakes) {
+                retain_staked(&mut pull_responses, stakes);
+                for (_, data) in &mut push_messages {
+                    retain_staked(data, stakes);
+                }
+                push_messages.retain(|(_, data)| !data.is_empty());
             }
-            push_messages.retain(|(_, data)| !data.is_empty());
         }
         if !pings.is_empty() {
             self.stats
