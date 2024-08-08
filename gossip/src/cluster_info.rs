@@ -1664,7 +1664,7 @@ impl ClusterInfo {
                 .map(|(key, values)| {
                     let filtered_values: Vec<CrdsValue> = values
                         .into_iter()
-                        .filter(|value| matches!(value.data, CrdsData::ContactInfo(_) | CrdsData::LegacyContactInfo(_)))
+                        .filter(|value| matches!(value.data, CrdsData::ContactInfo(_)))
                         // .filter(|value| matches!(value.data, CrdsData::LegacyContactInfo(_) | CrdsData::Vote(_,_) | CrdsData::Version(_)))
                         .collect();
                     (key, filtered_values)
