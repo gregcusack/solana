@@ -16,7 +16,7 @@ use {
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
         crds::{Crds, CrdsError, Cursor, GossipRoute},
         crds_gossip,
-        crds_value::CrdsValue,
+        crds_value::{CrdsValue, CrdsData},
         ping_pong::PingCache,
         push_active_set::PushActiveSet,
         received_cache::ReceivedCache,
@@ -194,6 +194,15 @@ impl CrdsGossipPush {
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
         for value in entries {
+            match &value.data {
+                CrdsData::ContactInfo(ci) => {
+                    info!("greg: ci push message gossip: {:?}", ci.gossip().unwrap());
+                },
+                CrdsData::LegacyContactInfo(lci) => {
+                    info!("greg: lci push message gossip: {:?}", lci.gossip().unwrap());
+                },
+                _ => continue,
+            }
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
             if total_bytes > self.max_bytes {

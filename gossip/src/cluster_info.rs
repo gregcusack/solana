@@ -1607,7 +1607,18 @@ impl ClusterInfo {
         self.stats.new_pull_requests_count.add_relaxed(num_requests);
         // TODO: Use new ContactInfo once the cluster has upgraded to:
         // https://github.com/anza-xyz/agave/pull/803
-        let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
+
+        // pass in fake gossip socket
+        let mut ci = self.my_contact_info();
+        let mut rng = rand::thread_rng();
+        let ip = Ipv4Addr::new(147, 28, 178, 21);
+
+        while ci.set_gossip((ip, new_rand_port(&mut rng))).is_err() {}
+
+        // let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
+        //     .map(CrdsData::LegacyContactInfo)
+        //     .expect("Operator must spin up node with valid contact-info");
+        let self_info = LegacyContactInfo::try_from(&ci)
             .map(CrdsData::LegacyContactInfo)
             .expect("Operator must spin up node with valid contact-info");
         let self_info = CrdsValue::new_signed(self_info, &self.keypair());
@@ -2011,6 +2022,15 @@ impl ClusterInfo {
                             self.stats.window_request_loopback.add_relaxed(1);
                             false
                         } else {
+                            match &caller.data {
+                                CrdsData::LegacyContactInfo(lci) => {
+                                    info!("greg: lci gossip: {:?}", lci.gossip().unwrap());
+                                }
+                                CrdsData::ContactInfo(ci) => {
+                                    info!("greg: ci gossip: {:?}", ci.gossip().unwrap());
+                                },
+                                _ => unreachable!(),
+                            }
                             true
                         }
                     }
@@ -2865,6 +2885,13 @@ fn get_epoch_duration(bank_forks: Option<&RwLock<BankForks>>, stats: &GossipStat
     Duration::from_millis(num_slots * DEFAULT_MS_PER_SLOT)
 }
 
+pub fn new_rand_port<R: Rng>(rng: &mut R) -> u16 {
+    let port = rng.gen::<u16>();
+    let bits = u16::BITS - port.leading_zeros();
+    let shift = rng.gen_range(0u32..bits + 1u32);
+    port.checked_shr(shift).unwrap_or_default()
+}
+
 #[derive(Debug)]
 pub struct Sockets {
     pub gossip: UdpSocket,
@@ -3361,29 +3388,30 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
     ping_cache: &Mutex<PingCache>,
     pings: &mut Vec<(SocketAddr, Protocol /* ::PingMessage */)>,
 ) -> bool {
-    let (pubkey, addr) = match &value.data {
-        CrdsData::ContactInfo(node) => (node.pubkey(), node.gossip()),
-        CrdsData::LegacyContactInfo(node) => (node.pubkey(), node.gossip()),
-        _ => return true, // If not a contact-info, nothing to verify.
-    };
-    // For (sufficiently) staked nodes, don't bother with ping/pong.
-    if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
-        return true;
-    }
-    // Invalid addresses are not verifiable.
-    let Some(addr) = addr.ok().filter(|addr| socket_addr_space.check(addr)) else {
-        return false;
-    };
-    let (out, ping) = {
-        let node = (*pubkey, addr);
-        let mut pingf = move || Ping::new_rand(rng, keypair).ok();
-        let mut ping_cache = ping_cache.lock().unwrap();
-        ping_cache.check(Instant::now(), node, &mut pingf)
-    };
-    if let Some(ping) = ping {
-        pings.push((addr, Protocol::PingMessage(ping)));
-    }
-    out
+    return true;
+    // let (pubkey, addr) = match &value.data {
+    //     CrdsData::ContactInfo(node) => (node.pubkey(), node.gossip()),
+    //     CrdsData::LegacyContactInfo(node) => (node.pubkey(), node.gossip()),
+    //     _ => return true, // If not a contact-info, nothing to verify.
+    // };
+    // // For (sufficiently) staked nodes, don't bother with ping/pong.
+    // if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
+    //     return true;
+    // }
+    // // Invalid addresses are not verifiable.
+    // let Some(addr) = addr.ok().filter(|addr| socket_addr_space.check(addr)) else {
+    //     return false;
+    // };
+    // let (out, ping) = {
+    //     let node = (*pubkey, addr);
+    //     let mut pingf = move || Ping::new_rand(rng, keypair).ok();
+    //     let mut ping_cache = ping_cache.lock().unwrap();
+    //     ping_cache.check(Instant::now(), node, &mut pingf)
+    // };
+    // if let Some(ping) = ping {
+    //     pings.push((addr, Protocol::PingMessage(ping)));
+    // }
+    // out
 }
 
 #[cfg(test)]
