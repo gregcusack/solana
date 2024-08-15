@@ -3368,7 +3368,10 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
         _ => return true, // If not a contact-info, nothing to verify.
     };
     // For (sufficiently) staked nodes, don't bother with ping/pong.
-    if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
+    // if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
+    //     return true;
+    // }
+    if stakes.get(pubkey) >= Some(&0) {
         return true;
     }
     // Invalid addresses are not verifiable.
