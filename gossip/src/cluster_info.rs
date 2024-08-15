@@ -1663,7 +1663,9 @@ impl ClusterInfo {
             .add_relaxed(num_nodes as u64);
         if self.require_stake_for_gossip(stakes) {
             push_messages.retain(|_, data| {
+                let len_data = data.len() as u64;
                 retain_staked(data, stakes);
+                self.stats.push_message_sent_filtered_values_count.add_relaxed((len_data - data.len() as u64).max(0));
                 !data.is_empty()
             })
         }
@@ -2155,7 +2157,9 @@ impl ClusterInfo {
         };
         if self.require_stake_for_gossip(stakes) {
             for resp in &mut pull_responses {
+                let len_resp = resp.len() as u64;
                 retain_staked(resp, stakes);
+                self.stats.pull_response_sent_filtered_values_count.add_relaxed((len_resp - resp.len() as u64).max(0));
             }
         }
         let (responses, scores): (Vec<_>, Vec<_>) = addrs
@@ -2559,11 +2563,17 @@ impl ClusterInfo {
             }
         }
         if self.require_stake_for_gossip(stakes) {
+            let len_pull_responses = pull_responses.len() as u64;
             retain_staked(&mut pull_responses, stakes);
+            self.stats.pull_response_received_filtered_values_count.add_relaxed((len_pull_responses - pull_responses.len() as u64).max(0));
+
             for (_, data) in &mut push_messages {
+                let len_data = data.len() as u64;
                 retain_staked(data, stakes);
+                self.stats.push_message_received_filtered_values_count.add_relaxed((len_data - data.len() as u64).max(0));
             }
             push_messages.retain(|(_, data)| !data.is_empty());
+
         }
         if !pings.is_empty() {
             self.stats

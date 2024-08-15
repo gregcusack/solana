@@ -182,6 +182,10 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) pull_response_received_filtered_values_count: Counter,
+    pub(crate) pull_response_sent_filtered_values_count: Counter,
+    pub(crate) push_message_received_filtered_values_count: Counter,
+    pub(crate) push_message_sent_filtered_values_count: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -485,6 +489,26 @@ pub(crate) fn submit_gossip_stats(
         (
             "get_epoch_duration_no_working_bank",
             stats.get_epoch_duration_no_working_bank.clear(),
+            i64
+        ),
+        (
+            "pull_response_received_filtered_values_count",
+            stats.pull_response_received_filtered_values_count.clear(),
+            i64
+        ),
+        (
+            "pull_response_sent_filtered_values_count",
+            stats.pull_response_sent_filtered_values_count.clear(),
+            i64
+        ),
+        (
+            "push_message_received_filtered_values_count",
+            stats.push_message_received_filtered_values_count.clear(),
+            i64
+        ),
+        (
+            "push_message_sent_filtered_values_count",
+            stats.push_message_sent_filtered_values_count.clear(),
             i64
         ),
     );
