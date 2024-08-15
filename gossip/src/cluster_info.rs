@@ -139,7 +139,7 @@ pub(crate) const CRDS_UNIQUE_PUBKEY_CAPACITY: usize = 8192;
 /// propagated through gossip (few types are exempted).
 const MIN_STAKE_FOR_GOSSIP: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 /// Minimum number of staked nodes for enforcing stakes in gossip.
-const MIN_NUM_STAKED_NODES: usize = 500;
+const MIN_NUM_STAKED_NODES: usize = 2;
 
 // Must have at least one socket to monitor the TVU port
 // The unsafes are safe because we're using fixed, known non-zero values
@@ -438,7 +438,7 @@ fn retain_staked(values: &mut Vec<CrdsValue>, stakes: &HashMap<Pubkey, u64>) {
             | CrdsData::RestartHeaviestFork(_)
             | CrdsData::RestartLastVotedForkSlots(_) => {
                 let stake = stakes.get(&value.pubkey()).copied();
-                stake.unwrap_or_default() >= MIN_STAKE_FOR_GOSSIP
+                stake.unwrap_or_default() > 0 //= MIN_STAKE_FOR_GOSSIP
             }
         }
     })
@@ -3302,7 +3302,10 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
         _ => return true, // If not a contact-info, nothing to verify.
     };
     // For (sufficiently) staked nodes, don't bother with ping/pong.
-    if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
+    // if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
+    //     return true;
+    // }
+    if stakes.get(pubkey) >= Some(0) {
         return true;
     }
     // Invalid addresses are not verifiable.
