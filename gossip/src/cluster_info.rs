@@ -142,7 +142,7 @@ pub(crate) const CRDS_UNIQUE_PUBKEY_CAPACITY: usize = 8192;
 /// propagated through gossip (few types are exempted).
 const MIN_STAKE_FOR_GOSSIP: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 /// Minimum number of staked nodes for enforcing stakes in gossip.
-const MIN_NUM_STAKED_NODES: usize = 500;
+const MIN_NUM_STAKED_NODES: usize = 2;
 
 // Must have at least one socket to monitor the TVU port
 // The unsafes are safe because we're using fixed, known non-zero values
@@ -1646,7 +1646,9 @@ impl ClusterInfo {
             .add_relaxed(num_nodes as u64);
         if self.require_stake_for_gossip(stakes) {
             push_messages.retain(|_, data| {
+                let len_data = data.len() as u64;
                 retain_staked(data, stakes);
+                self.stats.push_message_sent_filtered_values_count.add_relaxed((len_data - data.len() as u64).max(0));
                 !data.is_empty()
             })
         }
@@ -2138,7 +2140,9 @@ impl ClusterInfo {
         };
         if self.require_stake_for_gossip(stakes) {
             for resp in &mut pull_responses {
+                let len_resp = resp.len() as u64;
                 retain_staked(resp, stakes);
+                self.stats.pull_response_sent_filtered_values_count.add_relaxed((len_resp - resp.len() as u64).max(0));
             }
         }
         let (responses, scores): (Vec<_>, Vec<_>) = addrs
@@ -2544,11 +2548,17 @@ impl ClusterInfo {
             }
         }
         if self.require_stake_for_gossip(stakes) {
+            let len_pull_responses = pull_responses.len() as u64;
             retain_staked(&mut pull_responses, stakes);
+            self.stats.pull_response_received_filtered_values_count.add_relaxed((len_pull_responses - pull_responses.len() as u64).max(0));
+
             for (_, data) in &mut push_messages {
+                let len_data = data.len() as u64;
                 retain_staked(data, stakes);
+                self.stats.push_message_received_filtered_values_count.add_relaxed((len_data - data.len() as u64).max(0));
             }
             push_messages.retain(|(_, data)| !data.is_empty());
+
         }
         if !pings.is_empty() {
             self.stats
