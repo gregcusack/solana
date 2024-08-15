@@ -3305,7 +3305,7 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
     // if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
     //     return true;
     // }
-    if stakes.get(pubkey) >= Some(0) {
+    if stakes.get(pubkey) >= Some(&0) {
         return true;
     }
     // Invalid addresses are not verifiable.
