@@ -506,7 +506,7 @@ pub(crate) fn submit_gossip_stats(
             stats.push_message_sent_filtered_values_count.clear(),
             i64
         ),
-                (
+        (
             "node_instance_filter_out",
             stats.node_instance_filter_out.clear(),
             i64
