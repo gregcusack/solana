@@ -185,6 +185,7 @@ pub struct GossipStats {
     pub(crate) pull_response_sent_filtered_values_count: Counter,
     pub(crate) push_message_received_filtered_values_count: Counter,
     pub(crate) push_message_sent_filtered_values_count: Counter,
+    pub(crate) node_instance_filter_out: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -503,6 +504,11 @@ pub(crate) fn submit_gossip_stats(
         (
             "push_message_sent_filtered_values_count",
             stats.push_message_sent_filtered_values_count.clear(),
+            i64
+        ),
+                (
+            "node_instance_filter_out",
+            stats.node_instance_filter_out.clear(),
             i64
         ),
     );

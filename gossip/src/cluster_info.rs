@@ -419,7 +419,7 @@ impl Sanitize for Protocol {
 
 // Retains only CRDS values associated with nodes with enough stake.
 // (some crds types are exempted)
-fn retain_staked(values: &mut Vec<CrdsValue>, stakes: &HashMap<Pubkey, u64>) {
+fn retain_staked(values: &mut Vec<CrdsValue>, stakes: &HashMap<Pubkey, u64>, counter: &Counter) {
     values.retain(|value| {
         match value.data {
             CrdsData::ContactInfo(_) => true,
@@ -441,7 +441,15 @@ fn retain_staked(values: &mut Vec<CrdsValue>, stakes: &HashMap<Pubkey, u64>) {
             | CrdsData::RestartLastVotedForkSlots(_)
             | CrdsData::NodeInstance(_) => {
                 let stake = stakes.get(&value.pubkey()).copied();
-                stake.unwrap_or_default() > 0 //;= MIN_STAKE_FOR_GOSSIP
+                if stake.unwrap_or_default() == 0 {
+                    if let CrdsData::NodeInstance(_) = value.data {
+                        counter.add_relaxed(1);
+                    }
+                    false
+                } else {
+                    true
+                }
+                // stake.unwrap_or_default() > 0 //;= MIN_STAKE_FOR_GOSSIP
             }
         }
     })
@@ -1647,7 +1655,7 @@ impl ClusterInfo {
         if self.require_stake_for_gossip(stakes) {
             push_messages.retain(|_, data| {
                 let len_data = data.len() as u64;
-                retain_staked(data, stakes);
+                retain_staked(data, stakes, &self.stats.node_instance_filter_out);
                 self.stats.push_message_sent_filtered_values_count.add_relaxed((len_data - data.len() as u64).max(0));
                 !data.is_empty()
             })
@@ -2141,7 +2149,7 @@ impl ClusterInfo {
         if self.require_stake_for_gossip(stakes) {
             for resp in &mut pull_responses {
                 let len_resp = resp.len() as u64;
-                retain_staked(resp, stakes);
+                retain_staked(resp, stakes, &self.stats.node_instance_filter_out);
                 self.stats.pull_response_sent_filtered_values_count.add_relaxed((len_resp - resp.len() as u64).max(0));
             }
         }
@@ -2549,12 +2557,12 @@ impl ClusterInfo {
         }
         if self.require_stake_for_gossip(stakes) {
             let len_pull_responses = pull_responses.len() as u64;
-            retain_staked(&mut pull_responses, stakes);
+            retain_staked(&mut pull_responses, stakes, &self.stats.node_instance_filter_out);
             self.stats.pull_response_received_filtered_values_count.add_relaxed((len_pull_responses - pull_responses.len() as u64).max(0));
 
             for (_, data) in &mut push_messages {
                 let len_data = data.len() as u64;
-                retain_staked(data, stakes);
+                retain_staked(data, stakes, &self.stats.node_instance_filter_out);
                 self.stats.push_message_received_filtered_values_count.add_relaxed((len_data - data.len() as u64).max(0));
             }
             push_messages.retain(|(_, data)| !data.is_empty());
