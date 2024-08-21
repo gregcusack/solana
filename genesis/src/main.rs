@@ -49,6 +49,7 @@ use {
         io::{self, Read},
         path::PathBuf,
         process,
+        slice::Iter,
         str::FromStr,
         time::Duration,
     },
@@ -176,6 +177,69 @@ fn features_to_deactivate_for_cluster(
     Ok(features_to_deactivate)
 }
 
+fn validate_pubkeys(matches: &ArgMatches, arg_name: &str) -> Vec<Pubkey> {
+    // This method will only return an empty vector in the case where `--validator` is not provided
+    // Clap will enforce that `--bootstrap` flag is provided
+    let pubkeys = pubkeys_of(matches, arg_name).unwrap_or_default();
+    if !pubkeys.is_empty() {
+        assert_eq!(pubkeys.len() % 3, 0);
+
+        // Ensure there are no duplicated pubkeys in the list
+        let mut v = pubkeys.clone();
+        v.sort();
+        v.dedup();
+        if v.len() != pubkeys.len() {
+            eprintln!("Error: --{arg_name} pubkeys cannot be duplicated");
+            process::exit(1);
+        }
+    }
+    pubkeys
+}
+
+fn add_validator_accounts(
+    genesis_config: &mut GenesisConfig,
+    pubkeys_iter: &mut Iter<Pubkey>,
+    lamports: u64,
+    stake_lamports: u64,
+    commission: u8,
+    rent: &Rent,
+    authorized_pubkey: Option<&Pubkey>,
+) {
+    loop {
+        let Some(identity_pubkey) = pubkeys_iter.next() else {
+            break;
+        };
+        let vote_pubkey = pubkeys_iter.next().unwrap();
+        let stake_pubkey = pubkeys_iter.next().unwrap();
+
+        genesis_config.add_account(
+            *identity_pubkey,
+            AccountSharedData::new(lamports, 0, &system_program::id()),
+        );
+
+        let vote_account = vote_state::create_account_with_authorized(
+            identity_pubkey,
+            identity_pubkey,
+            identity_pubkey,
+            commission,
+            VoteState::get_rent_exempt_reserve(rent).max(1),
+        );
+
+        genesis_config.add_account(
+            *stake_pubkey,
+            stake_state::create_account(
+                authorized_pubkey.unwrap_or(identity_pubkey),
+                vote_pubkey,
+                &vote_account,
+                rent,
+                stake_lamports,
+            ),
+        );
+
+        genesis_config.add_account(*vote_pubkey, vote_account);
+    }
+}
+
 #[allow(clippy::cognitive_complexity)]
 fn main() -> Result<(), Box<dyn error::Error>> {
     let default_faucet_pubkey = solana_cli_config::Config::default().keypair_path;
@@ -214,6 +278,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .max(rent.minimum_balance(StakeStateV2::size_of()))
         .to_string();
 
+    let default_validator_lamports = default_bootstrap_validator_lamports;
+    let default_validator_stake_lamports = default_bootstrap_validator_stake_lamports;
+
     let default_target_tick_duration = PohConfig::default().target_tick_duration;
     let default_ticks_per_slot = &clock::DEFAULT_TICKS_PER_SLOT.to_string();
     let default_cluster_type = "mainnet-beta";
@@ -241,6 +308,17 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .multiple(true)
                 .required(true)
                 .help("The bootstrap validator's identity, vote and stake pubkeys"),
+        )
+        .arg(
+            Arg::with_name("internal_validator")
+                .short("v")
+                .long("internal-validator")
+                .value_name("IDENTITY_PUBKEY VOTE_PUBKEY STAKE_PUBKEY")
+                .takes_value(true)
+                .validator(is_pubkey_or_keypair)
+                .number_of_values(3)
+                .multiple(true)
+                .help("An internal (non bootstrap) validator's identity, vote, and stake pubkeys and its stake in lamports"),
         )
         .arg(
             Arg::with_name("ledger_path")
@@ -296,6 +374,22 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .takes_value(true)
                 .default_value(default_bootstrap_validator_stake_lamports)
                 .help("Number of lamports to assign to the bootstrap validator's stake account"),
+        )
+        .arg(
+            Arg::with_name("internal_validator_lamports")
+                .long("internal-validator-lamports")
+                .value_name("LAMPORTS")
+                .takes_value(true)
+                .default_value(default_validator_lamports)
+                .help("Number of lamports to assign to the internal (non bootstrap) validators"),
+        )
+        .arg(
+            Arg::with_name("internal_validator_stake_lamports")
+                .long("internal-validator-stake-lamports")
+                .value_name("LAMPORTS")
+                .takes_value(true)
+                .default_value(default_validator_stake_lamports)
+                .help("Number of lamports to assign to the internal (non bootstrap) validators' stake account"),
         )
         .arg(
             Arg::with_name("target_lamports_per_signature")
@@ -516,19 +610,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         }
     }
 
-    let bootstrap_validator_pubkeys = pubkeys_of(&matches, "bootstrap_validator").unwrap();
-    assert_eq!(bootstrap_validator_pubkeys.len() % 3, 0);
-
-    // Ensure there are no duplicated pubkeys in the --bootstrap-validator list
-    {
-        let mut v = bootstrap_validator_pubkeys.clone();
-        v.sort();
-        v.dedup();
-        if v.len() != bootstrap_validator_pubkeys.len() {
-            eprintln!("Error: --bootstrap-validator pubkeys cannot be duplicated");
-            process::exit(1);
-        }
-    }
+    let bootstrap_validator_pubkeys = validate_pubkeys(&matches, "bootstrap_validator");
+    let internal_validator_pubkeys = validate_pubkeys(&matches, "internal_validator");
 
     let bootstrap_validator_lamports =
         value_t_or_exit!(matches, "bootstrap_validator_lamports", u64);
@@ -536,6 +619,13 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let bootstrap_validator_stake_lamports = rent_exempt_check(
         &matches,
         "bootstrap_validator_stake_lamports",
+        rent.minimum_balance(StakeStateV2::size_of()),
+    )?;
+
+    let internal_validator_lamports = value_t_or_exit!(matches, "internal_validator_lamports", u64);
+    let internal_validator_stake_lamports = rent_exempt_check(
+        &matches,
+        "internal_validator_stake_lamports",
         rent.minimum_balance(StakeStateV2::size_of()),
     )?;
 
@@ -627,43 +717,27 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     }
 
     let commission = value_t_or_exit!(matches, "vote_commission_percentage", u8);
+    let rent = genesis_config.rent.clone();
 
-    let mut bootstrap_validator_pubkeys_iter = bootstrap_validator_pubkeys.iter();
-    loop {
-        let Some(identity_pubkey) = bootstrap_validator_pubkeys_iter.next() else {
-            break;
-        };
-        let vote_pubkey = bootstrap_validator_pubkeys_iter.next().unwrap();
-        let stake_pubkey = bootstrap_validator_pubkeys_iter.next().unwrap();
+    add_validator_accounts(
+        &mut genesis_config,
+        &mut bootstrap_validator_pubkeys.iter(),
+        bootstrap_validator_lamports,
+        bootstrap_validator_stake_lamports,
+        commission,
+        &rent,
+        bootstrap_stake_authorized_pubkey.as_ref(),
+    );
 
-        genesis_config.add_account(
-            *identity_pubkey,
-            AccountSharedData::new(bootstrap_validator_lamports, 0, &system_program::id()),
-        );
-
-        let vote_account = vote_state::create_account_with_authorized(
-            identity_pubkey,
-            identity_pubkey,
-            identity_pubkey,
-            commission,
-            VoteState::get_rent_exempt_reserve(&genesis_config.rent).max(1),
-        );
-
-        genesis_config.add_account(
-            *stake_pubkey,
-            stake_state::create_account(
-                bootstrap_stake_authorized_pubkey
-                    .as_ref()
-                    .unwrap_or(identity_pubkey),
-                vote_pubkey,
-                &vote_account,
-                &genesis_config.rent,
-                bootstrap_validator_stake_lamports,
-            ),
-        );
-
-        genesis_config.add_account(*vote_pubkey, vote_account);
-    }
+    add_validator_accounts(
+        &mut genesis_config,
+        &mut internal_validator_pubkeys.iter(),
+        internal_validator_lamports,
+        internal_validator_stake_lamports,
+        commission,
+        &rent,
+        None,
+    );
 
     if let Some(creation_time) = unix_timestamp_from_rfc3339_datetime(&matches, "creation_time") {
         genesis_config.creation_time = creation_time;
