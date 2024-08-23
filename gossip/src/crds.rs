@@ -200,9 +200,11 @@ fn overrides(value: &CrdsValue, other: &VersionedCrdsValue) -> bool {
     // two running instances of the same node, the more recent start is
     // propagated through gossip regardless of wallclocks.
     if let CrdsData::NodeInstance(value) = &value.data {
+        info!("greg: node instance in crds.overrides");
         if let Some(out) = value.overrides(&other.value) {
             return out;
         }
+        info!("greg: node instance in crds.overrides is NONE");
     }
     if let CrdsData::ContactInfo(value) = &value.data {
         if let CrdsData::ContactInfo(other) = &other.value.data {
@@ -212,12 +214,19 @@ fn overrides(value: &CrdsValue, other: &VersionedCrdsValue) -> bool {
         }
     }
     match value.wallclock().cmp(&other.value.wallclock()) {
-        Ordering::Less => false,
-        Ordering::Greater => true,
+        Ordering::Less =>{
+            info!("greg: value wallclock less than other wallclock: value: {} < other: {}", value.wallclock(), other.value.wallclock());
+            false
+        }
+        Ordering::Greater => {
+            info!("greg: value wallclock greater than other wallclock: value: {} > other: {}", value.wallclock(), other.value.wallclock());
+            true
+        }
         // Ties should be broken in a deterministic way across the cluster.
         // For backward compatibility this is done by comparing hash of
         // serialized values.
         Ordering::Equal => {
+            info!("greg: value wallclock equal to other wallclock: value: {} == other: {}", value.wallclock(), other.value.wallclock());
             let value_hash = hash(&serialize(&value).unwrap());
             other.value_hash < value_hash
         }
@@ -263,6 +272,9 @@ impl Crds {
                     }
                     CrdsData::DuplicateShred(_, _) => {
                         self.duplicate_shreds.insert(value.ordinal, entry_index);
+                    }
+                    CrdsData::NodeInstance(ni) => {
+                        info!("greg: insert node instance success!: NodeInstance: {:?}", ni);
                     }
                     _ => (),
                 };
@@ -310,7 +322,7 @@ impl Crds {
             }
             Entry::Occupied(mut entry) => {
                 stats.record_fail(&value, route);
-                trace!(
+                info!(
                     "INSERT FAILED data: {} new.wallclock: {}",
                     value.value.label(),
                     value.value.wallclock(),
@@ -319,6 +331,7 @@ impl Crds {
                 // duplicate) by comparing value hashes.
                 if entry.get().value_hash != value.value_hash {
                     self.purged.push_back((value.value_hash, now));
+                    info!("greg: hash mismatch");
                     Err(CrdsError::InsertFailed)
                 } else if matches!(route, GossipRoute::PushMessage(_)) {
                     let entry = entry.get_mut();
@@ -331,6 +344,7 @@ impl Crds {
                     entry.num_push_recv = Some(num_push_dups.saturating_add(1));
                     Err(CrdsError::DuplicatePush(num_push_dups))
                 } else {
+                    info!("greg: failed for some other reason. aka maybe old message");
                     Err(CrdsError::InsertFailed)
                 }
             }

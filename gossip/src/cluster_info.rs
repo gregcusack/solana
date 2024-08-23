@@ -480,6 +480,7 @@ impl ClusterInfo {
             contact_save_interval: 0, // disabled
             socket_addr_space,
         };
+        info!("greg: new cluster info");
         me.refresh_my_gossip_contact_info();
         me
     }
@@ -663,6 +664,7 @@ impl ClusterInfo {
         let now = timestamp();
         let mut gossip_crds = self.gossip.crds.write().unwrap();
         for node in nodes {
+            info!("greg: crds.insert in restore_contact_info");
             if let Err(err) = gossip_crds.insert(node, now, GossipRoute::LocalMessage) {
                 warn!("crds insert failed {:?}", err);
             }
@@ -686,6 +688,7 @@ impl ClusterInfo {
         *self.keypair.write().unwrap() = new_keypair;
         self.my_contact_info.write().unwrap().hot_swap_pubkey(id);
 
+        info!("greg: set_keypair");
         self.refresh_my_gossip_contact_info();
         self.push_message(CrdsValue::new_signed(
             CrdsData::Version(Version::new(self.id())),
@@ -695,6 +698,7 @@ impl ClusterInfo {
 
     pub fn set_tpu(&self, tpu_addr: SocketAddr) -> Result<(), ContactInfoError> {
         self.my_contact_info.write().unwrap().set_tpu(tpu_addr)?;
+        info!("greg: set_tpu");
         self.refresh_my_gossip_contact_info();
         Ok(())
     }
@@ -704,6 +708,7 @@ impl ClusterInfo {
             .write()
             .unwrap()
             .set_tpu_forwards(tpu_forwards_addr)?;
+        info!("greg: set_tpu_forwards");
         self.refresh_my_gossip_contact_info();
         Ok(())
     }
@@ -972,6 +977,7 @@ impl ClusterInfo {
         let mut gossip_crds = self.gossip.crds.write().unwrap();
         let now = timestamp();
         for entry in entries {
+            info!("greg: crds.insert in push_epoch_slots");
             if let Err(err) = gossip_crds.insert(entry, now, GossipRoute::LocalMessage) {
                 error!("push_epoch_slots failed: {:?}", err);
             }
@@ -1027,6 +1033,7 @@ impl ClusterInfo {
     }
 
     fn push_message(&self, message: CrdsValue) {
+        info!("greg: push_message()");
         self.local_message_pending_push_queue
             .lock()
             .unwrap()
@@ -1061,6 +1068,7 @@ impl ClusterInfo {
         let vote = CrdsData::Vote(vote_index, vote);
         let vote = CrdsValue::new_signed(vote, &self.keypair());
         let mut gossip_crds = self.gossip.crds.write().unwrap();
+        info!("greg: crds.insert in push_vote_at_index");
         if let Err(err) = gossip_crds.insert(vote, now, GossipRoute::LocalMessage) {
             error!("push_vote failed: {:?}", err);
         }
@@ -1450,6 +1458,7 @@ impl ClusterInfo {
 
     fn refresh_my_gossip_contact_info(&self) {
         let keypair: Arc<Keypair> = self.keypair().clone();
+        info!("greg: refresh_my_gossip_contact_info() timestamp: {}", timestamp());
         let instance = self.instance.read().unwrap().with_wallclock(timestamp());
         let node = {
             let mut node = self.my_contact_info.write().unwrap();
@@ -1467,7 +1476,9 @@ impl ClusterInfo {
         .map(|entry| CrdsValue::new_signed(entry, &keypair))
         .collect();
         let mut gossip_crds = self.gossip.crds.write().unwrap();
+        info!("refresh my gossip contact info");
         for entry in entries {
+            info!("refresh my gossip contact info: {:?}", entry);
             if let Err(err) = gossip_crds.insert(entry, timestamp(), GossipRoute::LocalMessage) {
                 error!("Insert self failed: {err:?}");
             }
@@ -1631,8 +1642,13 @@ impl ClusterInfo {
         if !entries.is_empty() {
             let mut gossip_crds = self.gossip.crds.write().unwrap();
             let now = timestamp();
+            info!("greg: crds.insert in flush_push_queue");
             for entry in entries {
-                let _ = gossip_crds.insert(entry, now, GossipRoute::LocalMessage);
+                info!("greg: crds.insert in flush_push_queue by entry: {:?}", entry);
+                match gossip_crds.insert(entry, now, GossipRoute::LocalMessage) {
+                    Ok(_) => info!("greg: crds.insert in flush_push_queue success"),
+                    Err(err) => error!("greg: flush_push_queue failed: {:?}", err),
+                }
             }
         }
     }
@@ -1640,6 +1656,7 @@ impl ClusterInfo {
         let self_id = self.id();
         let (mut push_messages, num_entries, num_nodes) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
+            info!("greg: flush_push_queue in new_push_requests");
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
         };
@@ -1692,6 +1709,7 @@ impl ClusterInfo {
         // pull-request bloom filters, preventing pull responses to return the
         // same values back to the node itself. Note that packets will arrive
         // and are processed out of order.
+        info!("greg: new_push_requests in generate_new_gossip_requests");
         let mut out: Vec<_> = self.new_push_requests(stakes);
         self.stats
             .packets_sent_push_messages_count
@@ -1722,6 +1740,7 @@ impl ClusterInfo {
         generate_pull_requests: bool,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_transmit_loop_time);
+        info!("greg: generate_new_gossip_requests in run_gossip");
         let reqs = self.generate_new_gossip_requests(
             thread_pool,
             gossip_validators,
@@ -1859,14 +1878,18 @@ impl ClusterInfo {
                 let mut last_contact_info_save = timestamp();
                 let mut entrypoints_processed = false;
                 let recycler = PacketBatchRecycler::default();
+                info!("greg: gossip() starting. create Version and NodeInstance CrdsData");
+                info!("greg: gossip() timestamp: {}", timestamp());
                 let crds_data = vec![
                     CrdsData::Version(Version::new(self.id())),
-                    CrdsData::NodeInstance(
-                        self.instance.read().unwrap().with_wallclock(timestamp()),
-                    ),
+                    // CrdsData::NodeInstance(
+                    //     self.instance.read().unwrap().with_wallclock(timestamp()),
+                    // ),
                 ];
+                info!("greg: gossip(). push Version and NodeInstance CrdsData");
                 for value in crds_data {
                     let value = CrdsValue::new_signed(value, &self.keypair());
+                    info!("greg: gossip(). push CrdsValue: {:?}", value);
                     self.push_message(value);
                 }
                 let mut generate_pull_requests = true;
@@ -1901,6 +1924,7 @@ impl ClusterInfo {
                         }
                         None => (Arc::default(), None),
                     };
+                    info!("greg: gossip() calling run_gossip()");
                     let _ = self.run_gossip(
                         &thread_pool,
                         gossip_validators.as_ref(),
@@ -1917,6 +1941,7 @@ impl ClusterInfo {
                     //TODO: possibly tune this parameter
                     //we saw a deadlock passing an self.read().unwrap().timeout into sleep
                     if start - last_push > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
+                        info!("greg: gossip() calling refresh_my_gossip_contact_info()");
                         self.refresh_my_gossip_contact_info();
                         self.refresh_push_active_set(
                             &recycler,

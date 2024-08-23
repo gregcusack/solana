@@ -142,6 +142,7 @@ impl CrdsGossip {
             CrdsValue::new_signed(data, keypair)
         });
         let now = timestamp();
+        info!("greg: crds.insert in push_duplicate_shred");
         for entry in entries {
             if let Err(err) = crds.insert(entry, now, GossipRoute::LocalMessage) {
                 error!("push_duplicate_shred failed: {:?}", err);

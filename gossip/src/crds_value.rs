@@ -481,18 +481,34 @@ impl NodeInstance {
     // the same owner. Otherwise returns true if self has more recent timestamp
     // than other, and so overrides it.
     pub(crate) fn overrides(&self, other: &CrdsValue) -> Option<bool> {
+        info!("greg: node instance in NodeInstance.overrides");
         let CrdsData::NodeInstance(other) = &other.data else {
+            info!("greg: NodeInstance other.data is None");
             return None;
         };
         if self.token == other.token || self.from != other.from {
+            info!("greg: NodeInstance self.token == other.token || self.from != other.from");
+            info!("greg: self.token: {}, other.token: {}", self.token, other.token);
+            info!("greg: self.from: {}, other.from: {}", self.from, other.from);
             return None;
         }
         match self.timestamp.cmp(&other.timestamp) {
-            Ordering::Less => Some(false),
-            Ordering::Greater => Some(true),
+            Ordering::Less => {
+                info!("greg: NodeInstance Ordering::Less");
+                Some(false)
+            }
+            Ordering::Greater => {
+                info!("greg: NodeInstance Ordering::Greater");
+                Some(true)
+            }
             // Ties should be broken in a deterministic way across the cluster,
             // so that nodes propagate the same value through gossip.
-            Ordering::Equal => Some(other.token < self.token),
+            Ordering::Equal => {
+                info!("greg: NodeInstance Ordering::Equal");
+                info!("greg: other token: {}, self.token: {}", other.token, self.token);
+                info!("other less than self: {}", other.token < self.token);
+                Some(other.token < self.token)
+            }
         }
     }
 }
