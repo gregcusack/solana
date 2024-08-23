@@ -1859,16 +1859,9 @@ impl ClusterInfo {
                 let mut last_contact_info_save = timestamp();
                 let mut entrypoints_processed = false;
                 let recycler = PacketBatchRecycler::default();
-                let crds_data = vec![
-                    CrdsData::Version(Version::new(self.id())),
-                    CrdsData::NodeInstance(
-                        self.instance.read().unwrap().with_wallclock(timestamp()),
-                    ),
-                ];
-                for value in crds_data {
-                    let value = CrdsValue::new_signed(value, &self.keypair());
-                    self.push_message(value);
-                }
+                let version = CrdsData::Version(Version::new(self.id()));
+                let value = CrdsValue::new_signed(version, &self.keypair());
+                self.push_message(value);
                 let mut generate_pull_requests = true;
                 loop {
                     let start = timestamp();
