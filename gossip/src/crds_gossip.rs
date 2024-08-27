@@ -337,6 +337,7 @@ pub(crate) fn get_gossip_nodes<R: Rng>(
     crds.get_nodes()
         .filter_map(|value| {
             let node = value.value.contact_info().unwrap();
+            info!("greg: get_gossip_nodes: node: {:?}", node);
             // Exclude nodes which have not been active recently.
             if value.local_timestamp < active_cutoff {
                 // In order to mitigate eclipse attack, for staked nodes

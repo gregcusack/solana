@@ -1480,12 +1480,26 @@ impl ClusterInfo {
         thread_pool: &ThreadPool,
         pulls: &mut Vec<(ContactInfo, Vec<CrdsFilter>)>,
     ) {
+        info!("greg: append_entrypoint_to_pulls start pulls len: {}", pulls.len());
+        let mut gossip_crds = self.gossip.crds.write().unwrap();
         const THROTTLE_DELAY: u64 = CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2;
         let entrypoint = {
             let mut entrypoints = self.entrypoints.write().unwrap();
             let Some(entrypoint) = entrypoints.choose_mut(&mut rand::thread_rng()) else {
                 return;
             };
+            match gossip_crds.insert(
+                CrdsValue::new_unsigned(CrdsData::ContactInfo(entrypoint.clone())),
+                timestamp(),
+                GossipRoute::LocalMessage,
+            ) {
+                Ok(_) => {
+                    info!("greg inserted entrypoint");
+                }
+                Err(err) => {
+                    warn!("Insert entrypoint failed: {err:?}");
+                }
+            }
             if !pulls.is_empty() {
                 let now = timestamp();
                 if now <= entrypoint.wallclock().saturating_add(THROTTLE_DELAY) {
@@ -1504,20 +1518,22 @@ impl ClusterInfo {
             }
             entrypoint.clone()
         };
-        let filters = if pulls.is_empty() {
-            let _st = ScopedTimer::from(&self.stats.entrypoint2);
-            self.gossip
-                .pull
-                .build_crds_filters(thread_pool, &self.gossip.crds, MAX_BLOOM_SIZE)
-        } else {
-            pulls
-                .iter()
-                .flat_map(|(_, filters)| filters)
-                .cloned()
-                .collect()
-        };
-        self.stats.pull_from_entrypoint_count.add_relaxed(1);
-        pulls.push((entrypoint, filters));
+        // let filters = if pulls.is_empty() {
+        //     info!("greg: pulls is empty. create filter");
+        //     let _st = ScopedTimer::from(&self.stats.entrypoint2);
+        //     self.gossip
+        //         .pull
+        //         .build_crds_filters(thread_pool, &self.gossip.crds, MAX_BLOOM_SIZE)
+        // } else {
+        //     pulls
+        //         .iter()
+        //         .flat_map(|(_, filters)| filters)
+        //         .cloned()
+        //         .collect()
+        // };
+        // self.stats.pull_from_entrypoint_count.add_relaxed(1);
+        // pulls.push((entrypoint, filters));
+        info!("greg: append_entrypoint_to_pulls end pulls len: {}", pulls.len());
     }
 
     /// Splits an input feed of serializable data into chunks where the sum of
@@ -1582,6 +1598,7 @@ impl ClusterInfo {
     ) {
         let now = timestamp();
         let mut pings = Vec::new();
+        info!("greg: new_pull_requests stakes len: {}", stakes.len());
         let mut pulls = {
             let _st = ScopedTimer::from(&self.stats.new_pull_requests);
             self.gossip
@@ -1599,7 +1616,9 @@ impl ClusterInfo {
                 )
                 .unwrap_or_default()
         };
+        info!("greg: num pulls to send: {}", pulls.len());
         self.append_entrypoint_to_pulls(thread_pool, &mut pulls);
+        info!("greg: num pulls to send post append entrypoint: {}", pulls.len());
         let num_requests = pulls
             .iter()
             .map(|(_, filters)| filters.len())

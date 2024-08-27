@@ -277,6 +277,7 @@ impl CrdsGossipPush {
             stakes,
             socket_addr_space,
         );
+        info!("greg: get_gossip_nodes len: {:?}", nodes.len());
         // Check for nodes which have responded to ping messages.
         let nodes = crds_gossip::maybe_ping_gossip_addresses(
             &mut rng,
@@ -285,10 +286,12 @@ impl CrdsGossipPush {
             ping_cache,
             pings,
         );
+        info!("greg: maybe_ping_gossip_addresses len: {:?}", nodes.len());
         let nodes = crds_gossip::dedup_gossip_addresses(nodes, stakes)
             .into_values()
             .map(|(_stake, node)| *node.pubkey())
             .collect::<Vec<_>>();
+        info!("greg: dedup_gossip_addresses len: {:?}", nodes.len());
         if nodes.is_empty() {
             return;
         }

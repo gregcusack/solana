@@ -252,6 +252,7 @@ impl CrdsGossipPull {
             stakes,
             socket_addr_space,
         );
+        info!("greg: new_pull_request get_gossip_nodes: {:?}", nodes.len());
         // Check for nodes which have responded to ping messages.
         let nodes = crds_gossip::maybe_ping_gossip_addresses(
             &mut rng,
@@ -260,6 +261,7 @@ impl CrdsGossipPull {
             ping_cache,
             pings,
         );
+        info!("greg: new_pull_request maybe_ping_gossip_addresses: {:?}", nodes.len());
         let stake_cap = stakes
             .get(&self_keypair.pubkey())
             .copied()
@@ -275,6 +277,7 @@ impl CrdsGossipPull {
                 })
                 .unzip();
         if nodes.is_empty() {
+            error!("greg: new_pull_request no peers");
             return Err(CrdsGossipError::NoPeers);
         }
         let filters = self.build_crds_filters(thread_pool, crds, bloom_size);
