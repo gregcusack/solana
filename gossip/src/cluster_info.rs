@@ -1605,6 +1605,9 @@ impl ClusterInfo {
             .map(|(_, filters)| filters.len())
             .sum::<usize>() as u64;
         self.stats.new_pull_requests_count.add_relaxed(num_requests);
+        let mut ci = self.my_contact_info();
+        ci.hot_swap_pubkey(*ci.pubkey());
+        ci.set_wallclock(timestamp());
         // TODO: Use new ContactInfo once the cluster has upgraded to:
         // https://github.com/anza-xyz/agave/pull/803
         let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
@@ -1916,8 +1919,9 @@ impl ClusterInfo {
                     entrypoints_processed = entrypoints_processed || self.process_entrypoints();
                     //TODO: possibly tune this parameter
                     //we saw a deadlock passing an self.read().unwrap().timeout into sleep
+                    self.refresh_my_gossip_contact_info();
+
                     if start - last_push > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
-                        self.refresh_my_gossip_contact_info();
                         self.refresh_push_active_set(
                             &recycler,
                             &stakes,
