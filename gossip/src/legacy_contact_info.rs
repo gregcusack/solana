@@ -125,6 +125,24 @@ impl Default for LegacyContactInfo {
 }
 
 impl LegacyContactInfo {
+    pub fn new_empty() -> Self {
+        Self {
+            id: Pubkey::default(),
+            gossip: SOCKET_ADDR_UNSPECIFIED,
+            tvu: SOCKET_ADDR_UNSPECIFIED,
+            tvu_quic: SOCKET_ADDR_UNSPECIFIED,
+            serve_repair_quic: SOCKET_ADDR_UNSPECIFIED,
+            tpu: SOCKET_ADDR_UNSPECIFIED,
+            tpu_forwards: SOCKET_ADDR_UNSPECIFIED,
+            tpu_vote: SOCKET_ADDR_UNSPECIFIED,
+            rpc: SOCKET_ADDR_UNSPECIFIED,
+            rpc_pubsub: SOCKET_ADDR_UNSPECIFIED,
+            serve_repair: SOCKET_ADDR_UNSPECIFIED,
+            wallclock: 0,
+            shred_version: 0,
+        }
+    }
+
     #[inline]
     pub(crate) fn pubkey(&self) -> &Pubkey {
         &self.id

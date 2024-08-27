@@ -140,6 +140,15 @@ impl CrdsGossipPush {
         for (from, values) in messages {
             self.num_total.fetch_add(values.len(), Ordering::Relaxed);
             for value in values {
+                match &value.data {
+                    CrdsData::ContactInfo(ci) => {
+                        info!("greg: ci push message in gossip: {:?}", ci);
+                    },
+                    CrdsData::LegacyContactInfo(lci) => {
+                        info!("greg: lci push message in gossip: {:?}", lci);
+                    },
+                    _ => (),
+                }
                 if !wallclock_window.contains(&value.wallclock()) {
                     continue;
                 }
@@ -196,12 +205,12 @@ impl CrdsGossipPush {
         for value in entries {
             match &value.data {
                 CrdsData::ContactInfo(ci) => {
-                    info!("greg: ci push message gossip: {:?}", ci.gossip().unwrap());
+                    info!("greg: ci push message out gossip: {:?}", ci);
                 },
                 CrdsData::LegacyContactInfo(lci) => {
-                    info!("greg: lci push message gossip: {:?}", lci.gossip().unwrap());
+                    info!("greg: lci push message out gossip: {:?}", lci);
                 },
-                _ => continue,
+                _ => (),
             }
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
@@ -210,14 +219,16 @@ impl CrdsGossipPush {
             }
             num_values += 1;
             let origin = value.pubkey();
-            let nodes = active_set.get_nodes(
+
+            let nodes: Vec<_> = active_set.get_nodes(
                 pubkey,
                 &origin,
                 |node| value.should_force_push(node),
                 stakes,
-            );
-            for node in nodes.take(self.push_fanout) {
-                push_messages.entry(*node).or_default().push(value.clone());
+            ).collect();
+            info!("greg: nodes len: {:?}", nodes.len());
+            for node in nodes.iter().take(self.push_fanout) {
+                push_messages.entry(**node).or_default().push(value.clone());
                 num_pushes += 1;
             }
         }

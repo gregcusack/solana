@@ -19,7 +19,7 @@ use {
         crds::{Crds, GossipRoute, VersionedCrdsValue},
         crds_gossip,
         crds_gossip_error::CrdsGossipError,
-        crds_value::CrdsValue,
+        crds_value::{CrdsValue, CrdsData},
         ping_pong::PingCache,
     },
     rand::{
@@ -301,6 +301,15 @@ impl CrdsGossipPull {
         let mut crds = crds.write().unwrap();
         for caller in callers {
             let key = caller.pubkey();
+            match &caller.data {
+                CrdsData::ContactInfo(contact_info) => {
+                    info!("greg: pr ci insert: {:?}", contact_info);
+                }
+                CrdsData::LegacyContactInfo(legacy_contact_info) => {
+                    info!("greg: pr lci insert: {:?}", legacy_contact_info);
+                },
+                _ => (),
+            }
             let _ = crds.insert(caller, now, GossipRoute::PullRequest);
             crds.update_record_timestamp(&key, now);
         }

@@ -1609,25 +1609,34 @@ impl ClusterInfo {
         // https://github.com/anza-xyz/agave/pull/803
 
         // pass in fake gossip socket
-        let mut ci = self.my_contact_info();
-        let mut rng = rand::thread_rng();
-        let ip = Ipv4Addr::new(147, 28, 178, 21);
+        let ci = self.my_contact_info();
+        ci.gossip().unwrap();
+        // let mut rng = rand::thread_rng();
+        // let ip = Ipv4Addr::new(145, 40, 78, 227);
+        let mut ci2 = ContactInfo::new_empty_pk_and_shred(*ci.pubkey(), self.my_shred_version());
+        let _ = ci2.set_gossip(ci.gossip().unwrap());
+        let self_info = LegacyContactInfo::try_from(&ci2)
+            .map(CrdsData::LegacyContactInfo)
+            .expect("Operator must spin up node with valid contact-info");
+        // let self_info = CrdsData::LegacyContactInfo(ci2);
 
-        while ci.set_gossip((ip, new_rand_port(&mut rng))).is_err() {}
+        // while ci.set_gossip((ip, new_rand_port(&mut rng))).is_err() {}
 
         // let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
         //     .map(CrdsData::LegacyContactInfo)
         //     .expect("Operator must spin up node with valid contact-info");
-        let self_info = LegacyContactInfo::try_from(&ci)
-            .map(CrdsData::LegacyContactInfo)
-            .expect("Operator must spin up node with valid contact-info");
+        // let self_info = LegacyContactInfo::try_from(&ci)
+        //     .map(CrdsData::LegacyContactInfo)
+        //     .expect("Operator must spin up node with valid contact-info");
         let self_info = CrdsValue::new_signed(self_info, &self.keypair());
+        
         let pulls = pulls
             .into_iter()
             .filter_map(|(peer, filters)| Some((peer.gossip().ok()?, filters)))
             .flat_map(|(addr, filters)| repeat(addr).zip(filters))
             .map(|(gossip_addr, filter)| {
                 let request = Protocol::PullRequest(filter, self_info.clone());
+                info!("greg: sending pull request to: {:?}", gossip_addr);
                 (gossip_addr, request)
             });
         self.stats

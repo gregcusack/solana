@@ -192,6 +192,35 @@ impl ContactInfo {
         }
     }
 
+    pub fn new_empty() -> Self {
+        Self {
+            pubkey: Pubkey::default(),
+            wallclock: 0,
+            outset: 0,
+            shred_version: 0,
+            version: solana_version::Version::default(),
+            addrs: Vec::<IpAddr>::default(),
+            sockets: Vec::<SocketEntry>::default(),
+            extensions: Vec::<Extension>::default(),
+            cache: [SOCKET_ADDR_UNSPECIFIED; SOCKET_CACHE_SIZE],
+        }
+    }
+
+    pub fn new_empty_pk_and_shred(pubkey: Pubkey, shred_version: u16) -> Self {
+        Self {
+            pubkey,
+            wallclock: 0,
+            outset: 0,
+            shred_version,
+            version: solana_version::Version::default(),
+            addrs: Vec::<IpAddr>::default(),
+            sockets: Vec::<SocketEntry>::default(),
+            extensions: Vec::<Extension>::default(),
+            cache: [SOCKET_ADDR_UNSPECIFIED; SOCKET_CACHE_SIZE],
+        }
+    }
+
+
     #[inline]
     pub fn pubkey(&self) -> &Pubkey {
         &self.pubkey
