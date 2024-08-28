@@ -315,7 +315,7 @@ pub(crate) type Ping = ping_pong::Ping<[u8; GOSSIP_PING_TOKEN_SIZE]>;
 )]
 #[derive(Serialize, Deserialize, Debug)]
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum Protocol {
+pub enum Protocol {
     /// Gossip protocol messages
     PullRequest(CrdsFilter, CrdsValue),
     PullResponse(Pubkey, Vec<CrdsValue>),
@@ -1610,6 +1610,8 @@ impl ClusterInfo {
         let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
             .map(CrdsData::LegacyContactInfo)
             .expect("Operator must spin up node with valid contact-info");
+
+
         let self_info = CrdsValue::new_signed(self_info, &self.keypair());
         let pulls = pulls
             .into_iter()
@@ -1619,10 +1621,20 @@ impl ClusterInfo {
                 let request = Protocol::PullRequest(filter, self_info.clone());
                 (gossip_addr, request)
             });
+
+        let pulls: Vec<(SocketAddr, Protocol)> = pulls.collect();
+        let len_self_info = bincode::serialize(&self_info).unwrap().len();
+        info!("greg: size of self_info: {}", len_self_info);
+        for p in pulls.iter() {
+            let len_pull = bincode::serialize(&p).unwrap().len();
+            info!("greg: size of pull: {}", len_pull);
+            info!("fraction self_info: {}", len_self_info as f64 / len_pull as f64);
+        }
+
         self.stats
             .new_pull_requests_pings_count
             .add_relaxed(pings.len() as u64);
-        (pings, pulls.collect())
+        (pings, pulls)
     }
 
     pub fn flush_push_queue(&self) {
