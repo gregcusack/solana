@@ -168,13 +168,28 @@ impl PingCache {
     pub fn add(&mut self, pong: &Pong, socket: SocketAddr, now: Instant) -> bool {
         let node = (pong.pubkey(), socket);
         match self.pending_cache.peek(&pong.hash) {
-            Some(value) if *value == node => {
+            // Some(value) if *value == node => {
+            //     info!("greg: add: pong hash matches");
+            //     self.pings.pop(&node);
+            //     self.pongs.put(node, now);
+            //     self.pending_cache.pop(&pong.hash);
+            //     true
+            // }
+            Some(value) => {
+                if *value != node {
+                    info!("greg: add: pong hash does not match. value: {:?}, node: {:?}", value, node);
+                    return false;
+                }
+                info!("greg: add: pong hash matches");
                 self.pings.pop(&node);
                 self.pongs.put(node, now);
                 self.pending_cache.pop(&pong.hash);
                 true
             }
-            _ => false,
+            _ => {
+                info!("greg: add: pong hash does not match");
+                false
+            }
         }
     }
 
@@ -191,10 +206,15 @@ impl PingCache {
         T: Serialize,
         F: FnMut() -> Option<Ping<T>>,
     {
+        info!("greg: maybe_ping");
         match self.pings.peek(&node) {
             // Rate limit consecutive pings sent to a remote node.
-            Some(t) if now.saturating_duration_since(*t) < self.rate_limit_delay => None,
+            Some(t) if now.saturating_duration_since(*t) < self.rate_limit_delay => {
+                info!("greg: maybe_ping: rate limit");
+                None
+            }
             _ => {
+                info!("greg: maybe_ping: sending ping");
                 let ping = pingf()?;
                 let token = serialize(&ping.token).ok()?;
                 let hash = hash::hashv(&[PING_PONG_HASH_PREFIX, &token]);
@@ -236,11 +256,13 @@ impl PingCache {
                 (true, age > self.ttl / 8)
             }
         };
+        info!("greg: should ping: {:?}", should_ping);
         let ping = if should_ping {
             self.maybe_ping(now, node, pingf)
         } else {
             None
         };
+        info!("greg: check: {:?}", check);
         (check, ping)
     }
 

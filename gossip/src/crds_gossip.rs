@@ -400,10 +400,12 @@ pub(crate) fn maybe_ping_gossip_addresses<R: Rng + CryptoRng>(
         .into_iter()
         .filter(|node| {
             let Ok(node_gossip) = node.gossip() else {
+                info!("greg: no gossip addr for node: {:?}", node);
                 return false;
             };
             let (check, ping) = {
                 let node = (*node.pubkey(), node_gossip);
+                info!("greg: maybe_ping_gossip_addresses: node: {:?}", node);
                 ping_cache.check(now, node, &mut pingf)
             };
             if let Some(ping) = ping {

@@ -1488,6 +1488,8 @@ impl ClusterInfo {
             let Some(entrypoint) = entrypoints.choose_mut(&mut rand::thread_rng()) else {
                 return;
             };
+            entrypoint.set_wallclock(timestamp());
+            entrypoint.set_shred_version(self.my_shred_version());
             match gossip_crds.insert(
                 CrdsValue::new_unsigned(CrdsData::ContactInfo(entrypoint.clone())),
                 timestamp(),
@@ -2369,10 +2371,14 @@ impl ClusterInfo {
         let _st = ScopedTimer::from(&self.stats.handle_batch_pong_messages_time);
         let mut pongs = pongs.into_iter().peekable();
         if pongs.peek().is_some() {
+            info!("greg: pongs is some");
             let mut ping_cache = self.ping_cache.lock().unwrap();
             for (addr, pong) in pongs {
+                info!("greg: handle_batch_pong_messages addr: {:?}", addr);
                 ping_cache.add(&pong, addr, now);
             }
+        } else {
+            info!("greg: pongs is none");
         }
     }
 
@@ -2629,6 +2635,7 @@ impl ClusterInfo {
         );
         self.handle_batch_pull_responses(pull_responses, stakes, epoch_duration);
         self.trim_crds_table(CRDS_UNIQUE_PUBKEY_CAPACITY, stakes);
+        info!("greg: rx pong messages.len(): {}", pong_messages.len());
         self.handle_batch_pong_messages(pong_messages, Instant::now());
         self.handle_batch_pull_requests(
             pull_requests,

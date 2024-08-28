@@ -278,6 +278,9 @@ impl CrdsGossipPush {
             socket_addr_space,
         );
         info!("greg: get_gossip_nodes len: {:?}", nodes.len());
+        for node in &nodes {
+            info!("greg: get_gossip_nodes node: {:?}", node);
+        }
         // Check for nodes which have responded to ping messages.
         let nodes = crds_gossip::maybe_ping_gossip_addresses(
             &mut rng,

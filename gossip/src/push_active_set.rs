@@ -36,6 +36,10 @@ impl PushActiveSet {
         stakes: &HashMap<Pubkey, u64>,
     ) -> impl Iterator<Item = &Pubkey> + 'a {
         let stake = stakes.get(pubkey).min(stakes.get(origin));
+        match stake {
+            None => info!("no stake for pk: {pubkey}"),
+            Some(stake) => info!("stake: {stake}"),
+        }
         self.get_entry(stake).get_nodes(origin, should_force_push)
     }
 
@@ -114,6 +118,7 @@ impl PushActiveSetEntry {
         // If true forces gossip push even if the node has pruned the origin.
         mut should_force_push: impl FnMut(&Pubkey) -> bool + 'a,
     ) -> impl Iterator<Item = &Pubkey> + 'a {
+        info!("greg: get_nodes()");
         self.0
             .iter()
             .filter(move |(node, bloom_filter)| {
@@ -125,6 +130,8 @@ impl PushActiveSetEntry {
                 if should_force_push(node) {
                     info!("greg: force push to node: {node}");
                     return true;
+                } else {
+                    info!("greg: we got one!: {node}");
                 }
                 true
             })
