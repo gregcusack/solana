@@ -240,7 +240,7 @@ impl TransactionInterface {
 
     pub fn recent_blockhash(&self) -> &[u8; 32] {
         unsafe {
-            let recent_blockhas_ptr = ((self.recent_blockhash_fn)(self.transaction_ptr));
+            let recent_blockhas_ptr = (self.recent_blockhash_fn)(self.transaction_ptr);
             &*(recent_blockhas_ptr as *const [u8; 32])
         }
     }
