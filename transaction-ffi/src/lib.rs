@@ -209,3 +209,78 @@ pub struct TransactionInterface {
     /// See [`TransactionIterAccountsFn`].
     pub iter_accounts_fn: TransactionIterAccountsFn,
 }
+
+// Rust functions to call functions on the `TransactionInterface` struct.
+// To avoid comments on unsafe code in each function this top-level comment
+// should suffice:
+//
+// - SAFETY: `TransactionInterface` provided to the plugin has valid
+//           transaction pointer and fn pointers.
+//           Unless user modified it - these functions are safe.
+impl TransactionInterface {
+    pub fn num_signatures(&self) -> usize {
+        unsafe { (self.num_signatures_fn)(self.transaction_ptr) }
+    }
+
+    pub fn signatures(&self) -> &[[u8; 64]] {
+        let num_signatures = self.num_signatures();
+        unsafe {
+            let signatures_ptr = (self.signatures_fn)(self.transaction_ptr);
+            core::slice::from_raw_parts(signatures_ptr as *const [u8; 64], num_signatures)
+        }
+    }
+
+    pub fn num_total_signatures(&self) -> u64 {
+        unsafe { (self.num_total_signatures_fn)(self.transaction_ptr) }
+    }
+
+    pub fn num_write_locks(&self) -> u64 {
+        unsafe { (self.num_write_locks_fn)(self.transaction_ptr) }
+    }
+
+    pub fn recent_blockhash(&self) -> &[u8; 32] {
+        unsafe {
+            let recent_blockhas_ptr = ((self.recent_blockhash_fn)(self.transaction_ptr));
+            &*(recent_blockhas_ptr as *const [u8; 32])
+        }
+    }
+
+    pub fn num_instructions(&self) -> usize {
+        unsafe { (self.num_instructions_fn)(self.transaction_ptr) }
+    }
+
+    pub fn instructions_iter(&self, callback: InstructionCallback) {
+        unsafe { (self.iter_instructions_fn)(self.transaction_ptr, callback) }
+    }
+
+    pub fn num_accounts(&self) -> usize {
+        unsafe { (self.num_accounts_fn)(self.transaction_ptr) }
+    }
+
+    pub fn get_account(&self, index: usize) -> Option<&[u8; 32]> {
+        unsafe {
+            let account_key = (self.get_account_fn)(self.transaction_ptr, index);
+            if account_key.is_null() {
+                None
+            } else {
+                Some(&*(account_key as *const [u8; 32]))
+            }
+        }
+    }
+
+    pub fn is_writable(&self, index: usize) -> bool {
+        unsafe { (self.is_writable_fn)(self.transaction_ptr, index) }
+    }
+
+    pub fn is_signer(&self, index: usize) -> bool {
+        unsafe { (self.is_signer_fn)(self.transaction_ptr, index) }
+    }
+
+    pub fn is_invoked(&self, index: usize) -> bool {
+        unsafe { (self.is_invoked_fn)(self.transaction_ptr, index) }
+    }
+
+    pub fn iter_accounts(&self, callback: AccountCallback) {
+        unsafe { (self.iter_accounts_fn)(self.transaction_ptr, callback) }
+    }
+}
