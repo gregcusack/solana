@@ -1870,19 +1870,29 @@ impl ClusterInfo {
                     self.push_message(value);
                 }
                 let mut generate_pull_requests = true;
+                let mut i: u64 = 0;
+                let mut all_peers: Vec<ContactInfo> = Vec::new();
+                let mut tvu_peers: Vec<ContactInfo> = Vec::new();
+                // count of tvu peers by pubkey
+                // count of total times we have called tvu_peers()
+                // count of total times we have seen a specific pubkey
+                // tvu_peers_map: pubkey -> times_seen
+                let mut tvu_peers_map: HashMap<Pubkey, usize> = HashMap::new();
                 loop {
                     let start = timestamp();
-                    if self.contact_debug_interval != 0
-                        && start - last_contact_info_trace > self.contact_debug_interval
-                    {
-                        // Log contact info
-                        info!(
-                            "\n{}\n\n{}",
-                            self.contact_info_trace(),
-                            self.rpc_info_trace()
-                        );
-                        last_contact_info_trace = start;
-                    }
+                    // if self.contact_debug_interval != 0
+                    //     && start - last_contact_info_trace > self.contact_debug_interval
+                    // {
+                    //     // Log contact info
+                    //     // info!(
+                    //     //     "\n{}\n\n{}",
+                    //     //     self.contact_info_trace(),
+                    //     //     self.rpc_info_trace()
+                    //     // );
+                    //     // last_contact_info_trace = start;
+                    // }
+
+
 
                     if self.contact_save_interval != 0
                         && start - last_contact_info_save > self.contact_save_interval
@@ -1901,6 +1911,64 @@ impl ClusterInfo {
                         }
                         None => (Arc::default(), None),
                     };
+
+                    let mut num_unstaked = 0;
+                    if i % 50 == 0 {
+                        all_peers = self
+                            .all_peers()
+                            .into_iter()
+                            .map(|x| x.0)
+                            .collect::<Vec<_>>();
+                        tvu_peers = self.all_tvu_peers();
+                        update_tvu_peers(&mut tvu_peers_map, &tvu_peers);
+                        // info!("discovering...\n{}", spy_ref.contact_info_trace());
+                        info!("greg: num loops/50: {}", i as f64 / 50.0);
+                        let sorted_peers = sort_tvu_peers(&tvu_peers_map);
+                        // for (pubkey, count) in sorted_peers {
+                        //     info!("greg: {:?}: {}", pubkey, count);
+                        // }
+                
+                        info!("greg: all_tvu_peers: {}", tvu_peers.len());
+                        info!("greg: all_peers: {}", all_peers.len());
+                        info!("greg: tvu_peers: {:?}", self.tvu_peers().len()); //our shred version is 0
+                        info!("greg: # of staked validators: {}", stakes.len());
+                        // info!("greg: # of 0 staked validators: {}", stakes.values().filter(|&&stake| stake == 0).count());
+
+                        let zero_staked: Vec<Pubkey> = tvu_peers_map
+                            .keys() // Get the iterator over the keys (Pubkeys) in tvu_peers_map
+                            .filter(|pubkey| !stakes.contains_key(pubkey)) // Filter out those that are present in stakes
+                            .cloned() // Clone the pubkeys to return them (since they are references)
+                            .collect();
+
+                        info!("greg: # unstaked validators: {}", zero_staked.len());
+                        info!("greg: unstaked validators:");
+
+                        for (pubkey, count) in sorted_peers.iter() {
+                            // Check if this pubkey is in the zero_staked vector
+                            if zero_staked.contains(pubkey) {
+                                info!("greg: tvu_peer_0_stake: {:?}: {}", pubkey, count);
+                            }
+                        }
+
+                        // info!("greg: Entries in tvu_peers_map with stakes = 0:");
+                        // for (pubkey, count) in tvu_peers_map.iter() {
+                        //     if let Some(&stake) = stakes.get(pubkey) {
+                        //         if stake == 0 {
+                        //             info!("greg: tvu_peer_0_stake: {:?}: {}", pubkey, count);
+                        //         }
+                        //     }
+                        // }
+                        num_unstaked = zero_staked.len();
+                    }
+                    // reset peers map so we don't deal with warmup discrepenacies
+                    if num_unstaked >= 100 {
+                        info!("greg: resetting peer map");
+                        tvu_peers_map = HashMap::new();
+                        i = 0;
+                    }
+                    i += 1;
+
+
                     let _ = self.run_gossip(
                         &thread_pool,
                         gossip_validators.as_ref(),
@@ -2846,6 +2914,24 @@ impl ClusterInfo {
         );
         (contact_info, gossip_socket, None)
     }
+}
+
+fn update_tvu_peers(tvu_peers_map: &mut HashMap<Pubkey, usize>, tvu_peers: &Vec<ContactInfo>) {
+    for peer in tvu_peers {
+        let pubkey = peer.pubkey(); // Get the pubkey from ContactInfo
+
+        // Increment the value if the pubkey already exists, otherwise insert it with a value of 1
+        tvu_peers_map.entry(*pubkey).and_modify(|e| *e += 1).or_insert(1);
+    }
+}
+
+fn sort_tvu_peers(tvu_peers_map: &HashMap<Pubkey, usize>) -> Vec<(&Pubkey, &usize)>{
+    // Convert HashMap into a Vec of tuples and sort by count (descending)
+    let mut sorted_peers: Vec<(&Pubkey, &usize)> = tvu_peers_map.iter().collect();
+    
+    sorted_peers.sort_by(|a, b| b.1.cmp(a.1)); // Sort by the count (usize) in descending order
+
+    sorted_peers
 }
 
 // Returns root bank's epoch duration. Falls back on

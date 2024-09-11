@@ -19,7 +19,7 @@ use {
     },
     solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
     std::{
-        collections::HashSet,
+        collections::{HashSet, HashMap},
         net::{SocketAddr, TcpListener, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -239,6 +239,29 @@ pub fn get_client(
     }
 }
 
+fn update_tvu_peers(tvu_peers_map: &mut HashMap<Pubkey, usize>, tvu_peers: &Vec<ContactInfo>) {
+    for peer in tvu_peers {
+        let pubkey = peer.pubkey(); // Get the pubkey from ContactInfo
+
+        // Increment the value if the pubkey already exists, otherwise insert it with a value of 1
+        tvu_peers_map.entry(*pubkey).and_modify(|e| *e += 1).or_insert(1);
+    }
+}
+
+fn sort_tvu_peers(tvu_peers_map: &HashMap<Pubkey, usize>) -> Vec<(&Pubkey, &usize)>{
+    // Convert HashMap into a Vec of tuples and sort by count (descending)
+    let mut sorted_peers: Vec<(&Pubkey, &usize)> = tvu_peers_map.iter().collect();
+    
+    sorted_peers.sort_by(|a, b| b.1.cmp(a.1)); // Sort by the count (usize) in descending order
+
+    sorted_peers
+
+    // // Print the sorted Pubkey and count
+    // for (pubkey, count) in sorted_peers {
+    //     println!("{:?}: {}", pubkey, count);
+    // }
+}
+
 fn spy(
     spy_ref: Arc<ClusterInfo>,
     num_nodes: Option<usize>,
@@ -256,6 +279,11 @@ fn spy(
     let mut all_peers: Vec<ContactInfo> = Vec::new();
     let mut tvu_peers: Vec<ContactInfo> = Vec::new();
     let mut i = 1;
+    // count of tvu peers by pubkey
+    // count of total times we have called tvu_peers()
+    // count of total times we have seen a specific pubkey
+    // tvu_peers_map: pubkey -> times_seen
+    let mut tvu_peers_map: HashMap<Pubkey, usize> = HashMap::new();
     while !met_criteria && now.elapsed() < timeout {
         all_peers = spy_ref
             .all_peers()
@@ -263,6 +291,13 @@ fn spy(
             .map(|x| x.0)
             .collect::<Vec<_>>();
         tvu_peers = spy_ref.all_tvu_peers();
+
+        info!("greg: all_tvu_peers: {}", tvu_peers.len());
+        info!("greg: all_peers: {}", all_peers.len());
+
+        update_tvu_peers(&mut tvu_peers_map, &tvu_peers);
+        info!("greg: tvu_peers: {:?}", spy_ref.tvu_peers().len()); //our shred version is 0
+
 
         let found_nodes_by_pubkey = if let Some(pubkeys) = find_nodes_by_pubkey {
             pubkeys
@@ -299,12 +334,23 @@ fn spy(
             met_criteria = true;
         }
         if i % 20 == 0 {
-            info!("discovering...\n{}", spy_ref.contact_info_trace());
+            // info!("discovering...\n{}", spy_ref.contact_info_trace());
+            info!("greg: num loops: {}", i);
+            let sorted_peers = sort_tvu_peers(&tvu_peers_map);
+            for (pubkey, count) in sorted_peers {
+                info!("greg: {:?}: {}", pubkey, count);
+            }
         }
         sleep(Duration::from_millis(
             crate::cluster_info::GOSSIP_SLEEP_MILLIS,
         ));
         i += 1;
+        // reset peers map so we don't deal with warmup discrepenacies
+        if i == 1000 {
+            info!("greg: resetting peer map");
+            tvu_peers_map = HashMap::new();
+            i = 0;
+        }
     }
     (met_criteria, now.elapsed(), all_peers, tvu_peers)
 }
