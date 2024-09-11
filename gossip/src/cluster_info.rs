@@ -1605,11 +1605,7 @@ impl ClusterInfo {
             .map(|(_, filters)| filters.len())
             .sum::<usize>() as u64;
         self.stats.new_pull_requests_count.add_relaxed(num_requests);
-        // TODO: Use new ContactInfo once the cluster has upgraded to:
-        // https://github.com/anza-xyz/agave/pull/803
-        let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
-            .map(CrdsData::LegacyContactInfo)
-            .expect("Operator must spin up node with valid contact-info");
+        let self_info = CrdsData::ContactInfo(self.my_contact_info());
         let self_info = CrdsValue::new_signed(self_info, &self.keypair());
         let pulls = pulls
             .into_iter()
@@ -4386,10 +4382,7 @@ mod tests {
     }
 
     fn check_pull_request_size(filter: CrdsFilter) {
-        // TODO: Use new ContactInfo once the cluster has upgraded to:
-        // https://github.com/anza-xyz/agave/pull/803
-        let value =
-            CrdsValue::new_unsigned(CrdsData::LegacyContactInfo(LegacyContactInfo::default()));
+        let value = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::default()));
         let protocol = Protocol::PullRequest(filter, value);
         assert!(serialized_size(&protocol).unwrap() <= PACKET_DATA_SIZE as u64);
     }
@@ -4557,11 +4550,9 @@ mod tests {
     fn max_bloom_size() -> usize {
         let filter_size = serialized_size(&CrdsFilter::default())
             .expect("unable to serialize default filter") as usize;
-        // TODO: Use new ContactInfo once the cluster has upgraded to:
-        // https://github.com/anza-xyz/agave/pull/803
         let protocol = Protocol::PullRequest(
             CrdsFilter::default(),
-            CrdsValue::new_unsigned(CrdsData::LegacyContactInfo(LegacyContactInfo::default())),
+            CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::default())),
         );
         let protocol_size =
             serialized_size(&protocol).expect("unable to serialize gossip protocol") as usize;
