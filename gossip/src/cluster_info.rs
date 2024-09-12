@@ -544,7 +544,7 @@ impl ClusterInfo {
         .collect();
         let mut gossip_crds = self.gossip.crds.write().unwrap();
         for entry in entries {
-            let _ = gossip_crds.insert(entry, timestamp(), GossipRoute::LocalMessage);
+            let _ = gossip_crds.insert(entry, timestamp(), GossipRoute::LocalMessage, None);
         }
     }
 
@@ -663,7 +663,7 @@ impl ClusterInfo {
         let now = timestamp();
         let mut gossip_crds = self.gossip.crds.write().unwrap();
         for node in nodes {
-            if let Err(err) = gossip_crds.insert(node, now, GossipRoute::LocalMessage) {
+            if let Err(err) = gossip_crds.insert(node, now, GossipRoute::LocalMessage, None) {
                 warn!("crds insert failed {:?}", err);
             }
         }
@@ -972,7 +972,7 @@ impl ClusterInfo {
         let mut gossip_crds = self.gossip.crds.write().unwrap();
         let now = timestamp();
         for entry in entries {
-            if let Err(err) = gossip_crds.insert(entry, now, GossipRoute::LocalMessage) {
+            if let Err(err) = gossip_crds.insert(entry, now, GossipRoute::LocalMessage, None) {
                 error!("push_epoch_slots failed: {:?}", err);
             }
         }
@@ -1061,7 +1061,7 @@ impl ClusterInfo {
         let vote = CrdsData::Vote(vote_index, vote);
         let vote = CrdsValue::new_signed(vote, &self.keypair());
         let mut gossip_crds = self.gossip.crds.write().unwrap();
-        if let Err(err) = gossip_crds.insert(vote, now, GossipRoute::LocalMessage) {
+        if let Err(err) = gossip_crds.insert(vote, now, GossipRoute::LocalMessage, None) {
             error!("push_vote failed: {:?}", err);
         }
     }
@@ -1468,7 +1468,7 @@ impl ClusterInfo {
         .collect();
         let mut gossip_crds = self.gossip.crds.write().unwrap();
         for entry in entries {
-            if let Err(err) = gossip_crds.insert(entry, timestamp(), GossipRoute::LocalMessage) {
+            if let Err(err) = gossip_crds.insert(entry, timestamp(), GossipRoute::LocalMessage, None) {
                 error!("Insert self failed: {err:?}");
             }
         }
@@ -1607,9 +1607,10 @@ impl ClusterInfo {
         self.stats.new_pull_requests_count.add_relaxed(num_requests);
         // TODO: Use new ContactInfo once the cluster has upgraded to:
         // https://github.com/anza-xyz/agave/pull/803
-        let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
-            .map(CrdsData::LegacyContactInfo)
-            .expect("Operator must spin up node with valid contact-info");
+        // let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
+        //     .map(CrdsData::LegacyContactInfo)
+        //     .expect("Operator must spin up node with valid contact-info");
+        let self_info = CrdsData::ContactInfo(self.my_contact_info());
         let self_info = CrdsValue::new_signed(self_info, &self.keypair());
         let pulls = pulls
             .into_iter()
@@ -1632,7 +1633,7 @@ impl ClusterInfo {
             let mut gossip_crds = self.gossip.crds.write().unwrap();
             let now = timestamp();
             for entry in entries {
-                let _ = gossip_crds.insert(entry, now, GossipRoute::LocalMessage);
+                let _ = gossip_crds.insert(entry, now, GossipRoute::LocalMessage, None);
             }
         }
     }
@@ -2351,7 +2352,7 @@ impl ClusterInfo {
         let origins: HashSet<_> = {
             let _st = ScopedTimer::from(&self.stats.process_push_message);
             let now = timestamp();
-            self.gossip.process_push_message(messages, now)
+            self.gossip.process_push_message(messages, now, Some(stakes))
         };
         // Generate prune messages.
         let self_pubkey = self.id();
@@ -4218,7 +4219,7 @@ mod tests {
             let mut gossip_crds = cluster_info.gossip.crds.write().unwrap();
             for entry in entries {
                 assert!(gossip_crds
-                    .insert(entry, /*now=*/ 0, GossipRoute::LocalMessage)
+                    .insert(entry, /*now=*/ 0, GossipRoute::LocalMessage, None)
                     .is_ok());
             }
         }
@@ -4514,7 +4515,7 @@ mod tests {
                 LowestSlot::new(other_node_pubkey, peer_lowest, timestamp()),
             ));
             let mut gossip_crds = cluster_info.gossip.crds.write().unwrap();
-            let _ = gossip_crds.insert(value, timestamp(), GossipRoute::LocalMessage);
+            let _ = gossip_crds.insert(value, timestamp(), GossipRoute::LocalMessage, None);
         }
         // only half the visible peers should be eligible to serve this repair
         assert_eq!(cluster_info.repair_peers(5).len(), 5);
@@ -4890,7 +4891,7 @@ mod tests {
             let mut gossip_crds = cluster_info.gossip.crds.write().unwrap();
             for entry in entries {
                 assert!(gossip_crds
-                    .insert(entry, /*now=*/ 0, GossipRoute::LocalMessage)
+                    .insert(entry, /*now=*/ 0, GossipRoute::LocalMessage, None)
                     .is_ok());
             }
         }
@@ -4967,7 +4968,7 @@ mod tests {
             let mut gossip_crds = cluster_info.gossip.crds.write().unwrap();
             for entry in entries {
                 assert!(gossip_crds
-                    .insert(entry, /*now=*/ 0, GossipRoute::LocalMessage)
+                    .insert(entry, /*now=*/ 0, GossipRoute::LocalMessage, None)
                     .is_ok());
             }
         }

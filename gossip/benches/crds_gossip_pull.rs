@@ -42,6 +42,7 @@ fn bench_build_crds_filters(bencher: &mut Bencher) {
                 CrdsValue::new_rand(&mut rng, None),
                 rng.gen(),
                 GossipRoute::LocalMessage,
+                None
             )
             .is_ok()
         {

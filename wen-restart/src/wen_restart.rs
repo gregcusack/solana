@@ -1361,7 +1361,7 @@ mod tests {
             let mut gossip_crds = cluster_info.gossip.crds.write().unwrap();
             for entry in entries {
                 assert!(gossip_crds
-                    .insert(entry, /*now=*/ 0, GossipRoute::LocalMessage)
+                    .insert(entry, /*now=*/ 0, GossipRoute::LocalMessage, None)
                     .is_ok());
             }
         }
@@ -1392,7 +1392,8 @@ mod tests {
             .insert(
                 CrdsValue::new_signed(CrdsData::RestartHeaviestFork(heaviest_fork), node_keypair),
                 /*now=*/ 0,
-                GossipRoute::LocalMessage
+                GossipRoute::LocalMessage,
+                None,
             )
             .is_ok());
     }

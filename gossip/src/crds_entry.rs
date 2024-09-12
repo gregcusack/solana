@@ -89,6 +89,7 @@ mod tests {
                 value.clone(),
                 new_rand_timestamp(&mut rng),
                 GossipRoute::LocalMessage,
+                None,
             ) {
                 entries.insert(key, value);
             }

@@ -52,8 +52,9 @@ impl CrdsGossip {
         &self,
         messages: Vec<(/*from:*/ Pubkey, Vec<CrdsValue>)>,
         now: u64,
+        stakes: Option<&HashMap<Pubkey, u64>>
     ) -> HashSet<Pubkey> {
-        self.push.process_push_message(&self.crds, messages, now)
+        self.push.process_push_message(&self.crds, messages, now, stakes)
     }
 
     /// Remove redundant paths in the network.
@@ -143,7 +144,7 @@ impl CrdsGossip {
         });
         let now = timestamp();
         for entry in entries {
-            if let Err(err) = crds.insert(entry, now, GossipRoute::LocalMessage) {
+            if let Err(err) = crds.insert(entry, now, GossipRoute::LocalMessage, None) {
                 error!("push_duplicate_shred failed: {:?}", err);
             }
         }
@@ -436,6 +437,7 @@ mod test {
                 CrdsValue::new_unsigned(CrdsData::ContactInfo(ci.clone())),
                 0,
                 GossipRoute::LocalMessage,
+                None,
             )
             .unwrap();
         let ping_cache = PingCache::new(

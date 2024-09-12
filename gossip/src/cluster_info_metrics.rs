@@ -435,6 +435,21 @@ pub(crate) fn submit_gossip_stats(
             i64
         ),
         (
+            "num_unstaked_rx_push_ci",
+            crds_stats.num_unstaked_rx_push_ci,
+            i64
+        ),
+        (
+            "num_unstaked_rx_pull_req_lci",
+            crds_stats.num_unstaked_rx_pull_req_lci,
+            i64
+        ),
+        (
+            "num_staked_rx_push_ci",
+            crds_stats.num_staked_rx_push_ci,
+            i64
+        ),
+        (
             "push_fanout_num_entries",
             stats.push_fanout_num_entries.clear(),
             i64

@@ -132,6 +132,7 @@ impl CrdsGossipPush {
         crds: &RwLock<Crds>,
         messages: Vec<(/*from:*/ Pubkey, Vec<CrdsValue>)>,
         now: u64,
+        stakes: Option<&HashMap<Pubkey, u64>>
     ) -> HashSet<Pubkey> {
         let mut received_cache = self.received_cache.lock().unwrap();
         let mut crds = crds.write().unwrap();
@@ -144,7 +145,7 @@ impl CrdsGossipPush {
                     continue;
                 }
                 let origin = value.pubkey();
-                match crds.insert(value, now, GossipRoute::PushMessage(&from)) {
+                match crds.insert(value, now, GossipRoute::PushMessage(&from), stakes) {
                     Ok(()) => {
                         received_cache.record(origin, from, /*num_dups:*/ 0);
                         origins.insert(origin);
@@ -160,6 +161,13 @@ impl CrdsGossipPush {
                 }
             }
         }
+        // let mut sorted_stakes: Vec<(&Pubkey, &u64)> = crds.rx_ci_push_count.iter().collect();
+        // sorted_stakes.sort_by(|a, b| b.1.cmp(a.1)); // Sort by value in descending order
+
+        // // Print the sorted results
+        // for (pubkey, count) in sorted_stakes {
+        //     info!("pubkey: {}, CI upserted push count: {}", pubkey, count);
+        // }
         origins
     }
 
@@ -311,14 +319,14 @@ mod tests {
         let label = value.label();
         // push a new message
         assert_eq!(
-            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value.clone()])], 0),
+            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value.clone()])], 0, None),
             [label.pubkey()].into_iter().collect(),
         );
         assert_eq!(crds.read().unwrap().get::<&CrdsValue>(&label), Some(&value));
 
         // push it again
         assert!(push
-            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0)
+            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0, None)
             .is_empty());
     }
     #[test]
@@ -331,7 +339,7 @@ mod tests {
 
         // push a new message
         assert_eq!(
-            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0),
+            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0, None),
             [*ci.pubkey()].into_iter().collect()
         );
 
@@ -339,7 +347,7 @@ mod tests {
         ci.set_wallclock(0);
         let value = CrdsValue::new_unsigned(CrdsData::ContactInfo(ci));
         assert!(push
-            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0)
+            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0, None)
             .is_empty());
     }
     #[test]
@@ -353,14 +361,14 @@ mod tests {
         ci.set_wallclock(timeout + 1);
         let value = CrdsValue::new_unsigned(CrdsData::ContactInfo(ci.clone()));
         assert!(push
-            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0)
+            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0, None)
             .is_empty());
 
         // push a version to far in the past
         ci.set_wallclock(0);
         let value = CrdsValue::new_unsigned(CrdsData::ContactInfo(ci));
         assert!(push
-            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], timeout + 1)
+            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], timeout + 1, None)
             .is_empty());
     }
     #[test]
@@ -374,7 +382,7 @@ mod tests {
 
         // push a new message
         assert_eq!(
-            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value_old])], 0),
+            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value_old])], 0, None),
             [origin].into_iter().collect()
         );
 
@@ -382,7 +390,7 @@ mod tests {
         ci.set_wallclock(1);
         let value = CrdsValue::new_unsigned(CrdsData::ContactInfo(ci));
         assert_eq!(
-            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0),
+            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0, None),
             [origin].into_iter().collect()
         );
     }
@@ -397,7 +405,7 @@ mod tests {
         ping_cache.mock_pong(*peer.pubkey(), peer.gossip().unwrap(), Instant::now());
         let peer = CrdsValue::new_unsigned(CrdsData::ContactInfo(peer));
         assert_eq!(
-            crds.insert(peer.clone(), now, GossipRoute::LocalMessage),
+            crds.insert(peer.clone(), now, GossipRoute::LocalMessage, None),
             Ok(())
         );
         let crds = RwLock::new(crds);
@@ -421,7 +429,7 @@ mod tests {
         expected.insert(peer.label().pubkey(), vec![new_msg.clone()]);
         let origin = new_msg.pubkey();
         assert_eq!(
-            push.process_push_message(&crds, vec![(Pubkey::default(), vec![new_msg])], 0),
+            push.process_push_message(&crds, vec![(Pubkey::default(), vec![new_msg])], 0, None),
             [origin].into_iter().collect()
         );
         assert_eq!(
@@ -453,11 +461,11 @@ mod tests {
             .collect();
         let origin: Vec<_> = peers.iter().map(|node| node.pubkey()).collect();
         assert_eq!(
-            crds.insert(peers[0].clone(), now, GossipRoute::LocalMessage),
+            crds.insert(peers[0].clone(), now, GossipRoute::LocalMessage, None),
             Ok(())
         );
         assert_eq!(
-            crds.insert(peers[1].clone(), now, GossipRoute::LocalMessage),
+            crds.insert(peers[1].clone(), now, GossipRoute::LocalMessage, None),
             Ok(())
         );
         let crds = RwLock::new(crds);
@@ -465,7 +473,8 @@ mod tests {
             push.process_push_message(
                 &crds,
                 vec![(Pubkey::default(), vec![peers[2].clone()])],
-                now
+                now,
+                None
             ),
             [origin[2]].into_iter().collect()
         );
@@ -509,7 +518,7 @@ mod tests {
             0,
         )));
         assert_eq!(
-            crds.insert(peer.clone(), 0, GossipRoute::LocalMessage),
+            crds.insert(peer.clone(), 0, GossipRoute::LocalMessage, None),
             Ok(())
         );
         let crds = RwLock::new(crds);
@@ -532,7 +541,7 @@ mod tests {
         let expected = HashMap::new();
         let origin = new_msg.pubkey();
         assert_eq!(
-            push.process_push_message(&crds, vec![(Pubkey::default(), vec![new_msg.clone()])], 0),
+            push.process_push_message(&crds, vec![(Pubkey::default(), vec![new_msg.clone()])], 0, None),
             [origin].into_iter().collect()
         );
         push.process_prune_msg(
@@ -560,7 +569,7 @@ mod tests {
             &solana_sdk::pubkey::new_rand(),
             0,
         )));
-        assert_eq!(crds.insert(peer, 0, GossipRoute::LocalMessage), Ok(()));
+        assert_eq!(crds.insert(peer, 0, GossipRoute::LocalMessage, None), Ok(()));
         let crds = RwLock::new(crds);
         let ping_cache = Mutex::new(new_ping_cache());
         push.refresh_push_active_set(
@@ -580,7 +589,7 @@ mod tests {
         let expected = HashMap::new();
         let origin = new_msg.pubkey();
         assert_eq!(
-            push.process_push_message(&crds, vec![(Pubkey::default(), vec![new_msg])], 1),
+            push.process_push_message(&crds, vec![(Pubkey::default(), vec![new_msg])], 1, None),
             [origin].into_iter().collect()
         );
         assert_eq!(
@@ -605,7 +614,7 @@ mod tests {
         let label = value.label();
         // push a new message
         assert_eq!(
-            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value.clone()])], 0),
+            push.process_push_message(&crds, vec![(Pubkey::default(), vec![value.clone()])], 0, None),
             [label.pubkey()].into_iter().collect()
         );
         assert_eq!(
@@ -615,12 +624,12 @@ mod tests {
 
         // push it again
         assert!(push
-            .process_push_message(&crds, vec![(Pubkey::default(), vec![value.clone()])], 0)
+            .process_push_message(&crds, vec![(Pubkey::default(), vec![value.clone()])], 0, None)
             .is_empty());
 
         // push it again
         assert!(push
-            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0)
+            .process_push_message(&crds, vec![(Pubkey::default(), vec![value])], 0, None)
             .is_empty());
     }
 }

@@ -108,10 +108,10 @@ fn star_network_create(num: usize) -> Network {
             {
                 let mut node_crds = node.crds.write().unwrap();
                 node_crds
-                    .insert(new.clone(), timestamp(), GossipRoute::LocalMessage)
+                    .insert(new.clone(), timestamp(), GossipRoute::LocalMessage, None)
                     .unwrap();
                 node_crds
-                    .insert(entry.clone(), timestamp(), GossipRoute::LocalMessage)
+                    .insert(entry.clone(), timestamp(), GossipRoute::LocalMessage, None)
                     .unwrap();
             }
             let node = Node::new(node_keypair, contact_info, Arc::new(node));
@@ -123,7 +123,7 @@ fn star_network_create(num: usize) -> Network {
     node.crds
         .write()
         .unwrap()
-        .insert(entry, timestamp(), GossipRoute::LocalMessage)
+        .insert(entry, timestamp(), GossipRoute::LocalMessage, None)
         .unwrap();
     let node = Node::new(node_keypair, contact_info, Arc::new(node));
     network.insert(id, node);
@@ -140,7 +140,7 @@ fn rstar_network_create(num: usize) -> Network {
         .crds
         .write()
         .unwrap()
-        .insert(entry, timestamp(), GossipRoute::LocalMessage)
+        .insert(entry, timestamp(), GossipRoute::LocalMessage, None)
         .unwrap();
     let mut network: HashMap<_, _> = (1..num)
         .map(|_| {
@@ -151,13 +151,13 @@ fn rstar_network_create(num: usize) -> Network {
             node.crds
                 .write()
                 .unwrap()
-                .insert(new.clone(), timestamp(), GossipRoute::LocalMessage)
+                .insert(new.clone(), timestamp(), GossipRoute::LocalMessage, None)
                 .unwrap();
             origin
                 .crds
                 .write()
                 .unwrap()
-                .insert(new.clone(), timestamp(), GossipRoute::LocalMessage)
+                .insert(new.clone(), timestamp(), GossipRoute::LocalMessage, None)
                 .unwrap();
             let node = Node::new(node_keypair, contact_info, Arc::new(node));
             (new.label().pubkey(), node)
@@ -178,7 +178,7 @@ fn ring_network_create(num: usize) -> Network {
             node.crds
                 .write()
                 .unwrap()
-                .insert(new.clone(), timestamp(), GossipRoute::LocalMessage)
+                .insert(new.clone(), timestamp(), GossipRoute::LocalMessage, None)
                 .unwrap();
             let node = Node::new(node_keypair, contact_info, Arc::new(node));
             (new.label().pubkey(), node)
@@ -196,7 +196,7 @@ fn ring_network_create(num: usize) -> Network {
         let end = network.get_mut(&keys[(k + 1) % keys.len()]).unwrap();
         let mut end_crds = end.gossip.crds.write().unwrap();
         end_crds
-            .insert(start_info, timestamp(), GossipRoute::LocalMessage)
+            .insert(start_info, timestamp(), GossipRoute::LocalMessage, None)
             .unwrap();
     }
     Network::new(network)
@@ -213,7 +213,7 @@ fn connected_staked_network_create(stakes: &[u64]) -> Network {
             node.crds
                 .write()
                 .unwrap()
-                .insert(new.clone(), timestamp(), GossipRoute::LocalMessage)
+                .insert(new.clone(), timestamp(), GossipRoute::LocalMessage, None)
                 .unwrap();
             let node = Node::staked(node_keypair, contact_info, Arc::new(node), stakes[n]);
             (new.label().pubkey(), node)
@@ -236,7 +236,7 @@ fn connected_staked_network_create(stakes: &[u64]) -> Network {
             if keys[k] != *end_pubkey {
                 let start_info = start_entries[k].clone();
                 end_crds
-                    .insert(start_info, timestamp(), GossipRoute::LocalMessage)
+                    .insert(start_info, timestamp(), GossipRoute::LocalMessage, None)
                     .unwrap();
             }
         }
@@ -295,6 +295,7 @@ fn network_simulator(thread_pool: &ThreadPool, network: &mut Network, max_conver
                     vec![CrdsValue::new_unsigned(CrdsData::ContactInfo(m))],
                 )],
                 now,
+                None,
             );
         });
         // push for a bit
@@ -744,6 +745,7 @@ fn test_prune_errors() {
             CrdsValue::new_unsigned(CrdsData::ContactInfo(ci.clone())),
             0,
             GossipRoute::LocalMessage,
+            None,
         )
         .unwrap();
     let ping_cache = new_ping_cache();

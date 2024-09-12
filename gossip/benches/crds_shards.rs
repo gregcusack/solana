@@ -20,7 +20,7 @@ fn new_test_crds_value<R: Rng>(rng: &mut R) -> VersionedCrdsValue {
     let value = CrdsValue::new_rand(rng, None);
     let label = value.label();
     let mut crds = Crds::default();
-    crds.insert(value, timestamp(), GossipRoute::LocalMessage)
+    crds.insert(value, timestamp(), GossipRoute::LocalMessage, None)
         .unwrap();
     crds.get::<&VersionedCrdsValue>(&label).cloned().unwrap()
 }

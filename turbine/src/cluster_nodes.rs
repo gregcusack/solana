@@ -559,7 +559,7 @@ pub fn make_test_cluster<R: Rng>(
             let node = CrdsData::ContactInfo(node.clone());
             let node = CrdsValue::new_unsigned(node);
             assert_eq!(
-                gossip_crds.insert(node, now, GossipRoute::LocalMessage),
+                gossip_crds.insert(node, now, GossipRoute::LocalMessage, None),
                 Ok(())
             );
         }
