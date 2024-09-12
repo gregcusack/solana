@@ -1644,6 +1644,54 @@ impl ClusterInfo {
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
         };
+
+        // how many nodes are we actually sending to?
+        let mut sent_ci_count = 0;
+        for (_, messages) in push_messages.iter() {
+            for m in messages.iter() {
+                //within all messages sent to a specific dest. shouldn't have duplicates
+                match &m.data {
+                    CrdsData::ContactInfo(ci) => {
+                        // only count sending our own ci
+                        if ci.pubkey() == &self_id {
+                            // this will overcount because push fanout is 9
+                            // so we should take this number and divide by num_nodes which is reall "num_pushes"
+                            // push_ci_count / num_pushes will give us # of times we pushed ci 
+                            sent_ci_count += 1;
+                            // self.stats.push_ci_count_total.add_relaxed(1);
+                        }
+                    }
+                    _ => (),
+                }
+                if m.pubkey() == self_id {
+                    match &m.data {
+                        CrdsData::ContactInfo(_) => {
+                            self.stats.push_ci_count_total.add_relaxed(1);
+                        }
+                        CrdsData::NodeInstance(_) => {
+                            self.stats.push_ni_count_total.add_relaxed(1);
+                        }
+                        // CrdsData::Version(_) => {
+                        //     self.stats.push_version_count_total.add_relaxed(1);
+                        // }
+                        // CrdsData::LegacyVersion(_) => {
+                        //     self.stats.push_lv_count_total.add_relaxed(1);
+                        // }
+                        CrdsData::LegacyContactInfo(_) => {
+                            self.stats.push_lci_count_total.add_relaxed(1);
+                        }  
+                        // CrdsData::EpochSlots(_, _) => {
+                        //     self.stats.push_es_count_total.add_relaxed(1);
+                        // }
+                        _ => (), //self.stats.push_origin_data.add_relaxed(1),
+                    }
+                }
+            }
+        }
+        let unique_times_sent = sent_ci_count as f64 / push_messages.len() as f64;
+        self.stats.push_ci_count_unique.add_relaxed(unique_times_sent as u64);
+
+
         self.stats
             .push_fanout_num_entries
             .add_relaxed(num_entries as u64);

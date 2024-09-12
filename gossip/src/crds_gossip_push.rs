@@ -16,7 +16,7 @@ use {
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
         crds::{Crds, CrdsError, Cursor, GossipRoute},
         crds_gossip,
-        crds_value::CrdsValue,
+        crds_value::{CrdsValue, CrdsData},
         ping_pong::PingCache,
         push_active_set::PushActiveSet,
         received_cache::ReceivedCache,
@@ -201,6 +201,13 @@ impl CrdsGossipPush {
             .get_entries(crds_cursor.deref_mut())
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
+        // 1 value, pf = 10
+        // num_values = 1
+        // num_pushes = 10
+
+        // 5 values, pf = 10
+        // num_values = 5
+        // num_pushes = 50
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
@@ -215,9 +222,33 @@ impl CrdsGossipPush {
                 |node| value.should_force_push(node),
                 stakes,
             );
+            
+            let mut count = 0;
             for node in nodes.take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
+                count += 1;
+            }
+            if count == 0  {
+                if origin == *pubkey {
+                    match value.data {
+                        CrdsData::ContactInfo(_) => {
+                            // ContactInfo is always pushed to all the nodes.
+                            info!("greg: failing to push out contact info...");
+                        }
+                        _ => (),
+                    }
+                }
+            } else {
+                if origin == *pubkey {
+                    match value.data {
+                        CrdsData::ContactInfo(_) => {
+                            // ContactInfo is always pushed to all the nodes.
+                            info!("greg: pushing out contact info...");
+                        }
+                        _ => (),
+                    }
+                }
             }
         }
         drop(crds);

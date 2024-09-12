@@ -181,6 +181,14 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) push_ci_count_unique: Counter,
+    pub(crate) push_ci_count_total: Counter,
+    pub(crate) push_origin_data: Counter,
+    pub(crate) push_ni_count_total: Counter,
+    pub(crate) push_version_count_total: Counter,
+    pub(crate) push_lv_count_total: Counter,
+    pub(crate) push_lci_count_total: Counter,
+    pub(crate) push_es_count_total: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -447,6 +455,46 @@ pub(crate) fn submit_gossip_stats(
         (
             "num_staked_rx_push_ci",
             crds_stats.num_staked_rx_push_ci,
+            i64
+        ),
+        (
+            "push_ci_count_unique",
+            stats.push_ci_count_unique.clear(),
+            i64
+        ),
+        (
+            "push_ci_count_total",
+            stats.push_ci_count_total.clear(),
+            i64
+        ),
+        (
+            "push_origin_data",
+            stats.push_origin_data.clear(),
+            i64
+        ),
+        (
+            "push_ni_count_total",
+            stats.push_ni_count_total.clear(),
+            i64
+        ),
+        (
+            "push_version_count_total",
+            stats.push_version_count_total.clear(),
+            i64
+        ),
+        (
+            "push_lv_count_total",
+            stats.push_lv_count_total.clear(),
+            i64
+        ),
+        (
+            "push_lci_count_total",
+            stats.push_lci_count_total.clear(),
+            i64
+        ),
+        (
+            "push_es_count_total",
+            stats.push_es_count_total.clear(),
             i64
         ),
         (
