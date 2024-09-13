@@ -215,9 +215,14 @@ impl CrdsGossipPush {
                 |node| value.should_force_push(node),
                 stakes,
             );
+
+            let nodes_vec: Vec<_> = nodes.collect();
+            let length = nodes_vec.len();
+
+            info!("greg: nodes len: {length}");
             
             let mut count = 0;
-            for node in nodes.take(self.push_fanout) {
+            for node in nodes_vec.into_iter().take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
                 count += 1;

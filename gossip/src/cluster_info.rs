@@ -1671,18 +1671,9 @@ impl ClusterInfo {
                         CrdsData::NodeInstance(_) => {
                             self.stats.push_ni_count_total.add_relaxed(1);
                         }
-                        // CrdsData::Version(_) => {
-                        //     self.stats.push_version_count_total.add_relaxed(1);
-                        // }
-                        // CrdsData::LegacyVersion(_) => {
-                        //     self.stats.push_lv_count_total.add_relaxed(1);
-                        // }
                         CrdsData::LegacyContactInfo(_) => {
                             self.stats.push_lci_count_total.add_relaxed(1);
                         }  
-                        // CrdsData::EpochSlots(_, _) => {
-                        //     self.stats.push_es_count_total.add_relaxed(1);
-                        // }
                         _ => (), //self.stats.push_origin_data.add_relaxed(1),
                     }
                 }
