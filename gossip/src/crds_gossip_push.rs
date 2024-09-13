@@ -226,7 +226,6 @@ impl CrdsGossipPush {
                 if origin == *pubkey {
                     match value.data {
                         CrdsData::ContactInfo(_) => {
-                            // ContactInfo is always pushed to all the nodes.
                             info!("greg: failing to push out contact info...");
                         }
                         _ => (),
@@ -236,7 +235,6 @@ impl CrdsGossipPush {
                 if origin == *pubkey {
                     match value.data {
                         CrdsData::ContactInfo(_) => {
-                            // ContactInfo is always pushed to all the nodes.
                             info!("greg: pushing out contact info...");
                         }
                         _ => (),
