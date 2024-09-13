@@ -201,13 +201,6 @@ impl CrdsGossipPush {
             .get_entries(crds_cursor.deref_mut())
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
-        // 1 value, pf = 10
-        // num_values = 1
-        // num_pushes = 10
-
-        // 5 values, pf = 10
-        // num_values = 5
-        // num_pushes = 50
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
