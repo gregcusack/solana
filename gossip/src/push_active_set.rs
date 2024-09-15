@@ -144,7 +144,7 @@ impl PushActiveSetEntry {
         debug_assert!(weights.iter().all(|&weight| weight != 0u64));
         let shuffle = WeightedShuffle::new("rotate-active-set", weights).shuffle(rng);
         for node in shuffle.map(|k| &nodes[k]) {
-            info!("greg: adding node to push active set: {:?}", node);
+            // info!("greg: adding node to push active set: {:?}", node);
             // We intend to discard the oldest/first entry in the index-map.
             if self.0.len() > size {
                 break;

@@ -204,7 +204,7 @@ impl CrdsGossipPush {
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
-            if total_bytes > self.max_bytes {
+            if total_bytes > self.max_bytes { //&& &value.pubkey() != pubkey {
                 break;
             }
             num_values += 1;
@@ -219,14 +219,24 @@ impl CrdsGossipPush {
             let nodes_vec: Vec<_> = nodes.collect();
             let length = nodes_vec.len();
 
-            info!("greg: nodes len: {length}");
-            
+            // info!("greg: nodes len: {length}");
+            let mut all_nodes = Vec::new();
             let mut count = 0;
             for node in nodes_vec.into_iter().take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
                 count += 1;
+                all_nodes.push(node);
             }
+
+            if origin == *pubkey {
+                info!("greg: nodes len for self push: {length}, num_available: {count}");
+                for node in all_nodes.iter() {
+                    info!("greg: push node: {node}");
+                }
+
+            }
+
             if count == 0  {
                 if origin == *pubkey {
                     match value.data {

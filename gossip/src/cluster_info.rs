@@ -1466,6 +1466,7 @@ impl ClusterInfo {
         .into_iter()
         .map(|entry| CrdsValue::new_signed(entry, &keypair))
         .collect();
+        info!("greg: inserting self into crds table");
         let mut gossip_crds = self.gossip.crds.write().unwrap();
         for entry in entries {
             if let Err(err) = gossip_crds.insert(entry, timestamp(), GossipRoute::LocalMessage, None) {
@@ -1607,10 +1608,10 @@ impl ClusterInfo {
         self.stats.new_pull_requests_count.add_relaxed(num_requests);
         // TODO: Use new ContactInfo once the cluster has upgraded to:
         // https://github.com/anza-xyz/agave/pull/803
-        // let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
-        //     .map(CrdsData::LegacyContactInfo)
-        //     .expect("Operator must spin up node with valid contact-info");
-        let self_info = CrdsData::ContactInfo(self.my_contact_info());
+        let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
+            .map(CrdsData::LegacyContactInfo)
+            .expect("Operator must spin up node with valid contact-info");
+        // let self_info = CrdsData::ContactInfo(self.my_contact_info());
         let self_info = CrdsValue::new_signed(self_info, &self.keypair());
         let pulls = pulls
             .into_iter()
@@ -1644,6 +1645,15 @@ impl ClusterInfo {
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
         };
+
+        // if num_nodes > 0 {
+        //     info!("num_nodes > 0: {num_nodes}");
+        //     let self_info = CrdsData::ContactInfo(self.my_contact_info());
+        //     let self_info = CrdsValue::new_signed(self_info, &self.keypair());
+        //     for vec in push_messages.values_mut() {
+        //         vec.push(self_info.clone());
+        //     }
+        // }
 
         // how many nodes are we actually sending to?
         let mut sent_ci_count = 0;
@@ -1681,7 +1691,6 @@ impl ClusterInfo {
         }
         let unique_times_sent = sent_ci_count as f64 / push_messages.len() as f64;
         self.stats.push_ci_count_unique.add_relaxed(unique_times_sent as u64);
-
 
         self.stats
             .push_fanout_num_entries
