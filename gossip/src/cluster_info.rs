@@ -1650,8 +1650,17 @@ impl ClusterInfo {
         ) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
-            self.gossip.new_push_messages(&self_id, timestamp(), stakes)
+            self.gossip.new_push_messages(&self_id, timestamp(), stakes, Some(&self.stats))
         };
+
+        if append_contact_info {
+            let self_info = CrdsData::ContactInfo(self.my_contact_info());
+            let self_info = CrdsValue::new_signed(self_info, &self.keypair());
+            for crds_values in push_messages.values_mut() {
+                crds_values.push(self_info.clone());
+            }
+        }
+
         self.stats
             .push_fanout_num_entries
             .add_relaxed(num_entries as u64);
@@ -3934,7 +3943,7 @@ mod tests {
         let (push_messages, _, _, _, _, _, _, _) =
             cluster_info
                 .gossip
-                .new_push_messages(&cluster_info.id(), timestamp(), &stakes);
+                .new_push_messages(&cluster_info.id(), timestamp(), &stakes, None);
         // there should be some pushes ready
         assert!(!push_messages.is_empty());
         push_messages

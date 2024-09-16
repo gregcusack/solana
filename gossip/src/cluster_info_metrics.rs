@@ -187,6 +187,7 @@ pub struct GossipStats {
     pub(crate) crds_timing_stats: Counter,
     pub(crate) local_crds_timing_stats: Counter,
     pub(crate) ci_local_crds_timing_stats: Counter,
+    pub(crate) time_to_push_new_push_messages: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -438,6 +439,26 @@ pub(crate) fn submit_gossip_stats(
         (
             "num_duplicate_push_messages",
             crds_stats.num_duplicate_push_messages,
+            i64
+        ),
+        (
+            "time_to_push_new_push_messages",
+            stats.time_to_push_new_push_messages.clear(),
+            i64
+        ),
+        (
+            "additional_time_to_append_contact_info",
+            stats.additional_time_to_append_contact_info.clear(),
+            i64
+        ),
+        (
+            "num_local_messages_sent",
+            stats.num_local_messages_sent.clear(),
+            i64
+        ),
+        (
+            "num_extra_local_messages_sent",
+            stats.num_extra_local_messages_sent.clear(),
             i64
         ),
         (
