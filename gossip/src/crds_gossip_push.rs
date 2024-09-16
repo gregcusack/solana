@@ -203,11 +203,7 @@ impl CrdsGossipPush {
             .get_entries(crds_cursor.deref_mut())
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
-        // let mut self_push_count = 0;
-        // let _st;
-        // if let Some(stats) = stats {
-        //     _st = ScopedTimer::from(&stats.time_to_push);
-        // }
+        
         let _st = stats.map(|stats| ScopedTimer::from(&stats.time_to_push_new_push_messages));
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
@@ -223,13 +219,8 @@ impl CrdsGossipPush {
                         stats.num_extra_local_messages_sent.add_relaxed(1);
                     }
                 }
+                break;
             }
-            // if total_bytes > self.max_bytes && &value.pubkey() != pubkey {
-            //     if let Some(stats) = stats {
-            //         stats.wasted_push_loop_counter.add_relaxed(1);
-            //     }
-            //     continue;
-            // }
             num_values += 1;
             let origin = value.pubkey();
             let nodes = active_set.get_nodes(
@@ -239,24 +230,9 @@ impl CrdsGossipPush {
                 stakes,
             );
 
-            // let nodes_vec: Vec<_> = nodes.collect();
-            // let length = nodes_vec.len();
-
-            // info!("greg: nodes len: {length}");
-            // let mut all_nodes = Vec::new();
-            // let mut count = 0;
-            // for node in nodes_vec.into_iter().take(self.push_fanout) {
-            //     push_messages.entry(*node).or_default().push(value.clone());
-            //     num_pushes += 1;
-            //     // count += 1;
-            //     // all_nodes.push(node);
-            // }
-
             for node in nodes.take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
-                // count += 1;
-                // all_nodes.push(node);
             }
 
             if origin == *pubkey {
@@ -264,35 +240,8 @@ impl CrdsGossipPush {
                     stats.num_local_messages_sent.add_relaxed(1);
                 }
             }
-            // if origin == *pubkey {
-            //     info!("greg: nodes len for self push: {length}, num_available: {count}");
-            //     for node in all_nodes.iter() {
-            //         info!("greg: push node: {node}");
-            //     }
 
-            // }
-
-            // if count == 0  {
-            //     if origin == *pubkey {
-            //         match value.data {
-            //             CrdsData::ContactInfo(_) => {
-            //                 info!("greg: failing to push out contact info...");
-            //             }
-            //             _ => (),
-            //         }
-            //     }
-            // } else {
-            //     if origin == *pubkey {
-            //         match value.data {
-            //             CrdsData::ContactInfo(_) => {
-            //                 info!("greg: pushing out contact info...");
-            //             }
-            //             _ => (),
-            //         }
-            //     }
-            // }
         }
-        // info!("greg: self_push_count: {self_push_count}");
         drop(crds);
         drop(crds_cursor);
         drop(active_set);
