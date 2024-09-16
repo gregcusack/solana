@@ -189,6 +189,12 @@ pub struct GossipStats {
     pub(crate) push_lv_count_total: Counter,
     pub(crate) push_lci_count_total: Counter,
     pub(crate) push_es_count_total: Counter,
+    pub(crate) wasted_push_loop_counter: Counter,
+    pub(crate) time_to_push_new_push_messages: Counter,
+    // total # of local push messages sent
+    pub(crate) num_local_messages_sent: Counter,
+    // # local messages sent that previously would not have been sent withou behzad's patch
+    pub(crate) num_extra_local_messages_sent: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -495,6 +501,26 @@ pub(crate) fn submit_gossip_stats(
         (
             "push_es_count_total",
             stats.push_es_count_total.clear(),
+            i64
+        ),
+        (
+            "wasted_push_loop_counter",
+            stats.wasted_push_loop_counter.clear(),
+            i64
+        ),
+        (
+            "time_to_push_new_push_messages",
+            stats.time_to_push_new_push_messages.clear(),
+            i64
+        ),
+        (
+            "num_local_messages_sent",
+            stats.num_local_messages_sent.clear(),
+            i64
+        ),
+        (
+            "num_extra_local_messages_sent",
+            stats.num_extra_local_messages_sent.clear(),
             i64
         ),
         (

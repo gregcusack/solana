@@ -318,7 +318,7 @@ impl CrdsGossipPull {
         //     // if let Some(contact_info) = crds.get::<&ContactInfo>(*pk) {
         //     //     datapoint_info!(
         //     //         "gossip_pull_request",
-        //     //         ("peer", contact_info.id.to_string(), String),
+        //     //         ("peer", contact_info.id.ScopedTimer_string(), String),
         //     //         ("count", *count, i64)
         //     //     );
         //     // }

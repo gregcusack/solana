@@ -1643,7 +1643,7 @@ impl ClusterInfo {
         let (mut push_messages, num_entries, num_nodes) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
-            self.gossip.new_push_messages(&self_id, timestamp(), stakes)
+            self.gossip.new_push_messages(&self_id, timestamp(), stakes, Some(&self.stats))
         };
 
         // if num_nodes > 0 {
@@ -3940,7 +3940,7 @@ mod tests {
         let (push_messages, _, _) =
             cluster_info
                 .gossip
-                .new_push_messages(&cluster_info.id(), timestamp(), &stakes);
+                .new_push_messages(&cluster_info.id(), timestamp(), &stakes, None);
         // there should be some pushes ready
         assert!(!push_messages.is_empty());
         push_messages

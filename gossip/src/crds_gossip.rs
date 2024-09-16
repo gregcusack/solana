@@ -75,12 +75,13 @@ impl CrdsGossip {
         pubkey: &Pubkey, // This node.
         now: u64,
         stakes: &HashMap<Pubkey, u64>,
+        stats: Option<&GossipStats>,
     ) -> (
         HashMap<Pubkey, Vec<CrdsValue>>,
         usize, // number of values
         usize, // number of push messages
     ) {
-        self.push.new_push_messages(pubkey, &self.crds, now, stakes)
+        self.push.new_push_messages(pubkey, &self.crds, now, stakes, stats)
     }
 
     pub(crate) fn push_duplicate_shred<F>(
