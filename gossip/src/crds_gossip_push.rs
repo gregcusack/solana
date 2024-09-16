@@ -14,6 +14,7 @@
 use {
     crate::{
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
+        cluster_info_metrics::{GossipStats, ScopedTimer},
         crds::{Crds, CrdsError, Cursor, GossipRoute},
         crds_gossip,
         crds_value::CrdsValue,
@@ -175,6 +176,7 @@ impl CrdsGossipPush {
         crds: &RwLock<Crds>,
         now: u64,
         stakes: &HashMap<Pubkey, u64>,
+        stats: Option<&GossipStats>,
     ) -> (
         HashMap<Pubkey, Vec<CrdsValue>>,
         usize, // number of values
@@ -193,6 +195,8 @@ impl CrdsGossipPush {
             .get_entries(crds_cursor.deref_mut())
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
+
+        let _st = stats.map(|stats| ScopedTimer::from(&stats.time_to_push_new_push_messages));
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
@@ -207,9 +211,16 @@ impl CrdsGossipPush {
                 |node| value.should_force_push(node),
                 stakes,
             );
+
             for node in nodes.take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
+            }
+
+            if origin == *pubkey {
+                if let Some(stats) = stats {
+                    stats.num_local_messages_sent.add_relaxed(1);
+                }
             }
         }
         drop(crds);
@@ -430,6 +441,7 @@ mod tests {
                 &crds,
                 0,
                 &HashMap::<Pubkey, u64>::default(), // stakes
+                None,
             )
             .0,
             expected
@@ -494,6 +506,7 @@ mod tests {
                 &crds,
                 now,
                 &HashMap::<Pubkey, u64>::default(), // stakes
+                None,
             )
             .0,
             expected
@@ -547,6 +560,7 @@ mod tests {
                 &crds,
                 0,
                 &HashMap::<Pubkey, u64>::default(), // stakes
+                None,
             )
             .0,
             expected
@@ -589,6 +603,7 @@ mod tests {
                 &crds,
                 0,
                 &HashMap::<Pubkey, u64>::default(), // stakes
+                None,
             )
             .0,
             expected

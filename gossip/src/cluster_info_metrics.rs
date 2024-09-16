@@ -181,6 +181,14 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) time_to_push_new_push_messages: Counter,
+    // total # of local push messages sent
+    pub(crate) num_local_messages_sent: Counter,
+    // # local messages sent that previously would not have been sent withou behzad's patch
+    pub(crate) num_extra_local_messages_sent: Counter,
+    // extra time required to append contact info to push messages
+    // add this time with `time_to_push_new_push_messages` to get full time to send push messages
+    pub(crate) additional_time_to_append_contact_info: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -432,6 +440,26 @@ pub(crate) fn submit_gossip_stats(
         (
             "num_duplicate_push_messages",
             crds_stats.num_duplicate_push_messages,
+            i64
+        ),
+        (
+            "time_to_push_new_push_messages",
+            stats.time_to_push_new_push_messages.clear(),
+            i64
+        ),
+        (
+            "additional_time_to_append_contact_info",
+            stats.additional_time_to_append_contact_info.clear(),
+            i64
+        ),
+        (
+            "num_local_messages_sent",
+            stats.num_local_messages_sent.clear(),
+            i64
+        ),
+        (
+            "num_extra_local_messages_sent",
+            stats.num_extra_local_messages_sent.clear(),
             i64
         ),
         (
