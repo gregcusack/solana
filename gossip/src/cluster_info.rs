@@ -1636,13 +1636,26 @@ impl ClusterInfo {
             }
         }
     }
-    fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
+    fn new_push_requests(
+        &self,
+        stakes: &HashMap<Pubkey, u64>,
+        append_contact_info: bool,
+    ) -> Vec<(SocketAddr, Protocol)> {
         let self_id = self.id();
         let (mut push_messages, num_entries, num_nodes) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
         };
+
+        if append_contact_info {
+            let self_info = CrdsData::ContactInfo(self.my_contact_info());
+            let self_info = CrdsValue::new_signed(self_info, &self.keypair());
+            for crds_values in push_messages.values_mut() {
+                crds_values.push(self_info.clone());
+            }
+        }
+
         self.stats
             .push_fanout_num_entries
             .add_relaxed(num_entries as u64);
@@ -1686,13 +1699,14 @@ impl ClusterInfo {
         gossip_validators: Option<&HashSet<Pubkey>>,
         stakes: &HashMap<Pubkey, u64>,
         generate_pull_requests: bool,
+        append_contact_info: bool,
     ) -> Vec<(SocketAddr, Protocol)> {
         self.trim_crds_table(CRDS_UNIQUE_PUBKEY_CAPACITY, stakes);
         // This will flush local pending push messages before generating
         // pull-request bloom filters, preventing pull responses to return the
         // same values back to the node itself. Note that packets will arrive
         // and are processed out of order.
-        let mut out: Vec<_> = self.new_push_requests(stakes);
+        let mut out: Vec<_> = self.new_push_requests(stakes, append_contact_info);
         self.stats
             .packets_sent_push_messages_count
             .add_relaxed(out.len() as u64);
@@ -1720,6 +1734,7 @@ impl ClusterInfo {
         stakes: &HashMap<Pubkey, u64>,
         sender: &PacketBatchSender,
         generate_pull_requests: bool,
+        append_contact_info: bool,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_transmit_loop_time);
         let reqs = self.generate_new_gossip_requests(
@@ -1727,6 +1742,7 @@ impl ClusterInfo {
             gossip_validators,
             stakes,
             generate_pull_requests,
+            append_contact_info,
         );
         if !reqs.is_empty() {
             let packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
@@ -1870,6 +1886,9 @@ impl ClusterInfo {
                     self.push_message(value);
                 }
                 let mut generate_pull_requests = true;
+                let mut append_contact_info = false;
+                let mut last_append_time = Instant::now();
+                let append_interval = Duration::from_secs(1);
                 loop {
                     let start = timestamp();
                     if self.contact_debug_interval != 0
@@ -1901,6 +1920,7 @@ impl ClusterInfo {
                         }
                         None => (Arc::default(), None),
                     };
+
                     let _ = self.run_gossip(
                         &thread_pool,
                         gossip_validators.as_ref(),
@@ -1908,6 +1928,7 @@ impl ClusterInfo {
                         &stakes,
                         &sender,
                         generate_pull_requests,
+                        append_contact_info,
                     );
                     if exit.load(Ordering::Relaxed) {
                         return;
@@ -1930,6 +1951,12 @@ impl ClusterInfo {
                     if GOSSIP_SLEEP_MILLIS > elapsed {
                         let time_left = GOSSIP_SLEEP_MILLIS - elapsed;
                         sleep(Duration::from_millis(time_left));
+                    }
+                    if last_append_time.elapsed() >= append_interval {
+                        append_contact_info = true;
+                        last_append_time = Instant::now();
+                    } else {
+                        append_contact_info = false;
                     }
                     generate_pull_requests = !generate_pull_requests;
                 }
@@ -2409,7 +2436,8 @@ impl ClusterInfo {
         self.stats
             .push_response_count
             .add_relaxed(packet_batch.len() as u64);
-        let new_push_requests = self.new_push_requests(stakes);
+        let new_push_requests =
+            self.new_push_requests(stakes, /* append_contact_info */ false);
         self.stats
             .push_message_pushes
             .add_relaxed(new_push_requests.len() as u64);
@@ -3754,6 +3782,7 @@ mod tests {
             None,            // gossip_validators
             &HashMap::new(), // stakes
             true,            // generate_pull_requests
+            true,            // append_contact_info
         );
         //assert none of the addrs are invalid.
         reqs.iter().all(|(addr, _)| {
