@@ -1638,7 +1638,16 @@ impl ClusterInfo {
     }
     fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
         let self_id = self.id();
-        let (mut push_messages, num_entries, num_nodes) = {
+        let (
+            mut push_messages,
+            num_entries,
+            num_nodes,
+            time_in_crds,
+            local_time_in_crds,
+            ci_local_time_in_crds,
+            local_count,
+            ci_local_count,
+        ) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
@@ -1649,6 +1658,21 @@ impl ClusterInfo {
         self.stats
             .push_fanout_num_nodes
             .add_relaxed(num_nodes as u64);
+        self.stats
+            .crds_timing_stats
+            .add_relaxed(time_in_crds as u64);
+        self.stats
+            .local_crds_timing_stats
+            .add_relaxed(local_time_in_crds as u64);
+        self.stats
+            .ci_local_crds_timing_stats
+            .add_relaxed(ci_local_time_in_crds as u64);
+        self.stats
+            .local_push_fanout_num_entries
+            .add_relaxed(local_count);
+        self.stats
+            .ci_local_push_fanout_num_entries
+            .add_relaxed(ci_local_count);
         if self.require_stake_for_gossip(stakes) {
             push_messages.retain(|_, data| {
                 retain_staked(data, stakes, /* drop_unstaked_node_instance */ false);
@@ -3907,7 +3931,7 @@ mod tests {
         );
         //check that all types of gossip messages are signed correctly
         cluster_info.flush_push_queue();
-        let (push_messages, _, _) =
+        let (push_messages, _, _, _, _, _, _, _) =
             cluster_info
                 .gossip
                 .new_push_messages(&cluster_info.id(), timestamp(), &stakes);
