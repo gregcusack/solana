@@ -46,6 +46,7 @@ use {
         hash::{hash, Hash},
         pubkey::Pubkey,
         signature::Signature,
+        timing::timestamp,
     },
     std::{
         cmp::Ordering,
@@ -87,6 +88,7 @@ pub struct Crds {
     // Mapping from nodes' pubkeys to their respective shred-version.
     shred_versions: HashMap<Pubkey, u16>,
     stats: Mutex<CrdsStats>,
+    pub timing_metrics: HashMap<usize /* crds index */, u64 /* timestamp */>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -188,6 +190,7 @@ impl Default for Crds {
             purged: VecDeque::default(),
             shred_versions: HashMap::default(),
             stats: Mutex::<CrdsStats>::default(),
+            timing_metrics: HashMap::default(),
         }
     }
 }
@@ -270,6 +273,7 @@ impl Crds {
                 self.records.entry(pubkey).or_default().insert(entry_index);
                 self.cursor.consume(value.ordinal);
                 entry.insert(value);
+                self.timing_metrics.insert(entry_index, timestamp());
                 Ok(())
             }
             Entry::Occupied(mut entry) if overrides(&value.value, entry.get()) => {
@@ -306,6 +310,7 @@ impl Crds {
                 self.cursor.consume(value.ordinal);
                 self.purged.push_back((entry.get().value_hash, now));
                 entry.insert(value);
+                self.timing_metrics.insert(entry_index, timestamp());
                 Ok(())
             }
             Entry::Occupied(mut entry) => {
@@ -411,6 +416,19 @@ impl Crds {
         self.entries.range(range).map(move |(ordinal, index)| {
             cursor.consume(*ordinal);
             self.table.index(*index)
+        })
+    }
+
+    /// Returns all entries and index inserted since the given cursor.
+    pub(crate) fn get_entries_and_index<'a>(
+        &'a self,
+        cursor: &'a mut Cursor,
+    ) -> impl Iterator<Item = (&'a VersionedCrdsValue, usize)> {
+        let range = (Bound::Included(cursor.ordinal()), Bound::Unbounded);
+        self.entries.range(range).map(move |(ordinal, index)| {
+            cursor.consume(*ordinal);
+            // info!("greg: table index: {}", index);
+            (self.table.index(*index), *index)
         })
     }
 
