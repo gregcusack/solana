@@ -442,26 +442,6 @@ pub(crate) fn submit_gossip_stats(
             i64
         ),
         (
-            "time_to_push_new_push_messages",
-            stats.time_to_push_new_push_messages.clear(),
-            i64
-        ),
-        (
-            "additional_time_to_append_contact_info",
-            stats.additional_time_to_append_contact_info.clear(),
-            i64
-        ),
-        (
-            "num_local_messages_sent",
-            stats.num_local_messages_sent.clear(),
-            i64
-        ),
-        (
-            "num_extra_local_messages_sent",
-            stats.num_extra_local_messages_sent.clear(),
-            i64
-        ),
-        (
             "push_fanout_num_entries",
             stats.push_fanout_num_entries.clear(),
             i64

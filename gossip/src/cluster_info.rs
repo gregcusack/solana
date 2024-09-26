@@ -1657,7 +1657,7 @@ impl ClusterInfo {
             self.gossip.new_push_messages(&self_id, timestamp(), stakes, Some(&self.stats))
         };
 
-        if append_contact_info {
+        if false {
             let self_info = CrdsData::ContactInfo(self.my_contact_info());
             let self_info = CrdsValue::new_signed(self_info, &self.keypair());
             for crds_values in push_messages.values_mut() {
@@ -2457,21 +2457,21 @@ impl ClusterInfo {
         self.stats
             .push_response_count
             .add_relaxed(packet_batch.len() as u64);
-        let new_push_requests =
-            self.new_push_requests(stakes, /* append_contact_info */ false);
-        self.stats
-            .push_message_pushes
-            .add_relaxed(new_push_requests.len() as u64);
-        for (address, request) in new_push_requests {
-            if ContactInfo::is_valid_address(&address, &self.socket_addr_space) {
-                match Packet::from_data(Some(&address), &request) {
-                    Ok(packet) => packet_batch.push(packet),
-                    Err(err) => error!("failed to write push-request packet: {:?}", err),
-                }
-            } else {
-                trace!("Dropping Gossip push response, as destination is unknown");
-            }
-        }
+        // let new_push_requests =
+        //     self.new_push_requests(stakes, /* append_contact_info */ false);
+        // self.stats
+        //     .push_message_pushes
+        //     .add_relaxed(new_push_requests.len() as u64);
+        // for (address, request) in new_push_requests {
+        //     if ContactInfo::is_valid_address(&address, &self.socket_addr_space) {
+        //         match Packet::from_data(Some(&address), &request) {
+        //             Ok(packet) => packet_batch.push(packet),
+        //             Err(err) => error!("failed to write push-request packet: {:?}", err),
+        //         }
+        //     } else {
+        //         trace!("Dropping Gossip push response, as destination is unknown");
+        //     }
+        // }
         self.stats
             .packets_sent_prune_messages_count
             .add_relaxed(num_prune_packets as u64);
@@ -2640,6 +2640,31 @@ impl ClusterInfo {
             stakes,
             response_sender,
         );
+
+        let new_push_requests =
+            self.new_push_requests(stakes, /* append_contact_info */ false);
+        self.stats
+            .push_message_pushes
+            .add_relaxed(new_push_requests.len() as u64);
+        let mut packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
+            recycler,
+            "send_push_packets",
+            &new_push_requests,
+        );
+        for (address, request) in new_push_requests {
+            if ContactInfo::is_valid_address(&address, &self.socket_addr_space) {
+                match Packet::from_data(Some(&address), &request) {
+                    Ok(packet) => packet_batch.push(packet),
+                    Err(err) => error!("failed to write push-request packet: {:?}", err),
+                }
+            } else {
+                trace!("Dropping Gossip push response, as destination is unknown");
+            }
+        }
+        self.stats
+            .packets_sent_push_messages_count
+            .add_relaxed(packet_batch.len() as u64);
+        let _ = response_sender.send(packet_batch);
         Ok(())
     }
 
