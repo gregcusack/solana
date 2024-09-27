@@ -188,6 +188,9 @@ pub struct GossipStats {
     pub(crate) local_crds_timing_stats: Counter,
     pub(crate) ci_local_crds_timing_stats: Counter,
     pub(crate) time_to_push_new_push_messages: Counter,
+    pub(crate) handle_batch_push_message_count: Counter,
+    pub(crate) batch_push_messages_not_empty_count: Counter,
+    pub(crate) prune_messages_not_empty_count: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -509,6 +512,22 @@ pub(crate) fn submit_gossip_stats(
             stats.ci_local_crds_timing_stats.clear(),
             i64
         ),
+        (
+            "handle_batch_push_message_count",
+            stats.handle_batch_push_message_count.clear(),
+            i64
+        ),
+        (
+            "batch_push_messages_not_empty_count",
+            stats.batch_push_messages_not_empty_count.clear(),
+            i64
+        ),
+        (
+            "prune_messages_not_empty_count",
+            stats.prune_messages_not_empty_count.clear(),
+            i64
+        ),
+
     );
     datapoint_info!(
         "cluster_info_stats5",
