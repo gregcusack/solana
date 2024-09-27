@@ -229,12 +229,6 @@ impl CrdsGossipPush {
                     break 'outer;
                 }
             }
-
-            // if origin == *pubkey {
-            //     if let Some(stats) = stats {
-            //         stats.num_local_messages_sent.add_relaxed(1);
-            //     }
-            // }
         }
         drop(crds);
         drop(crds_cursor);
