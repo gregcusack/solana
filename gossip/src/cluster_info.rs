@@ -2400,7 +2400,7 @@ impl ClusterInfo {
         if prune_messages.is_empty() {
             return;
         }
-        let mut packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
+        let packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
             recycler,
             "handle_batch_push_messages",
             &prune_messages,
@@ -2409,26 +2409,9 @@ impl ClusterInfo {
         self.stats
             .push_response_count
             .add_relaxed(packet_batch.len() as u64);
-        let new_push_requests = self.new_push_requests(stakes);
-        self.stats
-            .push_message_pushes
-            .add_relaxed(new_push_requests.len() as u64);
-        for (address, request) in new_push_requests {
-            if ContactInfo::is_valid_address(&address, &self.socket_addr_space) {
-                match Packet::from_data(Some(&address), &request) {
-                    Ok(packet) => packet_batch.push(packet),
-                    Err(err) => error!("failed to write push-request packet: {:?}", err),
-                }
-            } else {
-                trace!("Dropping Gossip push response, as destination is unknown");
-            }
-        }
         self.stats
             .packets_sent_prune_messages_count
             .add_relaxed(num_prune_packets as u64);
-        self.stats
-            .packets_sent_push_messages_count
-            .add_relaxed((packet_batch.len() - num_prune_packets) as u64);
         let _ = response_sender.send(packet_batch);
     }
 
@@ -2589,6 +2572,31 @@ impl ClusterInfo {
             stakes,
             response_sender,
         );
+
+        let new_push_requests = self.new_push_requests(stakes);
+        self.stats
+            .push_message_pushes
+            .add_relaxed(new_push_requests.len() as u64);
+        let mut packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
+            recycler,
+            "push_gossip_packets",
+            &new_push_requests,
+        );
+        for (address, request) in new_push_requests {
+            if ContactInfo::is_valid_address(&address, &self.socket_addr_space) {
+                match Packet::from_data(Some(&address), &request) {
+                    Ok(packet) => packet_batch.push(packet),
+                    Err(err) => error!("failed to write push-request packet: {:?}", err),
+                }
+            } else {
+                trace!("Dropping Gossip push response, as destination is unknown");
+            }
+        }
+        self.stats
+            .packets_sent_push_messages_count
+            .add_relaxed(packet_batch.len() as u64);
+        let _ = response_sender.send(packet_batch);
+
         Ok(())
     }
 
