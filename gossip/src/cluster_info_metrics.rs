@@ -191,6 +191,7 @@ pub struct GossipStats {
     pub(crate) handle_batch_push_message_count: Counter,
     pub(crate) batch_push_messages_not_empty_count: Counter,
     pub(crate) prune_messages_not_empty_count: Counter,
+    pub(crate) run_gossip_call: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -527,7 +528,11 @@ pub(crate) fn submit_gossip_stats(
             stats.prune_messages_not_empty_count.clear(),
             i64
         ),
-
+        (
+            "run_gossip_call",
+            stats.run_gossip_call.clear(),
+            i64
+        )
     );
     datapoint_info!(
         "cluster_info_stats5",

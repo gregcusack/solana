@@ -1750,6 +1750,7 @@ impl ClusterInfo {
         generate_pull_requests: bool,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_transmit_loop_time);
+        self.stats.run_gossip_call.add_relaxed(1);
         let reqs = self.generate_new_gossip_requests(
             thread_pool,
             gossip_validators,
