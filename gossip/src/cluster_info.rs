@@ -1638,7 +1638,7 @@ impl ClusterInfo {
     }
     fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
         let self_id = self.id();
-        let (mut push_messages, num_entries, num_nodes) = {
+        let (mut push_messages, num_entries, num_pushes) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
@@ -1647,8 +1647,8 @@ impl ClusterInfo {
             .push_fanout_num_entries
             .add_relaxed(num_entries as u64);
         self.stats
-            .push_fanout_num_nodes
-            .add_relaxed(num_nodes as u64);
+            .push_fanout_num_pushes
+            .add_relaxed(num_pushes as u64);
         if self.require_stake_for_gossip(stakes) {
             push_messages.retain(|_, data| {
                 retain_staked(data, stakes, /* drop_unstaked_node_instance */ false);

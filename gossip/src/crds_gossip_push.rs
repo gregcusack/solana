@@ -172,7 +172,7 @@ impl CrdsGossipPush {
     ) -> (
         HashMap<Pubkey, Vec<CrdsValue>>,
         usize, // number of values
-        usize, // number of push messages
+        usize, // number of values pushed across all peers
     ) {
         const MAX_NUM_PUSHES: usize = 1 << 12;
         let active_set = self.active_set.read().unwrap();
