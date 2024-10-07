@@ -191,6 +191,20 @@ impl ContactInfo {
         }
     }
 
+    pub fn new_default_from_ci(ci: ContactInfo) -> Self {
+        let mut new = Self::default();
+        new.pubkey = ci.pubkey;
+        new.wallclock = ci.wallclock;
+        new.outset = ci.outset;
+        new.shred_version = ci.shred_version;
+        new.version = ci.version;
+        // left out addrs
+        // new.sockets = ci.sockets;
+        // new.extensions = ci.extensions;
+        // new.cache = ci.cache;
+        new
+    }
+
     #[inline]
     pub fn pubkey(&self) -> &Pubkey {
         &self.pubkey
