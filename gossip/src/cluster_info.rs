@@ -1543,7 +1543,7 @@ impl ClusterInfo {
                         None
                     } else {
                         Some(std::mem::take(&mut buffer))
-                    };
+                    }; 
                 }
                 Some(data) => {
                     let data_size = match serialized_size(&data) {
@@ -1607,10 +1607,18 @@ impl ClusterInfo {
         self.stats.new_pull_requests_count.add_relaxed(num_requests);
         // TODO: Use new ContactInfo once the cluster has upgraded to:
         // https://github.com/anza-xyz/agave/pull/803
-        let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
-            .map(CrdsData::LegacyContactInfo)
-            .expect("Operator must spin up node with valid contact-info");
-        let self_info = CrdsValue::new_signed(self_info, &self.keypair());
+        // let fake_ci = ContactInfo::new_default_from_ci(self.my_contact_info());
+        // let self_info = LegacyContactInfo::try_from(&fake_ci)
+        //     .map(CrdsData::LegacyContactInfo)
+        //     .expect("Operator must spin up node with valid contact-info");
+
+        let ni = CrdsData::NodeInstance(self.instance.read().unwrap().clone());
+        // let v = CrdsData::Version(Version::new(self.id()));
+            // let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
+        //     .map(CrdsData::LegacyContactInfo)
+        //     .expect("Operator must spin up node with valid contact-info");
+        let self_info = CrdsValue::new_signed(ni, &self.keypair());
+        // let self_info = CrdsValue::new_signed(v, &self.keypair());
         let pulls = pulls
             .into_iter()
             .filter_map(|(peer, filters)| Some((peer.gossip().ok()?, filters)))
