@@ -1599,11 +1599,14 @@ impl ClusterInfo {
                 )
                 .unwrap_or_default()
         };
+        info!("greg: pulls len: {}", pulls.len());
         self.append_entrypoint_to_pulls(thread_pool, &mut pulls);
+        info!("greg: pulls len post entrypoint append: {}", pulls.len());
         let num_requests = pulls
             .iter()
             .map(|(_, filters)| filters.len())
             .sum::<usize>() as u64;
+        info!("greg: num requests: {num_requests}");
         self.stats.new_pull_requests_count.add_relaxed(num_requests);
         // TODO: Use new ContactInfo once the cluster has upgraded to:
         // https://github.com/anza-xyz/agave/pull/803
@@ -1614,6 +1617,7 @@ impl ClusterInfo {
         // let self_info = LegacyContactInfo::try_from(&self.my_contact_info())
         //     .map(CrdsData::LegacyContactInfo)
         //     .expect("Operator must spin up node with valid contact-info");
+        // let ni = CrdsData::NodeInstance(self.instance.read().unwrap().clone());
         let self_info = CrdsValue::new_signed(self_info, &self.keypair());
         let pulls = pulls
             .into_iter()
@@ -1626,7 +1630,9 @@ impl ClusterInfo {
         self.stats
             .new_pull_requests_pings_count
             .add_relaxed(pings.len() as u64);
-        (pings, pulls.collect())
+        let pulls: Vec<(SocketAddr, Protocol)> = pulls.collect();
+        info!("greg: pulls len post collect: {}", pulls.len());
+        (pings, pulls)
     }
 
     pub fn flush_push_queue(&self) {
@@ -1729,8 +1735,10 @@ impl ClusterInfo {
             .packets_sent_push_messages_count
             .add_relaxed(out.len() as u64);
         if generate_pull_requests {
+            info!("greg: generating new pull requests");
             let (pings, pull_requests) =
                 self.new_pull_requests(thread_pool, gossip_validators, stakes);
+            info!("greg: len new pull requests: {}", pull_requests.len());
             self.stats
                 .packets_sent_pull_requests_count
                 .add_relaxed(pull_requests.len() as u64);
@@ -2031,8 +2039,10 @@ impl ClusterInfo {
     ) {
         let _st = ScopedTimer::from(&self.stats.handle_batch_pull_requests_time);
         if requests.is_empty() {
+            info!("greg: handle_batch_pull_requests requests empty1");
             return;
         }
+        info!("greg: handle_batch_pull_requests");
         let self_pubkey = self.id();
         let requests: Vec<_> = thread_pool.install(|| {
             requests
@@ -2048,7 +2058,10 @@ impl ClusterInfo {
                             true
                         }
                     }
-                    _ => false,
+                    _ => { 
+                        info!("greg: crdsval is not ci or lci"); 
+                        return false; 
+                    }
                 })
                 .map(|(from_addr, filter, caller)| PullData {
                     from_addr,
@@ -2068,6 +2081,8 @@ impl ClusterInfo {
                     .add_relaxed(response.len() as u64);
                 let _ = response_sender.send(response);
             }
+        } else {
+            info!("greg: handle_batch_pull_requests requests empty2");
         }
     }
 
@@ -2558,10 +2573,13 @@ impl ClusterInfo {
         let mut prune_messages = vec![];
         let mut ping_messages = vec![];
         let mut pong_messages = vec![];
+        info!("greg: incoming packets len: {}", packets.len());
         for (from_addr, packet) in packets {
             match packet {
                 Protocol::PullRequest(filter, caller) => {
+                    info!("greg: pp: pull_request");
                     if verify_gossip_addr(&caller) {
+                        info!("greg: pp: pull_request. gossip_addr verified");
                         pull_requests.push((from_addr, filter, caller))
                     }
                 }
@@ -2573,9 +2591,11 @@ impl ClusterInfo {
                     }
                 }
                 Protocol::PushMessage(from, mut data) => {
+                    info!("greg: pp: push message");
                     check_duplicate_instance(&data)?;
                     data.retain(&mut verify_gossip_addr);
                     if !data.is_empty() {
+                        info!("greg: pp: push message. gossip_addr verified");
                         push_messages.push((from, data));
                     }
                 }
@@ -3370,7 +3390,7 @@ fn filter_on_shred_version(
                 // Allow contact-infos so that shred-versions are updated.
                 CrdsData::ContactInfo(_) => true,
                 CrdsData::LegacyContactInfo(_) => true,
-                CrdsData::NodeInstance(_) => true,
+                CrdsData::NodeInstance(_) => { info!("greg: got NI1"); return true; }
                 // Only retain values with the same shred version.
                 _ => crds.get_shred_version(&value.pubkey()) == Some(self_shred_version),
             })
@@ -3380,7 +3400,7 @@ fn filter_on_shred_version(
                 // shred-version changes
                 CrdsData::ContactInfo(node) => node.pubkey() == from,
                 CrdsData::LegacyContactInfo(node) => node.pubkey() == from,
-                CrdsData::NodeInstance(_) => true,
+                CrdsData::NodeInstance(_) => { info!("greg: got NI2"); return true; }
                 _ => false,
             })
         }
@@ -3403,6 +3423,7 @@ fn filter_on_shred_version(
                 Some(msg)
             }
             _ => {
+                info!("greg: dropping Pull request since caller != CI or LCI");
                 stats.skip_pull_shred_version.add_relaxed(1);
                 None
             }

@@ -200,8 +200,8 @@ impl ContactInfo {
         new.version = ci.version;
         // left out addrs
         // new.sockets = ci.sockets;
-        // new.extensions = ci.extensions;
-        // new.cache = ci.cache;
+        new.extensions = ci.extensions;
+        new.cache = ci.cache;
         new
     }
 

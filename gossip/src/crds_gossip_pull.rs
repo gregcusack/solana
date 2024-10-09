@@ -301,6 +301,7 @@ impl CrdsGossipPull {
         let mut crds = crds.write().unwrap();
         for caller in callers {
             let key = caller.pubkey();
+            info!("greg: caller: {key}");
             let _ = crds.insert(caller, now, GossipRoute::PullRequest);
             crds.update_record_timestamp(&key, now);
         }
