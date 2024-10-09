@@ -2581,7 +2581,8 @@ fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: boo
         .collect();
     let my_shred_version = cluster_info.my_shred_version();
     let my_id = cluster_info.id();
-
+    
+    info!("greg: running through vote accounts");
     for (activated_stake, vote_account) in bank.vote_accounts().values() {
         let activated_stake = *activated_stake;
         total_activated_stake += activated_stake;
@@ -2598,6 +2599,7 @@ fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: boo
                     vote_state_node_pubkey,
                     activated_stake
                 );
+                error!("greg: peer: {}", peer.pubkey());
                 online_stake += activated_stake;
             } else {
                 wrong_shred_stake += activated_stake;
@@ -2611,6 +2613,7 @@ fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: boo
         }
     }
 
+    info!("greg: done running through vote accounts");
     let online_stake_percentage = (online_stake as f64 / total_activated_stake as f64) * 100.;
     if log {
         info!(
