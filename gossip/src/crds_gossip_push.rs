@@ -16,7 +16,7 @@ use {
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
         crds::{Crds, CrdsError, Cursor, GossipRoute},
         crds_gossip,
-        crds_value::CrdsValue,
+        crds_value::{CrdsData, CrdsValue},
         ping_pong::PingCache,
         push_active_set::PushActiveSet,
         received_cache::ReceivedCache,
@@ -179,6 +179,8 @@ impl CrdsGossipPush {
         HashMap<Pubkey, Vec<CrdsValue>>,
         usize, // number of values
         usize, // number of push messages
+        usize,
+        usize,
     ) {
         let active_set = self.active_set.read().unwrap();
         let mut num_pushes = 0;
@@ -193,11 +195,26 @@ impl CrdsGossipPush {
             .get_entries(crds_cursor.deref_mut())
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()));
+        let mut send_ci: usize = 0;
+        let mut send_lci: usize = 0;
         for value in entries {
             let serialized_size = serialized_size(&value).unwrap();
             total_bytes = total_bytes.saturating_add(serialized_size as usize);
             if total_bytes > self.max_bytes {
                 break;
+            }
+            // don't report data from us since it won't show up in process_packets
+            // todo: also add in metric for how often we send our own ci/lci
+            if value.pubkey() != *pubkey {
+                match value.data {
+                    CrdsData::ContactInfo(_) => {
+                        send_ci += 1;
+                    }
+                    CrdsData::LegacyContactInfo(_) => {
+                        send_lci += 1;
+                    }
+                    _ => (),
+                }
             }
             num_values += 1;
             let origin = value.pubkey();
@@ -216,7 +233,7 @@ impl CrdsGossipPush {
         drop(crds_cursor);
         drop(active_set);
         self.num_pushes.fetch_add(num_pushes, Ordering::Relaxed);
-        (push_messages, num_values, num_pushes)
+        (push_messages, num_values, num_pushes, send_ci, send_lci)
     }
 
     /// Add the `from` to the peer's filter of nodes.

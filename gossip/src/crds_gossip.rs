@@ -78,6 +78,8 @@ impl CrdsGossip {
         HashMap<Pubkey, Vec<CrdsValue>>,
         usize, // number of values
         usize, // number of push messages
+        usize,
+        usize,
     ) {
         self.push.new_push_messages(pubkey, &self.crds, now, stakes)
     }

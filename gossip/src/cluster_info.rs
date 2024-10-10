@@ -1565,7 +1565,7 @@ impl ClusterInfo {
     }
     fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
         let self_id = self.id();
-        let (mut push_messages, num_entries, num_nodes) = {
+        let (mut push_messages, num_entries, num_nodes, send_ci, send_lci) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
             self.gossip.new_push_messages(&self_id, timestamp(), stakes)
@@ -1576,6 +1576,12 @@ impl ClusterInfo {
         self.stats
             .push_fanout_num_nodes
             .add_relaxed(num_nodes as u64);
+        self.stats
+            .tx_ci_count
+            .add_relaxed(send_ci as u64);
+        self.stats
+            .tx_lci_count
+            .add_relaxed(send_lci as u64);
         if self.require_stake_for_gossip(stakes) {
             push_messages.retain(|_, data| {
                 retain_staked(data, stakes);
@@ -2463,6 +2469,21 @@ impl ClusterInfo {
                     }
                 }
                 Protocol::PushMessage(from, mut data) => {
+                    let mut contact_info = 0;
+                    let mut legacy_contact_info = 0;
+                    for d in data.iter() {
+                        match d.data {
+                            CrdsData::ContactInfo(_) => contact_info += 1,
+                            CrdsData::LegacyContactInfo(_) => legacy_contact_info += 1,
+                            _ => (),
+                        }
+                    }
+                    self.stats
+                        .rx_ci_count_pre_filter
+                        .add_relaxed(contact_info as u64);
+                    self.stats
+                        .rx_lci_count_pre_filter
+                        .add_relaxed(legacy_contact_info as u64);
                     check_duplicate_instance(&data)?;
                     data.retain(&mut verify_gossip_addr);
                     if !data.is_empty() {
@@ -3723,7 +3744,7 @@ mod tests {
         );
         //check that all types of gossip messages are signed correctly
         cluster_info.flush_push_queue();
-        let (push_messages, _, _) =
+        let (push_messages, _, _, _, _) =
             cluster_info
                 .gossip
                 .new_push_messages(&cluster_info.id(), timestamp(), &stakes);

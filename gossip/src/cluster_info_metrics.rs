@@ -182,6 +182,10 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) rx_ci_count_pre_filter: Counter,
+    pub(crate) rx_lci_count_pre_filter: Counter,
+    pub(crate) tx_ci_count: Counter,
+    pub(crate) tx_lci_count: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -485,6 +489,26 @@ pub(crate) fn submit_gossip_stats(
         (
             "get_epoch_duration_no_working_bank",
             stats.get_epoch_duration_no_working_bank.clear(),
+            i64
+        ),
+        (
+            "rx_ci_count_pre_filter",
+            stats.rx_ci_count_pre_filter.clear(),
+            i64
+        ),
+        (
+            "rx_lci_count_pre_filter",
+            stats.rx_lci_count_pre_filter.clear(),
+            i64
+        ),
+        (
+            "tx_ci_count",
+            stats.tx_ci_count.clear(),
+            i64
+        ),
+        (
+            "tx_lci_count",
+            stats.tx_lci_count.clear(),
             i64
         ),
     );

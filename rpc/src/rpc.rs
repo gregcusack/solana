@@ -3451,6 +3451,7 @@ pub mod rpc_full {
             let cluster_info = &meta.cluster_info;
             let socket_addr_space = cluster_info.socket_addr_space();
             let my_shred_version = cluster_info.my_shred_version();
+            info!("greg: rx get_cluster_nodes!");
             Ok(cluster_info
                 .all_peers()
                 .iter()
