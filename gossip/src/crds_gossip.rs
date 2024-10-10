@@ -52,8 +52,9 @@ impl CrdsGossip {
         &self,
         messages: Vec<(/*from:*/ Pubkey, Vec<CrdsValue>)>,
         now: u64,
+        stats: Option<&GossipStats>,
     ) -> HashSet<Pubkey> {
-        self.push.process_push_message(&self.crds, messages, now)
+        self.push.process_push_message(&self.crds, messages, now, stats)
     }
 
     /// Remove redundant paths in the network.

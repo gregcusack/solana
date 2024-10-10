@@ -295,6 +295,7 @@ fn network_simulator(thread_pool: &ThreadPool, network: &mut Network, max_conver
                     vec![CrdsValue::new_unsigned(CrdsData::ContactInfo(m))],
                 )],
                 now,
+                None,
             );
         });
         // push for a bit
@@ -369,7 +370,7 @@ fn network_run_push(
                         .get(&to)
                         .unwrap()
                         .gossip
-                        .process_push_message(vec![(from, msgs.clone())], now)
+                        .process_push_message(vec![(from, msgs.clone())], now, None)
                         .into_iter()
                         .collect();
                     let prunes_map = network

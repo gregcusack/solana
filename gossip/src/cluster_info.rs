@@ -2372,7 +2372,7 @@ impl ClusterInfo {
         let origins: HashSet<_> = {
             let _st = ScopedTimer::from(&self.stats.process_push_message);
             let now = timestamp();
-            self.gossip.process_push_message(messages, now)
+            self.gossip.process_push_message(messages, now, Some(&self.stats))
         };
         // Generate prune messages.
         let self_pubkey = self.id();
@@ -2557,21 +2557,6 @@ impl ClusterInfo {
                     }
                 }
                 Protocol::PushMessage(from, mut data) => {
-                    let mut contact_info = 0;
-                    let mut legacy_contact_info = 0;
-                    for d in data.iter() {
-                        match d.data {
-                            CrdsData::ContactInfo(_) => contact_info += 1,
-                            CrdsData::LegacyContactInfo(_) => legacy_contact_info += 1,
-                            _ => (),
-                        }
-                    }
-                    self.stats
-                        .rx_ci_count_pre_filter
-                        .add_relaxed(contact_info as u64);
-                    self.stats
-                        .rx_lci_count_pre_filter
-                        .add_relaxed(legacy_contact_info as u64);
                     check_duplicate_instance(&data)?;
                     data.retain(&mut verify_gossip_addr);
                     if !data.is_empty() {
@@ -2590,6 +2575,23 @@ impl ClusterInfo {
             }
             push_messages.retain(|(_, data)| !data.is_empty());
         }
+        let mut contact_info = 0;
+        let mut legacy_contact_info = 0;
+        for (_, data) in &mut push_messages {
+            for d in data.iter() {
+                match d.data {
+                    CrdsData::ContactInfo(_) => contact_info += 1,
+                    CrdsData::LegacyContactInfo(_) => legacy_contact_info += 1,
+                    _ => (),
+                }
+            }
+        }
+        self.stats
+            .rx_ci_count_post_retain_stake
+            .add_relaxed(contact_info as u64);
+        self.stats
+            .rx_lci_count_post_retain_stake
+            .add_relaxed(legacy_contact_info as u64);
         if !pings.is_empty() {
             self.stats
                 .packets_sent_gossip_requests_count

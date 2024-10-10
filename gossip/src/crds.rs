@@ -50,7 +50,7 @@ use {
         cmp::Ordering,
         collections::{hash_map, BTreeMap, HashMap, VecDeque},
         ops::{Bound, Index, IndexMut},
-        sync::Mutex,
+        sync::{Mutex, MutexGuard},
     },
 };
 
@@ -119,6 +119,7 @@ pub(crate) struct CrdsStats {
     /// and that message was later received via a PushMessage
     pub(crate) num_redundant_pull_responses: u64,
     pub(crate) num_duplicate_push_messages: u64,
+    pub(crate) 
 }
 
 /// This structure stores some local metadata associated with the CrdsValue
@@ -193,7 +194,7 @@ impl Default for Crds {
 
 // Returns true if the first value updates the 2nd one.
 // Both values should have the same key/label.
-fn overrides(value: &CrdsValue, other: &VersionedCrdsValue) -> bool {
+fn overrides(value: &CrdsValue, other: &VersionedCrdsValue, stats: Option<MutexGuard<'_, CrdsStats>>) -> bool {
     assert_eq!(value.label(), other.value.label(), "labels mismatch!");
     // Contact-infos and node instances are special cased so that if there are
     // two running instances of the same node, the more recent start is
@@ -271,7 +272,7 @@ impl Crds {
                 entry.insert(value);
                 Ok(())
             }
-            Entry::Occupied(mut entry) if overrides(&value.value, entry.get()) => {
+            Entry::Occupied(mut entry) if overrides(&value.value, entry.get(), Some(stats)) => {
                 stats.record_insert(&value, route);
                 let entry_index = entry.index();
                 self.shards.remove(entry_index, entry.get());

@@ -186,6 +186,21 @@ pub struct GossipStats {
     pub(crate) rx_lci_count_pre_filter: Counter,
     pub(crate) tx_ci_count: Counter,
     pub(crate) tx_lci_count: Counter,
+    pub(crate) rx_ci_count_post_dup_instance_check: Counter,
+    pub(crate) rx_lci_count_post_dup_instance_check: Counter,
+    pub(crate) rx_ci_count_verify_gossip_addr_check: Counter,
+    pub(crate) rx_lci_count_verify_gossip_addr_check: Counter,
+    pub(crate) rx_ci_count_post_retain_stake: Counter,
+    pub(crate) rx_lci_count_post_retain_stake: Counter,
+    
+    pub(crate) ci_count_proc_push: Counter,
+    pub(crate) lci_count_proc_push: Counter,
+
+    pub(crate) ci_count_old_wallclock: Counter,
+    pub(crate) lci_count_old_wallclock: Counter,
+
+    pub(crate) ci_count_try_get_inserted: Counter,
+    pub(crate) lci_count_try_get_inserted: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -511,6 +526,71 @@ pub(crate) fn submit_gossip_stats(
             stats.tx_lci_count.clear(),
             i64
         ),
+        (
+            "rx_ci_count_post_dup_instance_check",
+            stats.rx_ci_count_post_dup_instance_check.clear(),
+            i64
+        ),
+        (
+            "rx_lci_count_post_dup_instance_check",
+            stats.rx_lci_count_post_dup_instance_check.clear(),
+            i64
+        ),
+        (
+            "rx_ci_count_verify_gossip_addr_check",
+            stats.rx_ci_count_verify_gossip_addr_check.clear(),
+            i64
+        ),
+        (
+            "rx_lci_count_verify_gossip_addr_check",
+            stats.rx_lci_count_verify_gossip_addr_check.clear(),
+            i64
+        ),
+        (
+            "rx_ci_count_post_retain_stake",
+            stats.rx_ci_count_post_retain_stake.clear(),
+            i64
+        ),
+        (
+            "rx_lci_count_post_retain_stake",
+            stats.rx_lci_count_post_retain_stake.clear(),
+            i64
+        ),
+
+        (
+            "ci_count_proc_push",
+            stats.ci_count_proc_push.clear(),
+            i64
+        ),
+        (
+            "lci_count_proc_push",
+            stats.lci_count_proc_push.clear(),
+            i64
+        ),
+
+        (
+            "ci_count_old_wallclock",
+            stats.ci_count_old_wallclock.clear(),
+            i64
+        ),
+        (
+            "lci_count_old_wallclock",
+            stats.lci_count_old_wallclock.clear(),
+            i64
+        ),
+
+        (
+            "ci_count_try_get_inserted",
+            stats.ci_count_try_get_inserted.clear(),
+            i64
+        ),
+        (
+            "lci_count_try_get_inserted",
+            stats.lci_count_try_get_inserted.clear(),
+            i64
+        ),
+
+
     );
     datapoint_info!(
         "cluster_info_stats5",
