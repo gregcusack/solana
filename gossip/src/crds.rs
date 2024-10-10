@@ -26,7 +26,7 @@
 
 use {
     crate::{
-        contact_info::ContactInfo,
+        contact_info::{self, ContactInfo},
         crds_entry::CrdsEntry,
         crds_gossip_pull::CrdsTimeouts,
         crds_shards::CrdsShards,
@@ -50,7 +50,7 @@ use {
         cmp::Ordering,
         collections::{hash_map, BTreeMap, HashMap, VecDeque},
         ops::{Bound, Index, IndexMut},
-        sync::{Mutex, MutexGuard},
+        sync::Mutex,
     },
 };
 
@@ -119,7 +119,6 @@ pub(crate) struct CrdsStats {
     /// and that message was later received via a PushMessage
     pub(crate) num_redundant_pull_responses: u64,
     pub(crate) num_duplicate_push_messages: u64,
-    pub(crate) 
 }
 
 /// This structure stores some local metadata associated with the CrdsValue
@@ -194,7 +193,7 @@ impl Default for Crds {
 
 // Returns true if the first value updates the 2nd one.
 // Both values should have the same key/label.
-fn overrides(value: &CrdsValue, other: &VersionedCrdsValue, stats: Option<MutexGuard<'_, CrdsStats>>) -> bool {
+fn overrides(value: &CrdsValue, other: &VersionedCrdsValue) -> bool {
     assert_eq!(value.label(), other.value.label(), "labels mismatch!");
     // Contact-infos and node instances are special cased so that if there are
     // two running instances of the same node, the more recent start is
@@ -207,6 +206,35 @@ fn overrides(value: &CrdsValue, other: &VersionedCrdsValue, stats: Option<MutexG
     if let CrdsData::ContactInfo(value) = &value.data {
         if let CrdsData::ContactInfo(other) = &other.value.data {
             if let Some(out) = value.overrides(other) {
+                if !out {
+                    info!("greg: new ci fails to override existing. v: {}", value.version());
+                    if value.version().to_string() != "1.18.25" {
+                        info!("greg: WOW got a diff version");
+                    }
+                    if matches!(other.tvu(contact_info::Protocol::UDP), Err(contact_info::Error::InvalidPort(0))) {
+                        info!("greg: invalid tvu UDP port!");
+                    }
+                    if matches!(other.tvu(contact_info::Protocol::QUIC), Err(contact_info::Error::InvalidPort(0))) {
+                        info!("greg: invalid tvu QUIC port!");
+                    }
+
+                    // match value.tvu(Protocol::UDP) {
+                    //     Ok(s) => {
+                    //         info!("greg: new ci tvu: {}", s);
+                    //     }
+                    //     Err(e) => {
+                    //         info!("greg: not UDP tpu: {}", e);
+                    //     }
+                    // }
+                    // match value.tvu(Protocol::QUIC) {
+                    //     Ok(s) => {
+                    //         info!("greg: new ci tvu: {}", s);
+                    //     }
+                    //     Err(e) => {
+                    //         info!("greg: not UDP tpu: {}", e);
+                    //     }
+                    // }
+                }
                 return out;
             }
         }
@@ -272,7 +300,7 @@ impl Crds {
                 entry.insert(value);
                 Ok(())
             }
-            Entry::Occupied(mut entry) if overrides(&value.value, entry.get(), Some(stats)) => {
+            Entry::Occupied(mut entry) if overrides(&value.value, entry.get()) => {
                 stats.record_insert(&value, route);
                 let entry_index = entry.index();
                 self.shards.remove(entry_index, entry.get());
