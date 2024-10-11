@@ -216,22 +216,16 @@ fn overrides(value: &CrdsValue, other: &VersionedCrdsValue) -> bool {
                         info!("greg: invalid tvu QUIC port!");
                     }
                 }
-                // }
-                // if !out {
-                //     if value.version().to_string() != "1.18.25" {
-                //         info!("greg: WOW got a diff version");
-                //     }
-                //     if matches!(other.tvu(contact_info::Protocol::UDP), Err(contact_info::Error::InvalidPort(0))) {
-                //         info!("greg: invalid tvu UDP port!");
-                //     }
-                //     if matches!(other.tvu(contact_info::Protocol::QUIC), Err(contact_info::Error::InvalidPort(0))) {
-                //         info!("greg: invalid tvu QUIC port!");
-                //     }
-                // }
                 return out;
             } else {
                 if value.pubkey().to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
                     info!("greg: patched v1.18 overrides: None");
+                    if matches!(other.tvu(contact_info::Protocol::UDP), Err(contact_info::Error::InvalidPort(0))) {
+                        info!("greg: none invalid tvu UDP port!");
+                    }
+                    if matches!(other.tvu(contact_info::Protocol::QUIC), Err(contact_info::Error::InvalidPort(0))) {
+                        info!("greg: none invalid tvu QUIC port!");
+                    }
                 }
             }
         }
