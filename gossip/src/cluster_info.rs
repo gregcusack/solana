@@ -1937,6 +1937,11 @@ impl ClusterInfo {
                             &sender,
                         );
                         last_push = timestamp();
+                        for ci  in self.all_tvu_peers() {
+                            if ci.pubkey().to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
+                                info!("greg: see pubkey in tvu peers");
+                            }
+                        }
                     }
                     let elapsed = timestamp() - start;
                     if GOSSIP_SLEEP_MILLIS > elapsed {
