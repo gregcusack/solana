@@ -150,6 +150,8 @@ fn start_gossip_node(
     should_check_duplicate_instance: bool,
     socket_addr_space: SocketAddrSpace,
 ) -> (Arc<ClusterInfo>, Arc<AtomicBool>, GossipService) {
+    info!("greg: start_gossip_node");
+
     let contact_info = ClusterInfo::gossip_contact_info(
         identity_keypair.pubkey(),
         *gossip_addr,
@@ -604,8 +606,10 @@ pub fn rpc_bootstrap(
             exit(1);
         }
     }
+    info!("greg: rpc_bootstrap");
 
     if bootstrap_config.no_genesis_fetch && bootstrap_config.no_snapshot_fetch {
+        info!("greg: return early");
         return;
     }
 
