@@ -1872,7 +1872,9 @@ pub fn main() {
     let identity_keypair = Arc::new(identity_keypair);
 
     let should_check_duplicate_instance = true;
+    info!("greg: entrypoint");
     if !cluster_entrypoints.is_empty() {
+        info!("greg: run rpc_bootstrap");
         bootstrap::rpc_bootstrap(
             &node,
             &identity_keypair,
