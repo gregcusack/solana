@@ -16,10 +16,11 @@ use {
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
         crds::{Crds, CrdsError, Cursor, GossipRoute},
         crds_gossip,
-        crds_value::CrdsValue,
+        crds_value::{CrdsData, CrdsValue},
         ping_pong::PingCache,
         push_active_set::PushActiveSet,
         received_cache::ReceivedCache,
+        contact_info::{self, ContactInfo}
     },
     bincode::serialized_size,
     itertools::Itertools,
@@ -199,6 +200,22 @@ impl CrdsGossipPush {
             if total_bytes > self.max_bytes {
                 break;
             }
+
+            if pubkey == &value.pubkey() {
+                match &value.data {
+                    CrdsData::ContactInfo(ci) => {
+                        info!("greg: push our own contact info");
+                        if matches!(ci.tvu(contact_info::Protocol::UDP), Err(contact_info::Error::InvalidPort(0))) {
+                            info!("greg: push stub ci");
+                        } else {
+                            info!("greg: push full ci")
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            
+
             num_values += 1;
             let origin = value.pubkey();
             let nodes = active_set.get_nodes(
