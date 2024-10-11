@@ -272,7 +272,12 @@ impl Crds {
                 match &value.value.data {
                     CrdsData::ContactInfo(node) => {
                         if pubkey.to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
-                            info!("greg: insert contect info new");
+                            info!("greg: insert contact info new");
+                            if matches!(node.tvu(contact_info::Protocol::UDP), Err(contact_info::Error::InvalidPort(0))) {
+                                info!("greg: insert invalid tvu UDP port!");
+                            } else {
+                                info!("greg: insert not stub");
+                            }
                         }
                         self.nodes.insert(entry_index);
                         self.shred_versions.insert(pubkey, node.shred_version());
