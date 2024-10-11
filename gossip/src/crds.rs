@@ -206,17 +206,17 @@ fn overrides(value: &CrdsValue, other: &VersionedCrdsValue) -> bool {
     if let CrdsData::ContactInfo(value) = &value.data {
         if let CrdsData::ContactInfo(other) = &other.value.data {
             if let Some(out) = value.overrides(other) {
-                if value.version().to_string() == "1.18.25" {
-                    if value.pubkey().to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
-                        info!("greg: patched v1.18 overrides: {out}");
-                        if matches!(other.tvu(contact_info::Protocol::UDP), Err(contact_info::Error::InvalidPort(0))) {
-                            info!("greg: invalid tvu UDP port!");
-                        }
-                        if matches!(other.tvu(contact_info::Protocol::QUIC), Err(contact_info::Error::InvalidPort(0))) {
-                            info!("greg: invalid tvu QUIC port!");
-                        }
+                // if value.version().to_string() == "1.18.25" {
+                if value.pubkey().to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
+                    info!("greg: patched v1.18 overrides: {out}");
+                    if matches!(other.tvu(contact_info::Protocol::UDP), Err(contact_info::Error::InvalidPort(0))) {
+                        info!("greg: invalid tvu UDP port!");
+                    }
+                    if matches!(other.tvu(contact_info::Protocol::QUIC), Err(contact_info::Error::InvalidPort(0))) {
+                        info!("greg: invalid tvu QUIC port!");
                     }
                 }
+                // }
                 // if !out {
                 //     if value.version().to_string() != "1.18.25" {
                 //         info!("greg: WOW got a diff version");
@@ -229,6 +229,10 @@ fn overrides(value: &CrdsValue, other: &VersionedCrdsValue) -> bool {
                 //     }
                 // }
                 return out;
+            } else {
+                if value.pubkey().to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
+                    info!("greg: patched v1.18 overrides: None");
+                }
             }
         }
     }
@@ -273,6 +277,9 @@ impl Crds {
                 self.shards.insert(entry_index, &value);
                 match &value.value.data {
                     CrdsData::ContactInfo(node) => {
+                        if pubkey.to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
+                            info!("greg: insert contect info new");
+                        }
                         self.nodes.insert(entry_index);
                         self.shred_versions.insert(pubkey, node.shred_version());
                     }
@@ -300,6 +307,9 @@ impl Crds {
                 self.shards.insert(entry_index, &value);
                 match &value.value.data {
                     CrdsData::ContactInfo(node) => {
+                        if pubkey.to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
+                            info!("greg: insert contect info override");
+                        }
                         self.shred_versions.insert(pubkey, node.shred_version());
                         // self.nodes does not need to be updated since the
                         // entry at this index was and stays contact-info.
@@ -330,6 +340,9 @@ impl Crds {
                 Ok(())
             }
             Entry::Occupied(mut entry) => {
+                if pubkey.to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
+                    info!("greg: insert fail");
+                }
                 stats.record_fail(&value, route);
                 trace!(
                     "INSERT FAILED data: {} new.wallclock: {}",
