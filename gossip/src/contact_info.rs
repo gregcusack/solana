@@ -453,7 +453,12 @@ impl ContactInfo {
         if self.pubkey != other.pubkey {
             return None;
         }
+        let pk = other;
         let other = (other.outset, other.wallclock);
+        if pk.pubkey().to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
+            info!("greg: other outset: {:?}, other wallclock: {:?}", other.0, other.1);
+            info!("greg: new outset: {:?}, new wallclock: {:?}", self.outset, self.wallclock);
+        }
         match (self.outset, self.wallclock).cmp(&other) {
             Ordering::Less => Some(false),
             Ordering::Greater => Some(true),

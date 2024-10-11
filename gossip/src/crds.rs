@@ -334,8 +334,13 @@ impl Crds {
                 Ok(())
             }
             Entry::Occupied(mut entry) => {
-                if pubkey.to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
-                    info!("greg: insert fail");
+                match &value.value.data {
+                    CrdsData::ContactInfo(node) => {
+                        if pubkey.to_string() == "4FMSPH9S9bZS975UujyvtCbGWrXi573bxevofMobfq64" {
+                            info!("greg: insert fail");
+                        }
+                    }
+                    _ => (),
                 }
                 stats.record_fail(&value, route);
                 trace!(
