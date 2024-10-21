@@ -233,7 +233,7 @@ impl ContactInfo {
     }
 
     #[inline]
-    pub(crate) fn version(&self) -> &solana_version::Version {
+    pub fn version(&self) -> &solana_version::Version {
         &self.version
     }
 

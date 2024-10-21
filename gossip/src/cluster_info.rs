@@ -34,6 +34,7 @@ use {
         duplicate_shred::DuplicateShred,
         epoch_slots::EpochSlots,
         gossip_error::GossipError,
+        gossip_message_notifier_interface::GossipMessageNotifier,
         ping_pong::Pong,
         protocol::{
             split_gossip_messages, Ping, PingCache, Protocol, PruneData,
@@ -232,6 +233,14 @@ impl ClusterInfo {
         };
         me.refresh_my_gossip_contact_info();
         me
+    }
+
+    pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
+        self.gossip
+            .crds
+            .write()
+            .unwrap()
+            .set_gossip_message_notifier(notifier);
     }
 
     pub fn set_contact_debug_interval(&mut self, new: u64) {

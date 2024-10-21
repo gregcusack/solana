@@ -125,6 +125,7 @@ version = "2.2.0"
 dependencies = [
  "log",
  "solana-clock",
+ "solana-gossip",
  "solana-signature",
  "solana-transaction",
  "solana-transaction-status",
@@ -7465,6 +7466,7 @@ dependencies = [
  "solana-accounts-db",
  "solana-clock",
  "solana-entry",
+ "solana-gossip",
  "solana-ledger",
  "solana-measure",
  "solana-metrics",

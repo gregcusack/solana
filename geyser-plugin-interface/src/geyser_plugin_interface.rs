@@ -345,6 +345,30 @@ impl SlotStatus {
     }
 }
 
+pub const PUBKEY_SIZE: usize = 32;
+
+pub struct FfiNode {
+    pub pubkey: [u8; PUBKEY_SIZE],
+    pub wallclock: u64,
+    pub shred_version: u16,
+    pub version: FfiVersion,
+}
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct FfiVersion {
+    pub major: u16,
+    pub minor: u16,
+    pub patch: u16,
+    pub commit: u32,
+    pub feature_set: u32,
+    pub client: u16,
+}
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct FfiExtension {}
+
 pub type Result<T> = std::result::Result<T, GeyserPluginError>;
 
 /// Defines a Geyser plugin, to stream data from the runtime.
@@ -475,5 +499,17 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// entry data, return true.
     fn entry_notifications_enabled(&self) -> bool {
         false
+    }
+
+    #[allow(unused_variables)]
+    fn notify_node_update(&self, ffi_node: &FfiNode) -> Result<()> {
+        Ok(())
+    }
+
+    /// Check if the plugin is interested in gossip m essages
+    /// Default is true -- if the plugin is not interested in
+    /// gossip messages, please return false.
+    fn node_update_notifications_enabled(&self) -> bool {
+        true
     }
 }

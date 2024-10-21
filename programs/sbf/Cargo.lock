@@ -5961,6 +5961,7 @@ dependencies = [
  "solana-accounts-db",
  "solana-clock",
  "solana-entry",
+ "solana-gossip",
  "solana-ledger",
  "solana-measure",
  "solana-metrics",
