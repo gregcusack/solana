@@ -9,6 +9,7 @@ use {
         transaction::SanitizedTransaction,
     },
     solana_transaction_status::{Reward, RewardsAndNumPartitions, TransactionStatusMeta},
+    solana_gossip::crds_value::CrdsValue,
     std::{any::Any, error, io},
     thiserror::Error,
 };
@@ -465,5 +466,10 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// entry data, return true.
     fn entry_notifications_enabled(&self) -> bool {
         false
+    }
+
+    #[allow(unused_variables)]
+    fn insert_crds(&self, crds_value: CrdsValue) -> Result<()> {
+        Ok(())
     }
 }

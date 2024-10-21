@@ -172,7 +172,7 @@ impl AccountsUpdateNotifierImpl {
                     )
                 }
                 Ok(_) => {
-                    trace!(
+                    info!(
                         "Successfully updated account {} at slot {} to plugin {}",
                         bs58::encode(account.pubkey).into_string(),
                         slot,
