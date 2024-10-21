@@ -13,6 +13,7 @@ edition = { workspace = true }
 log = { workspace = true }
 solana-sdk = { workspace = true }
 solana-transaction-status = { workspace = true }
+solana-gossip = { workspace = true }
 thiserror = { workspace = true }
 
 [package.metadata.docs.rs]
