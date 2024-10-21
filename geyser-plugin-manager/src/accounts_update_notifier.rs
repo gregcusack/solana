@@ -33,9 +33,11 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
         pubkey: &Pubkey,
         write_version: u64,
     ) {
+        println!("greg: notify_account_update()");
         if let Some(account_info) =
             self.accountinfo_from_shared_account_data(account, txn, pubkey, write_version)
         {
+
             self.notify_plugins_of_account_update(account_info, slot, false);
         }
     }
@@ -168,7 +170,7 @@ impl AccountsUpdateNotifierImpl {
                     )
                 }
                 Ok(_) => {
-                    trace!(
+                    info!(
                         "Successfully updated account {} at slot {} to plugin {}",
                         bs58::encode(account.pubkey).into_string(),
                         slot,

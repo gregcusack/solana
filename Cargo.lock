@@ -96,6 +96,7 @@ name = "agave-geyser-plugin-interface"
 version = "1.18.26"
 dependencies = [
  "log",
+ "solana-gossip",
  "solana-sdk",
  "solana-transaction-status",
  "thiserror",

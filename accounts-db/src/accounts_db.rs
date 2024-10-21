@@ -6636,6 +6636,7 @@ impl AccountsDb {
                     .unwrap_or_default();
                 let account_info = AccountInfo::new(StorageLocation::Cached, account.lamports());
 
+                println!("greg: AccountsDb::write_accounts_to_cache");
                 self.notify_account_at_accounts_update(
                     slot,
                     &account,
