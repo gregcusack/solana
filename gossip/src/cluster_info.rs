@@ -19,6 +19,7 @@
 )]
 #[allow(deprecated)]
 pub use solana_net_utils::{MINIMUM_VALIDATOR_PORT_RANGE_WIDTH, VALIDATOR_PORT_RANGE};
+
 use {
     crate::{
         cluster_info_metrics::{
@@ -35,6 +36,7 @@ use {
             self, AccountsHashes, CrdsData, CrdsValue, CrdsValueLabel, EpochSlotsIndex, LowestSlot,
             NodeInstance, SnapshotHashes, Version, Vote, MAX_WALLCLOCK,
         },
+        gossip_message_notifier_interface::GossipMessageNotifier,
         duplicate_shred::DuplicateShred,
         epoch_slots::EpochSlots,
         gossip_error::GossipError,
@@ -173,6 +175,8 @@ pub struct ClusterInfo {
     instance: RwLock<NodeInstance>,
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
+    /// GeyserPlugin gossip message notifier
+    gossip_message_notifier: Option<GossipMessageNotifier>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, AbiExample)]
@@ -430,10 +434,15 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
+            gossip_message_notifier: None,
         };
         me.insert_self();
         me.push_self();
         me
+    }
+
+    pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
+        self.gossip_message_notifier = notifier;
     }
 
     pub fn set_contact_debug_interval(&mut self, new: u64) {
@@ -1552,6 +1561,17 @@ impl ClusterInfo {
         (pings, pulls.collect())
     }
 
+    pub fn notify_gossip_message_update(
+        &self,
+        crds_value: &CrdsValue,
+    ) {
+        if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+            gossip_message_notifier.notify_receive_message(
+                crds_value
+            );
+        }
+    }
+
     pub fn flush_push_queue(&self) {
         let entries: Vec<CrdsValue> =
             std::mem::take(&mut *self.local_message_pending_push_queue.lock().unwrap());
@@ -1559,7 +1579,12 @@ impl ClusterInfo {
             let mut gossip_crds = self.gossip.crds.write().unwrap();
             let now = timestamp();
             for entry in entries {
-                let _ = gossip_crds.insert(entry, now, GossipRoute::LocalMessage);
+                println!("greg: flush_push_queue: {}", entry.pubkey());
+                // let _ = gossip_crds.insert(entry, now, GossipRoute::LocalMessage);
+                match gossip_crds.insert(entry.clone(), now, GossipRoute::LocalMessage) {
+                    Ok(_) => self.notify_gossip_message_update(&entry),
+                    Err(_) => (),
+                }
             }
         }
     }
