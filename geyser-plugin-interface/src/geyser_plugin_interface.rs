@@ -469,7 +469,14 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     }
 
     #[allow(unused_variables)]
-    fn insert_crds(&self, crds_value: CrdsValue) -> Result<()> {
+    fn insert_crds_value(&self, crds_value: CrdsValue) -> Result<()> {
         Ok(())
+    }
+
+    /// Check if the plugin is interested in gossip m essages
+    /// Default is true -- if the plugin is not interested in
+    /// gossip messages, please return false.
+    fn gossip_messages_notifications_enabled(&self) -> bool {
+        true
     }
 }

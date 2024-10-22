@@ -18,6 +18,7 @@ pub mod duplicate_shred_handler;
 pub mod duplicate_shred_listener;
 pub mod epoch_slots;
 pub mod gossip_error;
+pub mod gossip_message_notifier_interface;
 pub mod gossip_service;
 #[macro_use]
 mod legacy_contact_info;
