@@ -31,6 +31,7 @@ use {
         crds_shards::CrdsShards,
         crds_value::{CrdsData, CrdsValue, CrdsValueLabel},
         legacy_contact_info::LegacyContactInfo as ContactInfo,
+        gossip_message_notifier_interface::GossipMessageNotifier,
     },
     assert_matches::debug_assert_matches,
     bincode::serialize,
@@ -86,6 +87,8 @@ pub struct Crds {
     // Mapping from nodes' pubkeys to their respective shred-version.
     shred_versions: HashMap<Pubkey, u16>,
     stats: Mutex<CrdsStats>,
+    /// GeyserPlugin gossip message notifier
+    gossip_message_notifier: Option<GossipMessageNotifier>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -187,6 +190,7 @@ impl Default for Crds {
             purged: VecDeque::default(),
             shred_versions: HashMap::default(),
             stats: Mutex::<CrdsStats>::default(),
+            gossip_message_notifier: None,
         }
     }
 }
@@ -227,6 +231,22 @@ impl Crds {
         }
     }
 
+    pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
+        self.gossip_message_notifier = notifier;
+    }
+
+
+    // fn notify_gossip_message_update(
+    //     &self,
+    //     value: &VersionedCrdsValue,
+    // ) {
+    //     if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+    //         gossip_message_notifier.notify_receive_message(
+    //             value
+    //         );
+    //     }
+    // }
+
     pub fn insert(
         &mut self,
         value: CrdsValue,
@@ -261,6 +281,11 @@ impl Crds {
                 self.entries.insert(value.ordinal, entry_index);
                 self.records.entry(pubkey).or_default().insert(entry_index);
                 self.cursor.consume(value.ordinal);
+                if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+                    gossip_message_notifier.notify_receive_message(
+                        &value
+                    );
+                }
                 entry.insert(value);
                 Ok(())
             }
@@ -300,6 +325,11 @@ impl Crds {
                 debug_assert_eq!(entry.get().value.pubkey(), pubkey);
                 self.cursor.consume(value.ordinal);
                 self.purged.push_back((entry.get().value_hash, now));
+                if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+                    gossip_message_notifier.notify_receive_message(
+                        &value
+                    );
+                }
                 entry.insert(value);
                 Ok(())
             }

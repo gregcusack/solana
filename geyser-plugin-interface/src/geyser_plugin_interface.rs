@@ -9,7 +9,7 @@ use {
         transaction::SanitizedTransaction,
     },
     solana_transaction_status::{Reward, TransactionStatusMeta},
-    solana_gossip::crds_value::CrdsValue,
+    solana_gossip::crds::VersionedCrdsValue,
     std::{any::Any, error, io},
     thiserror::Error,
 };
@@ -441,7 +441,7 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     }
 
     #[allow(unused_variables)]
-    fn insert_crds_value(&self, crds_value: CrdsValue) -> Result<()> {
+    fn insert_crds_value(&self, value: VersionedCrdsValue) -> Result<()> {
         Ok(())
     }
 

@@ -4,7 +4,7 @@ use {
     log::*,
     solana_gossip::{
         gossip_message_notifier_interface:: GossipMessageNotifierInterface,
-        crds_value::CrdsValue,
+        crds::VersionedCrdsValue,
     },
     std::sync::{Arc, RwLock},
 };
@@ -17,10 +17,10 @@ pub(crate) struct GossipMessageNotifierImpl {
 impl GossipMessageNotifierInterface for GossipMessageNotifierImpl {
     fn notify_receive_message(
         &self,
-        crds_value: &CrdsValue,
+        value: &VersionedCrdsValue,
     ) {
-        println!("greg: notify_receive_message. pk origin: {}", crds_value.pubkey());
-        self.notify_plugins_of_gossip_message(crds_value);
+        // println!("greg: notify_receive_message. pk origin: {}", value.value.pubkey());
+        self.notify_plugins_of_gossip_message(value);
     }
 }
 
@@ -31,7 +31,7 @@ impl GossipMessageNotifierImpl {
 
     fn notify_plugins_of_gossip_message(
         &self,
-        crds_value: &CrdsValue,
+        value: &VersionedCrdsValue,
     ) {
         let plugin_manager = self.plugin_manager.read().unwrap();
         if plugin_manager.plugins.is_empty() {
@@ -40,11 +40,11 @@ impl GossipMessageNotifierImpl {
 
         for plugin in plugin_manager.plugins.iter() {
             // TODO: figure out how to not clone the crds_value
-            match plugin.insert_crds_value(crds_value.clone()) {
+            match plugin.insert_crds_value(value.clone()) {
                 Err(err) => {
                     error!(
                         "Failed to insert crds value w/ origin: {}, error: {} to plugin {}",
-                        crds_value.pubkey(),
+                        value.value.pubkey(),
                         err,
                         plugin.name()
                     )
@@ -52,7 +52,7 @@ impl GossipMessageNotifierImpl {
                 Ok(_) => {
                     info!(
                         "Inserted crds value w/ origin: {} to plugin {}",
-                        crds_value.pubkey(),
+                        value.value.pubkey(),
                         plugin.name()
                     )
                 }
