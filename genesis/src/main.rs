@@ -165,7 +165,7 @@ pub fn load_validator_accounts(
             commission,
             rent,
             None,
-        );
+        )?;
     }
 
     Ok(())
@@ -243,7 +243,12 @@ fn add_validator_accounts(
     commission: u8,
     rent: &Rent,
     authorized_pubkey: Option<&Pubkey>,
-) {
+) -> io::Result<()> {
+    rent_exempt_check(
+        stake_lamports,
+        rent.minimum_balance(StakeStateV2::size_of()),
+    )?;
+
     loop {
         let Some(identity_pubkey) = pubkeys_iter.next() else {
             break;
@@ -275,6 +280,20 @@ fn add_validator_accounts(
             ),
         );
         genesis_config.add_account(*vote_pubkey, vote_account);
+    }
+    Ok(())
+}
+
+fn rent_exempt_check(stake_lamports: u64, exempt: u64) -> io::Result<()> {
+    if stake_lamports < exempt {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!(
+                "error: insufficient validator stake lamports: {stake_lamports} for rent exemption, requires {exempt}"
+            ),
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -611,21 +630,6 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         burn_percent: value_t_or_exit!(matches, "rent_burn_percentage", u8),
     };
 
-    fn rent_exempt_check(matches: &ArgMatches<'_>, name: &str, exempt: u64) -> io::Result<u64> {
-        let lamports = value_t_or_exit!(matches, name, u64);
-
-        if lamports < exempt {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "error: insufficient {name}: {lamports} for rent exemption, requires {exempt}"
-                ),
-            ))
-        } else {
-            Ok(lamports)
-        }
-    }
-
     let bootstrap_validator_pubkeys = pubkeys_of(&matches, "bootstrap_validator").unwrap();
     assert_eq!(bootstrap_validator_pubkeys.len() % 3, 0);
 
@@ -643,11 +647,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let bootstrap_validator_lamports =
         value_t_or_exit!(matches, "bootstrap_validator_lamports", u64);
 
-    let bootstrap_validator_stake_lamports = rent_exempt_check(
-        &matches,
-        "bootstrap_validator_stake_lamports",
-        rent.minimum_balance(StakeStateV2::size_of()),
-    )?;
+    let bootstrap_validator_stake_lamports =
+        value_t_or_exit!(matches, "bootstrap_validator_stake_lamports", u64);
 
     let bootstrap_stake_authorized_pubkey =
         pubkey_of(&matches, "bootstrap_stake_authorized_pubkey");
@@ -747,7 +748,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         commission,
         &rent,
         bootstrap_stake_authorized_pubkey.as_ref(),
-    );
+    )?;
 
     if let Some(creation_time) = unix_timestamp_from_rfc3339_datetime(&matches, "creation_time") {
         genesis_config.creation_time = creation_time;
@@ -1280,13 +1281,12 @@ mod tests {
 
         let serialized = serde_yaml::to_string(&validator_accounts).unwrap();
 
-        // Write the YAML string to a file
+        // write accounts to file
         let path = Path::new("test_append_validator_accounts_to_genesis.yml");
         let mut file = File::create(path).unwrap();
         file.write_all(b"---\n").unwrap();
         file.write_all(serialized.as_bytes()).unwrap();
 
-        // Load the validator accounts from the file
         load_validator_accounts(
             "test_append_validator_accounts_to_genesis.yml",
             100,
@@ -1302,9 +1302,9 @@ mod tests {
         {
             assert_eq!(genesis_config.accounts.len(), expected_accounts_len);
 
-            // Test account data matches
+            // test account data matches
             for b64_account in validator_accounts.iter() {
-                // Check Identity
+                // check identity
                 let identity_pk = b64_account.identity_account.parse().unwrap();
                 assert_eq!(
                     system_program::id(),
@@ -1315,7 +1315,7 @@ mod tests {
                     genesis_config.accounts[&identity_pk].lamports
                 );
 
-                // Check vote account
+                // check vote account
                 let vote_pk = b64_account.vote_account.parse().unwrap();
                 let vote_data = genesis_config.accounts[&vote_pk].data.clone();
                 let vote_state = VoteState::deserialize(&vote_data).unwrap();
