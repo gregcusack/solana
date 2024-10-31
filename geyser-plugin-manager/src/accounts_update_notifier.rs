@@ -172,12 +172,12 @@ impl AccountsUpdateNotifierImpl {
                     )
                 }
                 Ok(_) => {
-                    info!(
-                        "Successfully updated account {} at slot {} to plugin {}",
-                        bs58::encode(account.pubkey).into_string(),
-                        slot,
-                        plugin.name()
-                    );
+                    // info!(
+                    //     "Successfully updated account {} at slot {} to plugin {}",
+                    //     bs58::encode(account.pubkey).into_string(),
+                    //     slot,
+                    //     plugin.name()
+                    // );
                 }
             }
             measure.stop();
