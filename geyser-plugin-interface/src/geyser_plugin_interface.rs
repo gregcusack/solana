@@ -9,7 +9,6 @@ use {
         transaction::SanitizedTransaction,
     },
     solana_transaction_status::{Reward, RewardsAndNumPartitions, TransactionStatusMeta},
-    solana_gossip::crds::VersionedCrdsValue,
     std::{any::Any, error, io},
     thiserror::Error,
 };
@@ -275,6 +274,70 @@ pub enum ReplicaBlockInfoVersions<'a> {
     V0_0_4(&'a ReplicaBlockInfoV4<'a>),
 }
 
+// const SOCKET_CACHE_SIZE: usize = 12;
+pub const PUBKEY_SIZE: usize = 32;
+
+/// repr(C) and FFI compliant ContactInfo
+#[repr(u32)]
+pub enum ContactInfoVersions {
+    V0_0_1(FfiContactInfo),
+}
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct FfiContactInfo {
+    pub pubkey: [u8; PUBKEY_SIZE],
+    pub wallclock: u64,
+    // pub outset: u64,
+    pub shred_version: u16,
+    pub version: FfiVersion,
+    // pub addrs: *const FfiIpAddr,
+    // pub sockets_len: u64,
+    // pub sockets: *const FfiSocketEntry,
+    // pub extensions_len: u64,
+    // pub extensions: *const FfiExtension,
+    // pub cache: [FfiSocketAddr; SOCKET_CACHE_SIZE],
+
+}
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct FfiVersion {
+    pub major: u16,
+    pub minor: u16,
+    pub patch: u16,
+    pub commit: u32,
+    pub feature_set: u32,
+    pub client: u16,
+}
+
+// #[derive(Clone, Debug)]
+// #[repr(C)]
+// pub struct FfiIpAddr {
+//     pub is_v4: u8,                 // 1 if IPv4, 0 if IPv6
+//     pub addr: [u8; 16],            // IP address bytes
+// }
+
+// #[derive(Clone, Debug)]
+// #[repr(C)]
+// pub struct FfiSocketAddr {
+//     pub is_v4: u8,                 // 1 if IPv4, 0 if IPv6
+//     pub addr: [u8; 16],            // IP address bytes
+//     pub port: u16,                 // Port number
+// }
+
+// #[derive(Clone, Debug)]
+// #[repr(C)]
+// pub struct FfiSocketEntry {
+//     pub key: u8,
+//     pub index: u8,
+//     pub offset: u16,
+// }
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct FfiExtension { }
+
 /// Errors returned by plugin calls
 #[derive(Error, Debug)]
 #[repr(u32)]
@@ -469,7 +532,7 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     }
 
     #[allow(unused_variables)]
-    fn insert_crds_value(&self, value: VersionedCrdsValue) -> Result<()> {
+    fn insert_crds_value(&self, value: ContactInfoVersions) -> Result<()> {
         Ok(())
     }
 
