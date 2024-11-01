@@ -7,6 +7,8 @@ use {
         contact_info::ContactInfo,
         gossip_message_notifier_interface::GossipMessageNotifierInterface,
     },
+    solana_measure::measure::Measure,
+    solana_metrics::*,
     solana_sdk::pubkey::Pubkey,
     std::sync::{Arc, RwLock},
 };
@@ -25,27 +27,8 @@ impl GossipMessageNotifierInterface for GossipMessageNotifierImpl {
     }
 
     fn notify_remove_node(&self, pubkey: &Pubkey) {
-        let plugin_manager = self.plugin_manager.read().unwrap();
-        if plugin_manager.plugins.is_empty() {
-            return;
-        }
-
         let ffi_pubkey = self.ffi_pubkey_from_pubkey(pubkey);
-        for plugin in plugin_manager.plugins.iter() {
-            match plugin.notify_node_removal(&ffi_pubkey) {
-                Err(err) => {
-                    error!(
-                        "Failed to remove pubkey: {}, error: {} to plugin {}",
-                        pubkey,
-                        err,
-                        plugin.name()
-                    )
-                }
-                Ok(_) => {
-                    trace!("removed pubkey: {} to plugin {}", pubkey, plugin.name())
-                }
-            }
-        }
+        self.notify_plugins_of_node_removal(&ffi_pubkey);
     }
 }
 
@@ -85,12 +68,14 @@ impl GossipMessageNotifierImpl {
     }
 
     fn notify_plugins_of_node_update(&self, ffi_node: &FfiNode) {
+        let mut measure_all = Measure::start("geyser-plugin-notify_plugins_of_node_update");
         let plugin_manager = self.plugin_manager.read().unwrap();
         if plugin_manager.plugins.is_empty() {
             return;
         }
 
         for plugin in plugin_manager.plugins.iter() {
+            let mut measure_plugin = Measure::start("geyser-plugin-notify_node_update");
             match plugin.notify_node_update(ffi_node) {
                 Err(err) => {
                     error!(
@@ -108,6 +93,63 @@ impl GossipMessageNotifierImpl {
                     )
                 }
             }
+            measure_plugin.stop();
+            inc_new_counter_debug!(
+                "geyser-plugin-notify_node_update-us",
+                measure_plugin.as_us() as usize,
+                100000,
+                100000
+            );
         }
+        measure_all.stop();
+        inc_new_counter_debug!(
+            "geyser-plugin-notify_plugins_of_node_update-us",
+            measure_all.as_us() as usize,
+            100000,
+            100000
+        );
+    }
+
+    fn notify_plugins_of_node_removal(&self, ffi_pubkey: &FfiPubkey) {
+        let mut measure_all = Measure::start("geyser-plugin-notify_plugins_of_node_removal");
+        let plugin_manager = self.plugin_manager.read().unwrap();
+        if plugin_manager.plugins.is_empty() {
+            return;
+        }
+
+        for plugin in plugin_manager.plugins.iter() {
+            let mut measure_plugin = Measure::start("geyser-plugin-notify_node_removal");
+            match plugin.notify_node_removal(ffi_pubkey) {
+                Err(err) => {
+                    error!(
+                        "Failed to remove pubkey: {}, error: {} to plugin {}",
+                        Pubkey::from(ffi_pubkey.pubkey),
+                        err,
+                        plugin.name()
+                    )
+                }
+                Ok(_) => {
+                    trace!(
+                        "removed pubkey: {} to plugin {}",
+                        Pubkey::from(ffi_pubkey.pubkey),
+                        plugin.name()
+                    )
+                }
+            }
+            measure_plugin.stop();
+            inc_new_counter_debug!(
+                "geyser-plugin-notify_node_removal-us",
+                measure_plugin.as_us() as usize,
+                100000,
+                100000
+            );
+        }
+        measure_all.stop();
+        inc_new_counter_debug!(
+            "geyser-plugin-notify_plugins_of_node_removal-us",
+            measure_all.as_us() as usize,
+            100000,
+            100000
+        );
     }
 }
