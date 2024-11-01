@@ -72,7 +72,7 @@ impl GossipMessageNotifierImpl {
 
         for plugin in plugin_manager.plugins.iter() {
             // TODO: figure out how to not clone the crds_value
-            match plugin.insert_crds_value(ContactInfoVersions::V0_0_1(ffi_ci.clone())) {
+            match plugin.upsert_crds_value(ContactInfoVersions::V0_0_1(ffi_ci.clone())) {
                 Err(err) => {
                     error!(
                         "Failed to insert crds value w/ origin: {}, error: {} to plugin {}",

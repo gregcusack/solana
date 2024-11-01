@@ -502,7 +502,7 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
 
     /// Called when a CrdsValue is upserted
     #[allow(unused_variables)]
-    fn insert_crds_value(&self, value: ContactInfoVersions) -> Result<()> {
+    fn upsert_crds_value(&self, value: ContactInfoVersions) -> Result<()> {
         Ok(())
     }
 

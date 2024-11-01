@@ -242,7 +242,7 @@ impl Crds {
     pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
         self.gossip_message_notifier = notifier;
     }
-    
+
     pub fn insert(
         &mut self,
         value: CrdsValue,
@@ -262,9 +262,6 @@ impl Crds {
                     CrdsData::ContactInfo(node) => {
                         self.nodes.insert(entry_index);
                         self.shred_versions.insert(pubkey, node.shred_version());
-                        if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
-                            gossip_message_notifier.notify_receive_message(&value);
-                        }
                     }
                     CrdsData::Vote(_, _) => {
                         self.votes.insert(value.ordinal, entry_index);
@@ -280,6 +277,9 @@ impl Crds {
                 self.entries.insert(value.ordinal, entry_index);
                 self.records.entry(pubkey).or_default().insert(entry_index);
                 self.cursor.consume(value.ordinal);
+                if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+                    gossip_message_notifier.notify_receive_message(&value);
+                }
                 entry.insert(value);
                 Ok(())
             }
@@ -294,9 +294,6 @@ impl Crds {
                         // self.nodes does not need to be updated since the
                         // entry at this index was and stays contact-info.
                         debug_assert_matches!(entry.get().value.data, CrdsData::ContactInfo(_));
-                        if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
-                            gossip_message_notifier.notify_receive_message(&value);
-                        }
                     }
                     CrdsData::Vote(_, _) => {
                         self.votes.remove(&entry.get().ordinal);
@@ -319,6 +316,9 @@ impl Crds {
                 debug_assert_eq!(entry.get().value.pubkey(), pubkey);
                 self.cursor.consume(value.ordinal);
                 self.purged.push_back((entry.get().value_hash, now));
+                if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+                    gossip_message_notifier.notify_receive_message(&value);
+                }
                 entry.insert(value);
                 Ok(())
             }
