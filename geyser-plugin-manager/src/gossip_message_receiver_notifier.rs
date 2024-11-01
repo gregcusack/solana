@@ -1,7 +1,7 @@
 /// Module responsible for notifying plugins of gossip messages
 use {
     crate::geyser_plugin_manager::GeyserPluginManager,
-    agave_geyser_plugin_interface::geyser_plugin_interface::{FfiNode, FfiVersion},
+    agave_geyser_plugin_interface::geyser_plugin_interface::{FfiNode, FfiPubkey, FfiVersion},
     log::*,
     solana_gossip::{
         contact_info::ContactInfo,
@@ -17,17 +17,47 @@ pub(crate) struct GossipMessageNotifierImpl {
 }
 
 impl GossipMessageNotifierInterface for GossipMessageNotifierImpl {
-    fn notify_receive_message(&self, contact_info: &ContactInfo) {
+    fn notify_receive_node_update(&self, contact_info: &ContactInfo) {
         let ffi_node = self
             .ffi_node_from_contact_info(contact_info)
             .expect("Failed to convert ContactInfo to FfiNode");
         self.notify_plugins_of_node_update(&ffi_node);
+    }
+
+    fn notify_remove_node(&self, pubkey: &Pubkey) {
+        let plugin_manager = self.plugin_manager.read().unwrap();
+        if plugin_manager.plugins.is_empty() {
+            return;
+        }
+
+        let ffi_pubkey = self.ffi_pubkey_from_pubkey(pubkey);
+        for plugin in plugin_manager.plugins.iter() {
+            match plugin.notify_node_removal(&ffi_pubkey) {
+                Err(err) => {
+                    error!(
+                        "Failed to remove pubkey: {}, error: {} to plugin {}",
+                        pubkey,
+                        err,
+                        plugin.name()
+                    )
+                }
+                Ok(_) => {
+                    trace!("removed pubkey: {} to plugin {}", pubkey, plugin.name())
+                }
+            }
+        }
     }
 }
 
 impl GossipMessageNotifierImpl {
     pub fn new(plugin_manager: Arc<RwLock<GeyserPluginManager>>) -> Self {
         Self { plugin_manager }
+    }
+
+    fn ffi_pubkey_from_pubkey(&self, pubkey: &Pubkey) -> FfiPubkey {
+        FfiPubkey {
+            pubkey: pubkey.to_bytes(),
+        }
     }
 
     fn ffi_node_from_contact_info(
@@ -47,7 +77,7 @@ impl GossipMessageNotifierImpl {
         };
 
         Ok(FfiNode {
-            pubkey,
+            pubkey: FfiPubkey { pubkey },
             wallclock: contact_info.wallclock(),
             shred_version: contact_info.shred_version(),
             version,
@@ -61,12 +91,11 @@ impl GossipMessageNotifierImpl {
         }
 
         for plugin in plugin_manager.plugins.iter() {
-            // TODO: figure out how to not clone the crds_value
             match plugin.notify_node_update(ffi_node) {
                 Err(err) => {
                     error!(
                         "Failed to insert crds value w/ origin: {}, error: {} to plugin {}",
-                        Pubkey::from(ffi_node.pubkey),
+                        Pubkey::from(ffi_node.pubkey.pubkey),
                         err,
                         plugin.name()
                     )
@@ -74,7 +103,7 @@ impl GossipMessageNotifierImpl {
                 Ok(_) => {
                     trace!(
                         "Inserted crds value w/ origin: {} to plugin {}",
-                        Pubkey::from(ffi_node.pubkey),
+                        Pubkey::from(ffi_node.pubkey.pubkey),
                         plugin.name()
                     )
                 }

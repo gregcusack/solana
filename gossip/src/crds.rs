@@ -254,9 +254,15 @@ impl Crds {
             let versioned_crds_value = self.table.get(label);
             if let Some(value) = versioned_crds_value {
                 if let CrdsData::ContactInfo(contact_info) = &value.value.data() {
-                    gossip_message_notifier.notify_receive_message(contact_info);
+                    gossip_message_notifier.notify_receive_node_update(contact_info);
                 }
             }
+        }
+    }
+
+    fn notify_remove_node(&self, pubkey: &Pubkey) {
+        if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+            gossip_message_notifier.notify_remove_node(pubkey);
         }
     }
 
@@ -587,6 +593,7 @@ impl Crds {
         match value.value.data() {
             CrdsData::ContactInfo(_) => {
                 self.nodes.swap_remove(&index);
+                self.notify_remove_node(&value.value.pubkey());
             }
             CrdsData::Vote(_, _) => {
                 self.votes.remove(&value.ordinal);

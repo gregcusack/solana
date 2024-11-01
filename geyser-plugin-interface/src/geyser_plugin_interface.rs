@@ -349,8 +349,16 @@ impl SlotStatus {
 
 pub const PUBKEY_SIZE: usize = 32;
 
-pub struct FfiNode {
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct FfiPubkey {
     pub pubkey: [u8; PUBKEY_SIZE],
+}
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct FfiNode {
+    pub pubkey: FfiPubkey,
     pub wallclock: u64,
     pub shred_version: u16,
     pub version: FfiVersion,
@@ -495,8 +503,15 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// Called when a message is received from a node
     #[allow(unused_variables)]
     fn notify_node_update(&self, ffi_node: &FfiNode) -> Result<()> {
+        Ok(())
+    }
+
+    /// Called when a node is removed from the network
+    #[allow(unused_variables)]
+    fn notify_node_removal(&self, pubkey: &FfiPubkey) -> Result<()> {
         Ok(())
     }
 
