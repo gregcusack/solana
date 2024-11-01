@@ -1,19 +1,16 @@
 /// Module responsible for notifying plugins of gossip messages
 use {
-    crate::geyser_plugin_manager::GeyserPluginManager, 
+    crate::geyser_plugin_manager::GeyserPluginManager,
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ContactInfoVersions, FfiContactInfo, FfiVersion,
     },
     log::*,
     solana_gossip::{
-        crds::VersionedCrdsValue, 
+        crds::VersionedCrdsValue, crds_value::CrdsData,
         gossip_message_notifier_interface::GossipMessageNotifierInterface,
-        crds_value::CrdsData,
     },
     solana_sdk::pubkey::Pubkey,
-    std::{
-        sync::{Arc, RwLock},
-    },
+    std::sync::{Arc, RwLock},
 };
 
 #[derive(Debug)]
@@ -22,12 +19,9 @@ pub(crate) struct GossipMessageNotifierImpl {
 }
 
 impl GossipMessageNotifierInterface for GossipMessageNotifierImpl {
-    fn notify_receive_message(
-        &self,
-        value: &VersionedCrdsValue,
-    ) {
-        // println!("greg: notify_receive_message. pk origin: {}", value.value.pubkey());
-        let ffi_ci = self.ffi_contact_info_from_value(value)
+    fn notify_receive_message(&self, value: &VersionedCrdsValue) {
+        let ffi_ci = self
+            .ffi_contact_info_from_value(value)
             .expect("Failed to convert VersionedCrdsValue to FfiContactInfo");
         self.notify_plugins_of_gossip_message(ffi_ci);
     }
@@ -39,8 +33,8 @@ impl GossipMessageNotifierImpl {
     }
 
     fn ffi_contact_info_from_value(
-        &self, 
-        value: &VersionedCrdsValue
+        &self,
+        value: &VersionedCrdsValue,
     ) -> Result<FfiContactInfo, std::io::Error> {
         if let CrdsData::ContactInfo(ci) = &value.value.data {
             let pubkey = ci.pubkey().to_bytes();
@@ -66,14 +60,11 @@ impl GossipMessageNotifierImpl {
         // Return an error if `CrdsData` is not `ContactInfo`
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "Expected CrdsData::ContactInfo but found a different data type"
+            "Expected CrdsData::ContactInfo but found a different data type",
         ))
     }
 
-    fn notify_plugins_of_gossip_message(
-        &self,
-        ffi_ci: FfiContactInfo,
-    ) {
+    fn notify_plugins_of_gossip_message(&self, ffi_ci: FfiContactInfo) {
         let plugin_manager = self.plugin_manager.read().unwrap();
         if plugin_manager.plugins.is_empty() {
             return;
@@ -91,7 +82,7 @@ impl GossipMessageNotifierImpl {
                     )
                 }
                 Ok(_) => {
-                    info!(
+                    trace!(
                         "Inserted crds value w/ origin: {} to plugin {}",
                         Pubkey::from(ffi_ci.pubkey),
                         plugin.name()

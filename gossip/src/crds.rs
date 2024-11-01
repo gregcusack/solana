@@ -242,19 +242,7 @@ impl Crds {
     pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
         self.gossip_message_notifier = notifier;
     }
-
-
-    // fn notify_gossip_message_update(
-    //     &self,
-    //     value: &VersionedCrdsValue,
-    // ) {
-    //     if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
-    //         gossip_message_notifier.notify_receive_message(
-    //             value
-    //         );
-    //     }
-    // }
-
+    
     pub fn insert(
         &mut self,
         value: CrdsValue,
@@ -275,9 +263,7 @@ impl Crds {
                         self.nodes.insert(entry_index);
                         self.shred_versions.insert(pubkey, node.shred_version());
                         if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
-                            gossip_message_notifier.notify_receive_message(
-                                &value
-                            );
+                            gossip_message_notifier.notify_receive_message(&value);
                         }
                     }
                     CrdsData::Vote(_, _) => {
@@ -309,9 +295,7 @@ impl Crds {
                         // entry at this index was and stays contact-info.
                         debug_assert_matches!(entry.get().value.data, CrdsData::ContactInfo(_));
                         if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
-                            gossip_message_notifier.notify_receive_message(
-                                &value
-                            );
+                            gossip_message_notifier.notify_receive_message(&value);
                         }
                     }
                     CrdsData::Vote(_, _) => {

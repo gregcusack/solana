@@ -288,16 +288,8 @@ pub enum ContactInfoVersions {
 pub struct FfiContactInfo {
     pub pubkey: [u8; PUBKEY_SIZE],
     pub wallclock: u64,
-    // pub outset: u64,
     pub shred_version: u16,
     pub version: FfiVersion,
-    // pub addrs: *const FfiIpAddr,
-    // pub sockets_len: u64,
-    // pub sockets: *const FfiSocketEntry,
-    // pub extensions_len: u64,
-    // pub extensions: *const FfiExtension,
-    // pub cache: [FfiSocketAddr; SOCKET_CACHE_SIZE],
-
 }
 
 #[derive(Clone, Debug)]
@@ -311,32 +303,9 @@ pub struct FfiVersion {
     pub client: u16,
 }
 
-// #[derive(Clone, Debug)]
-// #[repr(C)]
-// pub struct FfiIpAddr {
-//     pub is_v4: u8,                 // 1 if IPv4, 0 if IPv6
-//     pub addr: [u8; 16],            // IP address bytes
-// }
-
-// #[derive(Clone, Debug)]
-// #[repr(C)]
-// pub struct FfiSocketAddr {
-//     pub is_v4: u8,                 // 1 if IPv4, 0 if IPv6
-//     pub addr: [u8; 16],            // IP address bytes
-//     pub port: u16,                 // Port number
-// }
-
-// #[derive(Clone, Debug)]
-// #[repr(C)]
-// pub struct FfiSocketEntry {
-//     pub key: u8,
-//     pub index: u8,
-//     pub offset: u16,
-// }
-
 #[derive(Clone, Debug)]
 #[repr(C)]
-pub struct FfiExtension { }
+pub struct FfiExtension {}
 
 /// Errors returned by plugin calls
 #[derive(Error, Debug)]
@@ -531,12 +500,13 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// Called when a CrdsValue is upserted
     #[allow(unused_variables)]
     fn insert_crds_value(&self, value: ContactInfoVersions) -> Result<()> {
         Ok(())
     }
 
-    /// Check if the plugin is interested in gossip m essages
+    /// Check if the plugin is interested in gossip messages
     /// Default is true -- if the plugin is not interested in
     /// gossip messages, please return false.
     fn gossip_messages_notifications_enabled(&self) -> bool {
