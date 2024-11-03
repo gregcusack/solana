@@ -88,7 +88,6 @@ use {
         collections::{HashMap, HashSet, VecDeque},
         fmt::Debug,
         fs::{self, File},
-        io::BufReader,
         iter::repeat,
         net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket},
         num::NonZeroUsize,
@@ -346,12 +345,13 @@ impl ClusterInfo {
             return;
         }
 
+        let num_nodes = nodes.len();
         let filename = self.contact_info_path.join("contact-info.bin");
         let tmp_filename = &filename.with_extension("tmp");
 
         match File::create(tmp_filename) {
             Ok(mut file) => {
-                if let Err(err) = bincode::serialize_into(&mut file, &nodes) {
+                if let Err(err) = CrdsValue::bincode_serialize_many(nodes, &mut file) {
                     warn!(
                         "Failed to serialize contact info info {}: {}",
                         tmp_filename.display(),
@@ -369,8 +369,7 @@ impl ClusterInfo {
         match fs::rename(tmp_filename, &filename) {
             Ok(()) => {
                 info!(
-                    "Saved contact info for {} nodes into {}",
-                    nodes.len(),
+                    "Saved contact info for {num_nodes} nodes into {}",
                     filename.display()
                 );
             }
@@ -394,13 +393,13 @@ impl ClusterInfo {
             return;
         }
 
-        let nodes: Vec<CrdsValue> = match File::open(&filename) {
-            Ok(file) => {
-                bincode::deserialize_from(&mut BufReader::new(file)).unwrap_or_else(|err| {
+        let nodes: Vec<CrdsValue> = match fs::read(&filename) {
+            Ok(bytes) => CrdsValue::bincode_deserialize_many(&bytes)
+                .collect::<Result<_, _>>()
+                .unwrap_or_else(|err| {
                     warn!("Failed to deserialize {}: {}", filename.display(), err);
                     vec![]
-                })
-            }
+                }),
             Err(err) => {
                 warn!("Failed to open {}: {}", filename.display(), err);
                 vec![]
@@ -2332,7 +2331,7 @@ impl ClusterInfo {
             }
         }
         let verify_packet = |packet: Packet| {
-            let protocol: Protocol = packet.deserialize_slice(..).ok()?;
+            let protocol = packet.data(..).map(Protocol::bincode_deserialize)?.ok()?;
             protocol.sanitize().ok()?;
             let protocol = protocol.par_verify(&self.stats)?;
             Some((packet.meta().socket_addr(), protocol))
@@ -3299,8 +3298,10 @@ mod tests {
         ) {
             assert_eq!(packet.meta().socket_addr(), socket);
             let bytes = serialize(&pong).unwrap();
-            match packet.deserialize_slice(..).unwrap() {
-                Protocol::PongMessage(pong) => assert_eq!(serialize(&pong).unwrap(), bytes),
+            match packet.data(..).map(Protocol::bincode_deserialize) {
+                Some(Ok(Protocol::PongMessage(pong))) => {
+                    assert_eq!(serialize(&pong).unwrap(), bytes)
+                }
                 _ => panic!("invalid packet!"),
             }
         }
