@@ -4,8 +4,7 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::FfiPubkey,
     log::*,
     solana_gossip::{
-        contact_info::ContactInfo,
-        contact_info_ffi::create_contact_info_interface,
+        contact_info::ContactInfo, contact_info_ffi::create_contact_info_interface,
         gossip_message_notifier_interface::GossipMessageNotifierInterface,
     },
     solana_measure::measure::Measure,
@@ -21,7 +20,7 @@ pub(crate) struct GossipMessageNotifierImpl {
 
 impl GossipMessageNotifierInterface for GossipMessageNotifierImpl {
     fn notify_receive_node_update(&self, contact_info: &ContactInfo) {
-        self.notify_plugins_of_node_update(&contact_info);
+        self.notify_plugins_of_node_update(contact_info);
     }
 
     fn notify_remove_node(&self, pubkey: &Pubkey) {
@@ -55,7 +54,7 @@ impl GossipMessageNotifierImpl {
             match plugin.notify_node_update(&ffi_contact_info_interface) {
                 Err(err) => {
                     error!(
-                        "Failed to insert crds value w/ origin: {}, error: {} to plugin {}",
+                        "Failed to insert ContactInfo w/ origin: {}, error: {} to plugin {}",
                         contact_info.pubkey(),
                         err,
                         plugin.name()
@@ -63,7 +62,7 @@ impl GossipMessageNotifierImpl {
                 }
                 Ok(_) => {
                     trace!(
-                        "Inserted crds value w/ origin: {} to plugin {}",
+                        "Inserted ContactInfo w/ origin: {} to plugin {}",
                         contact_info.pubkey(),
                         plugin.name()
                     )

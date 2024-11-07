@@ -304,6 +304,10 @@ pub enum GeyserPluginError {
     /// Error when updating the transaction.
     #[error("Error updating transaction. Error message: ({msg})")]
     TransactionUpdateError { msg: String },
+
+    /// Error when updating the node status.
+    #[error("Error updating node. Error message: ({msg})")]
+    NodeUpdateError { msg: String },
 }
 
 /// The current status of a slot
