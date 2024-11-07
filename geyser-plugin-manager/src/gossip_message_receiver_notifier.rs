@@ -1,10 +1,11 @@
 /// Module responsible for notifying plugins of gossip messages
 use {
     crate::geyser_plugin_manager::GeyserPluginManager,
-    agave_geyser_plugin_interface::geyser_plugin_interface::{FfiNode, FfiPubkey, FfiVersion},
+    agave_geyser_plugin_interface::geyser_plugin_interface::FfiPubkey,
     log::*,
     solana_gossip::{
         contact_info::ContactInfo,
+        contact_info_ffi::create_contact_info_interface,
         gossip_message_notifier_interface::GossipMessageNotifierInterface,
     },
     solana_measure::measure::Measure,
@@ -20,10 +21,7 @@ pub(crate) struct GossipMessageNotifierImpl {
 
 impl GossipMessageNotifierInterface for GossipMessageNotifierImpl {
     fn notify_receive_node_update(&self, contact_info: &ContactInfo) {
-        let ffi_node = self
-            .ffi_node_from_contact_info(contact_info)
-            .expect("Failed to convert ContactInfo to FfiNode");
-        self.notify_plugins_of_node_update(&ffi_node);
+        self.notify_plugins_of_node_update(&contact_info);
     }
 
     fn notify_remove_node(&self, pubkey: &Pubkey) {
@@ -43,44 +41,22 @@ impl GossipMessageNotifierImpl {
         }
     }
 
-    fn ffi_node_from_contact_info(
-        &self,
-        contact_info: &ContactInfo,
-    ) -> Result<FfiNode, std::io::Error> {
-        let pubkey = contact_info.pubkey().to_bytes();
-        let version = contact_info.version();
-        let version = FfiVersion {
-            major: version.major,
-            minor: version.minor,
-            patch: version.patch,
-            commit: version.commit,
-            feature_set: version.feature_set,
-            client: u16::try_from(version.client())
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
-        };
-
-        Ok(FfiNode {
-            pubkey: FfiPubkey { pubkey },
-            wallclock: contact_info.wallclock(),
-            shred_version: contact_info.shred_version(),
-            version,
-        })
-    }
-
-    fn notify_plugins_of_node_update(&self, ffi_node: &FfiNode) {
+    fn notify_plugins_of_node_update(&self, contact_info: &ContactInfo) {
         let mut measure_all = Measure::start("geyser-plugin-notify_plugins_of_node_update");
         let plugin_manager = self.plugin_manager.read().unwrap();
         if plugin_manager.plugins.is_empty() {
             return;
         }
 
+        let ffi_contact_info_interface = unsafe { create_contact_info_interface(contact_info) };
+
         for plugin in plugin_manager.plugins.iter() {
             let mut measure_plugin = Measure::start("geyser-plugin-notify_node_update");
-            match plugin.notify_node_update(ffi_node) {
+            match plugin.notify_node_update(&ffi_contact_info_interface) {
                 Err(err) => {
                     error!(
                         "Failed to insert crds value w/ origin: {}, error: {} to plugin {}",
-                        Pubkey::from(ffi_node.pubkey.pubkey),
+                        contact_info.pubkey(),
                         err,
                         plugin.name()
                     )
@@ -88,7 +64,7 @@ impl GossipMessageNotifierImpl {
                 Ok(_) => {
                     trace!(
                         "Inserted crds value w/ origin: {} to plugin {}",
-                        Pubkey::from(ffi_node.pubkey.pubkey),
+                        contact_info.pubkey(),
                         plugin.name()
                     )
                 }

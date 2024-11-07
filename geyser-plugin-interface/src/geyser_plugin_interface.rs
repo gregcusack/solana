@@ -3,6 +3,7 @@
 /// In addition, the dynamic library must export a "C" function _create_plugin which
 /// creates the implementation of the plugin.
 use {
+    solana_gossip::contact_info_ffi::FfiContactInfoInterface,
     solana_sdk::{
         clock::{Slot, UnixTimestamp},
         signature::Signature,
@@ -355,30 +356,6 @@ pub struct FfiPubkey {
     pub pubkey: [u8; PUBKEY_SIZE],
 }
 
-#[derive(Clone, Debug)]
-#[repr(C)]
-pub struct FfiNode {
-    pub pubkey: FfiPubkey,
-    pub wallclock: u64,
-    pub shred_version: u16,
-    pub version: FfiVersion,
-}
-
-#[derive(Clone, Debug)]
-#[repr(C)]
-pub struct FfiVersion {
-    pub major: u16,
-    pub minor: u16,
-    pub patch: u16,
-    pub commit: u32,
-    pub feature_set: u32,
-    pub client: u16,
-}
-
-#[derive(Clone, Debug)]
-#[repr(C)]
-pub struct FfiExtension {}
-
 pub type Result<T> = std::result::Result<T, GeyserPluginError>;
 
 /// Defines a Geyser plugin, to stream data from the runtime.
@@ -505,11 +482,13 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
 
     /// Called when a message is received from a node
     #[allow(unused_variables)]
-    fn notify_node_update(&self, ffi_node: &FfiNode) -> Result<()> {
+    fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
         Ok(())
     }
 
     /// Called when a node is removed from the network
+    /// TODO: may need to provide wrapper here? Also maybe ok
+    /// if we marshall to repr(c) for this...
     #[allow(unused_variables)]
     fn notify_node_removal(&self, pubkey: &FfiPubkey) -> Result<()> {
         Ok(())
