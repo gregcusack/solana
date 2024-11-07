@@ -36,16 +36,16 @@ pub struct FfiVersion {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct FfiIpAddr {
-    is_v4: u8,      // 1 if IPv4, 0 if IPv6
-    addr: [u8; 16], // IP address bytes
+    pub is_v4: u8,      // 1 if IPv4, 0 if IPv6
+    pub addr: [u8; 16], // IP address bytes
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FfiSocketAddr {
-    is_v4: u8,      // 1 if IPv4, 0 if IPv6
-    addr: [u8; 16], // IP address bytes
-    port: u16,
+    pub is_v4: u8,      // 1 if IPv4, 0 if IPv6
+    pub addr: [u8; 16], // IP address bytes
+    pub port: u16,
 }
 
 // Convert Rust IpAddr to and FfiIpAddr
@@ -136,30 +136,38 @@ pub type ContactInfoGetShredVersionFn =
     unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr) -> u16;
 
 /// Returns version of ContactInfo
+/// TODO: figure out if we can fix this to not take in a *mut FfiVersion
+/// although this may be the best bet. Returning a *const FfiVersion is
+/// hard because we allocate it on the heap and we can't guarantee that
+/// the caller will free it.
 /// # Safety
 /// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetVersionFn =
     unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, ffi_version: *mut FfiVersion) -> bool;
 
 /// Returns gossip address of ContactInfo
+/// TODO: same as above
 /// # Safety
 /// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetGossipFn =
     unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool;
 
 /// Returns rpc address of ContactInfo
+/// TODO: same as above
 /// # Safety
 /// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetRpcFn =
     unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool;
 
 /// Returns rpc_pubsub address of ContactInfo
+/// TODO: same as above
 /// # Safety
 /// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetRpcPubsubpFn =
     unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool;
 
 /// Returns serve_repair address of ContactInfo
+/// TODO: same as above
 /// # Safety
 /// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetServeRepairFn = unsafe extern "C" fn(
@@ -169,6 +177,7 @@ pub type ContactInfoGetServeRepairFn = unsafe extern "C" fn(
 ) -> bool;
 
 /// Returns tpu address of ContactInfo
+/// TODO: same as above
 /// # Safety
 /// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetTpuFn = unsafe extern "C" fn(
@@ -178,6 +187,7 @@ pub type ContactInfoGetTpuFn = unsafe extern "C" fn(
 ) -> bool;
 
 /// Returns tpu_forwards address of ContactInfo
+/// TODO: same as above
 /// # Safety
 /// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetTpuForwardsFn = unsafe extern "C" fn(
@@ -187,12 +197,17 @@ pub type ContactInfoGetTpuForwardsFn = unsafe extern "C" fn(
 ) -> bool;
 
 /// Returns tpu_vote address of ContactInfo
+/// TODO: same as above
 /// # Safety
 /// - The ContactInfo pointer must be valid.
-pub type ContactInfoGetTpuVoteFn =
-    unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool;
+pub type ContactInfoGetTpuVoteFn = unsafe extern "C" fn(
+    contact_info_ptr: ContactInfoPtr,
+    protocol: FfiProtocol,
+    socket: *mut FfiSocketAddr,
+) -> bool;
 
 /// Returns tvu address of ContactInfo
+/// TODO: same as above
 /// # Safety
 /// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetTvuFn = unsafe extern "C" fn(
@@ -222,10 +237,6 @@ pub unsafe fn create_contact_info_interface(contact_info: &ContactInfo) -> FfiCo
         contact_info.shred_version()
     }
 
-    // TODO: figure out if we can fix this to not take in a *mut FfiVersion
-    // although this may be the best bet.
-    // Returning a *const FfiVersion is hard because we allocate it on the heap
-    // and we can't guarantee that the caller will free it.
     extern "C" fn get_version(
         contact_info_ptr: ContactInfoPtr,
         ffi_version: *mut FfiVersion,
@@ -369,6 +380,7 @@ pub unsafe fn create_contact_info_interface(contact_info: &ContactInfo) -> FfiCo
 
     extern "C" fn get_tpu_vote(
         contact_info_ptr: ContactInfoPtr,
+        protocol: FfiProtocol,
         socket: *mut FfiSocketAddr,
     ) -> bool {
         if contact_info_ptr.is_null() || socket.is_null() {
@@ -376,7 +388,9 @@ pub unsafe fn create_contact_info_interface(contact_info: &ContactInfo) -> FfiCo
         }
 
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
-        match contact_info.tpu_vote() {
+        let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
+
+        match contact_info.tpu_vote(protocol) {
             Ok(socket_addr) => {
                 let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
                 unsafe { *socket = ffi_socket_addr };
@@ -561,11 +575,15 @@ impl FfiContactInfoInterface {
         }
     }
 
-    pub fn tpu_vote(&self) -> Option<FfiSocketAddr> {
+    pub fn tpu_vote(&self, protocol: FfiProtocol) -> Option<FfiSocketAddr> {
         let mut ffi_socket = FfiSocketAddr::default();
 
         let success = unsafe {
-            (self.get_tpu_vote_fn)(self.contact_info_ptr, &mut ffi_socket as *mut FfiSocketAddr)
+            (self.get_tpu_vote_fn)(
+                self.contact_info_ptr,
+                protocol,
+                &mut ffi_socket as *mut FfiSocketAddr,
+            )
         };
 
         if success {
@@ -843,20 +861,44 @@ mod tests {
 
     #[test]
     fn test_get_tpu_vote() {
-        let contact_info = ContactInfo::new_localhost(&Pubkey::new_unique(), 123456789);
+        let mut contact_info = ContactInfo::new_localhost(&Pubkey::new_unique(), 123456789);
         let interface = unsafe { create_contact_info_interface(&contact_info) };
+        // test udp
         let mut ffi_socket = FfiSocketAddr::default();
 
         let success = unsafe {
             (interface.get_tpu_vote_fn)(
                 interface.contact_info_ptr,
+                FfiProtocol::UDP,
                 &mut ffi_socket as *mut FfiSocketAddr,
             )
         };
 
         assert!(success);
 
-        let expected_socket_addr = contact_info.tpu_vote().unwrap();
+        let expected_socket_addr = contact_info.tpu_vote(Protocol::UDP).unwrap();
+        let actual_socket_addr = ffi_socket_addr_to_socket_addr(&ffi_socket);
+
+        assert_eq!(expected_socket_addr, actual_socket_addr);
+
+        // test quic
+        // TODO: remove once ContactInfo::new_localhost is updated to include set_tpu_vote_quic()
+        contact_info
+            .set_tpu_vote_quic((Ipv4Addr::LOCALHOST, 8009))
+            .unwrap();
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (interface.get_tpu_vote_fn)(
+                interface.contact_info_ptr,
+                FfiProtocol::QUIC,
+                &mut ffi_socket as *mut FfiSocketAddr,
+            )
+        };
+
+        assert!(success);
+
+        let expected_socket_addr = contact_info.tpu_vote(Protocol::QUIC).unwrap();
         let actual_socket_addr = ffi_socket_addr_to_socket_addr(&ffi_socket);
 
         assert_eq!(expected_socket_addr, actual_socket_addr);

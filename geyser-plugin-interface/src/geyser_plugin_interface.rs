@@ -352,12 +352,10 @@ impl SlotStatus {
     }
 }
 
-pub const PUBKEY_SIZE: usize = 32;
-
 #[derive(Clone, Debug)]
 #[repr(C)]
 pub struct FfiPubkey {
-    pub pubkey: [u8; PUBKEY_SIZE],
+    pub pubkey: [u8; 32],
 }
 
 pub type Result<T> = std::result::Result<T, GeyserPluginError>;
@@ -463,6 +461,20 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    /// Called when a ContactInfo is received from a node
+    #[allow(unused_variables)]
+    fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
+        Ok(())
+    }
+
+    /// Called when a node is removed from the network
+    /// TODO: may need to provide wrapper here? Also maybe ok
+    /// if we marshall to repr(c) for this...
+    #[allow(unused_variables)]
+    fn notify_node_removal(&self, pubkey: &FfiPubkey) -> Result<()> {
+        Ok(())
+    }
+
     /// Check if the plugin is interested in account data
     /// Default is true -- if the plugin is not interested in
     /// account data, please return false.
@@ -482,20 +494,6 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// entry data, return true.
     fn entry_notifications_enabled(&self) -> bool {
         false
-    }
-
-    /// Called when a message is received from a node
-    #[allow(unused_variables)]
-    fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
-        Ok(())
-    }
-
-    /// Called when a node is removed from the network
-    /// TODO: may need to provide wrapper here? Also maybe ok
-    /// if we marshall to repr(c) for this...
-    #[allow(unused_variables)]
-    fn notify_node_removal(&self, pubkey: &FfiPubkey) -> Result<()> {
-        Ok(())
     }
 
     /// Check if the plugin is interested in gossip m essages
