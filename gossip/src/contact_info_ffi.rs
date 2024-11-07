@@ -1,7 +1,7 @@
 use {
     crate::contact_info::ContactInfo,
     solana_client::connection_cache::Protocol,
-    std::net::{IpAddr, SocketAddr},
+    std::net::{IpAddr, SocketAddr, Ipv4Addr, Ipv6Addr},
 };
 
 #[repr(C)]
@@ -69,28 +69,6 @@ impl Default for FfiSocketAddr {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct FfiSocketEntry {
-    key: u8,
-    index: u8,
-    offset: u16,
-}
-
-// Define constants for protocols (same as socket tags)
-pub const PROTOCOL_GOSSIP: u8 = 0;
-pub const PROTOCOL_RPC: u8 = 1;
-pub const PROTOCOL_RPC_PUBSUB: u8 = 2;
-pub const PROTOCOL_SERVE_REPAIR: u8 = 3;
-pub const PROTOCOL_SERVE_REPAIR_QUIC: u8 = 4;
-pub const PROTOCOL_TPU: u8 = 5;
-pub const PROTOCOL_TPU_QUIC: u8 = 6;
-pub const PROTOCOL_TPU_FORWARDS: u8 = 7;
-pub const PROTOCOL_TPU_FORWARDS_QUIC: u8 = 8;
-pub const PROTOCOL_TPU_VOTE: u8 = 9;
-pub const PROTOCOL_TVU: u8 = 10;
-pub const PROTOCOL_TVU_QUIC: u8 = 11;
-
 // Convert Rust IpAddr to and FfiIpAddr
 fn ffi_ip_addr_from_ip_addr(ip_addr: &IpAddr) -> FfiIpAddr {
     match ip_addr {
@@ -116,9 +94,27 @@ fn ffi_socket_addr_from_socket_addr(socket_addr: &SocketAddr) -> FfiSocketAddr {
     }
 }
 
+// Convert FfiSocketAddr to SocketAddr
+pub fn ffi_socket_addr_to_socket_addr(ffi_socket: &FfiSocketAddr) -> SocketAddr {
+    let ip_addr = if ffi_socket.is_v4 == 1 {
+        IpAddr::V4(Ipv4Addr::new(
+            ffi_socket.addr[0],
+            ffi_socket.addr[1],
+            ffi_socket.addr[2],
+            ffi_socket.addr[3],
+        ))
+    } else {
+        let mut octets = [0u8; 16];
+        octets.copy_from_slice(&ffi_socket.addr);
+        IpAddr::V6(Ipv6Addr::from(octets))
+    };
+
+    SocketAddr::new(ip_addr, ffi_socket.port)
+}
+
 // Define the interface struct
 #[repr(C)]
-pub struct ContactInfoInterface {
+pub struct FfiContactInfoInterface {
     pub contact_info_ptr: ContactInfoPtr,
     pub get_pubkey_fn: ContactInfoGetKey,
     pub get_wallclock_fn: ContactInfoGetWallclockFn,
@@ -212,7 +208,7 @@ pub type ContactInfoGetTvuFn = unsafe extern "C" fn(
 /// reference, which cannot be guaranteed by this function interface.
 pub unsafe fn create_contact_info_interface(
     contact_info: &ContactInfo,
-) -> ContactInfoInterface {
+) -> FfiContactInfoInterface {
     extern "C" fn get_pubkey(
         contact_info_ptr: ContactInfoPtr,
     ) -> *const u8 {
@@ -426,7 +422,7 @@ pub unsafe fn create_contact_info_interface(
         }
     }
 
-    ContactInfoInterface {
+    FfiContactInfoInterface {
         contact_info_ptr: contact_info as *const ContactInfo as *const core::ffi::c_void,
         get_pubkey_fn: get_pubkey,
         get_wallclock_fn: get_wallclock,
@@ -446,10 +442,7 @@ pub unsafe fn create_contact_info_interface(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use {
-        solana_sdk::pubkey::Pubkey,
-        std::net::{Ipv4Addr, Ipv6Addr},
-    };
+    use solana_sdk::pubkey::Pubkey;
 
     #[test]
     fn test_get_pubkey() {
@@ -751,23 +744,5 @@ mod tests {
 
         assert_eq!(expected_socket_addr, actual_socket_addr);
 
-    }
-
-    // Convert FfiSocketAddr to SocketAddr
-    fn ffi_socket_addr_to_socket_addr(ffi_socket: &FfiSocketAddr) -> SocketAddr {
-        let ip_addr = if ffi_socket.is_v4 == 1 {
-            IpAddr::V4(Ipv4Addr::new(
-                ffi_socket.addr[0],
-                ffi_socket.addr[1],
-                ffi_socket.addr[2],
-                ffi_socket.addr[3],
-            ))
-        } else {
-            let mut octets = [0u8; 16];
-            octets.copy_from_slice(&ffi_socket.addr);
-            IpAddr::V6(Ipv6Addr::from(octets))
-        };
-
-        SocketAddr::new(ip_addr, ffi_socket.port)
     }
 }
