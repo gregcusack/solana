@@ -1,7 +1,9 @@
 use {
     crate::contact_info::ContactInfo,
     solana_client::connection_cache::Protocol,
-    std::net::{IpAddr, SocketAddr, Ipv4Addr, Ipv6Addr},
+    solana_sdk::pubkey::Pubkey,
+    std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    thiserror::Error,
 };
 
 #[repr(C)]
@@ -21,7 +23,7 @@ impl From<FfiProtocol> for Protocol {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct FfiVersion {
     pub major: u16,
     pub minor: u16,
@@ -31,42 +33,19 @@ pub struct FfiVersion {
     pub client: u16,
 }
 
-impl Default for FfiVersion {
-    fn default() -> Self {
-        FfiVersion {
-            major: 0,
-            minor: 0,
-            patch: 0,
-            commit: 0,
-            feature_set: 0,
-            client: 0,
-        }
-    }
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct FfiIpAddr {
-    is_v4: u8,            // 1 if IPv4, 0 if IPv6
-    addr: [u8; 16],       // IP address bytes
+    is_v4: u8,      // 1 if IPv4, 0 if IPv6
+    addr: [u8; 16], // IP address bytes
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct FfiSocketAddr {
-    is_v4: u8,            // 1 if IPv4, 0 if IPv6
-    addr: [u8; 16],       // IP address bytes
-    port: u16,         
-}
-
-impl Default for FfiSocketAddr {
-    fn default() -> Self {
-        FfiSocketAddr {
-            is_v4: 0,
-            addr: [0u8; 16],
-            port: 0,
-        }
-    }
+    is_v4: u8,      // 1 if IPv4, 0 if IPv6
+    addr: [u8; 16], // IP address bytes
+    port: u16,
 }
 
 // Convert Rust IpAddr to and FfiIpAddr
@@ -141,91 +120,104 @@ pub type Key = *const u8;
 pub type ContactInfoPtr = *const core::ffi::c_void;
 
 // Define function pointer types for the interface
-pub type ContactInfoGetKey = unsafe extern "C" fn(
-    contact_info_ptr: ContactInfoPtr,
-) -> *const u8;
+/// # Safety
+/// - The ContactInfo pointer must be valid.
+pub type ContactInfoGetKey = unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr) -> Key;
 
-pub type ContactInfoGetWallclockFn = unsafe extern "C" fn(
-    contact_info_ptr: ContactInfoPtr,
-) -> u64;
+/// Returns wallclock of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
+pub type ContactInfoGetWallclockFn = unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr) -> u64;
 
-pub type ContactInfoGetShredVersionFn = unsafe extern "C" fn(
-    contact_info_ptr: ContactInfoPtr,
-) -> u16;
+/// Returns shred version of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
+pub type ContactInfoGetShredVersionFn =
+    unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr) -> u16;
 
-pub type ContactInfoGetVersionFn = unsafe extern "C" fn(
-    contact_info_ptr: ContactInfoPtr,
-    ffi_version: *mut FfiVersion,
-) -> bool;
+/// Returns version of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
+pub type ContactInfoGetVersionFn =
+    unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, ffi_version: *mut FfiVersion) -> bool;
 
-pub type ContactInfoGetGossipFn = unsafe extern "C" fn(
-    contact_info_ptr: ContactInfoPtr,
-    socket: *mut FfiSocketAddr,
-) -> bool;
+/// Returns gossip address of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
+pub type ContactInfoGetGossipFn =
+    unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool;
 
-pub type ContactInfoGetRpcFn = unsafe extern "C" fn(
-    contact_info_ptr: ContactInfoPtr,
-    socket: *mut FfiSocketAddr,
-) -> bool;
+/// Returns rpc address of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
+pub type ContactInfoGetRpcFn =
+    unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool;
 
-pub type ContactInfoGetRpcPubsubpFn = unsafe extern "C" fn(
-    contact_info_ptr: ContactInfoPtr,
-    socket: *mut FfiSocketAddr,
-) -> bool;
+/// Returns rpc_pubsub address of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
+pub type ContactInfoGetRpcPubsubpFn =
+    unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool;
 
+/// Returns serve_repair address of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetServeRepairFn = unsafe extern "C" fn(
     contact_info_ptr: ContactInfoPtr,
     protocol: FfiProtocol,
     socket: *mut FfiSocketAddr,
 ) -> bool;
 
+/// Returns tpu address of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetTpuFn = unsafe extern "C" fn(
     contact_info_ptr: ContactInfoPtr,
     protocol: FfiProtocol,
     socket: *mut FfiSocketAddr,
 ) -> bool;
 
+/// Returns tpu_forwards address of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetTpuForwardsFn = unsafe extern "C" fn(
     contact_info_ptr: ContactInfoPtr,
     protocol: FfiProtocol,
     socket: *mut FfiSocketAddr,
 ) -> bool;
 
-pub type ContactInfoGetTpuVoteFn = unsafe extern "C" fn(
-    contact_info_ptr: ContactInfoPtr,
-    socket: *mut FfiSocketAddr,
-) -> bool;
+/// Returns tpu_vote address of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
+pub type ContactInfoGetTpuVoteFn =
+    unsafe extern "C" fn(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool;
 
+/// Returns tvu address of ContactInfo
+/// # Safety
+/// - The ContactInfo pointer must be valid.
 pub type ContactInfoGetTvuFn = unsafe extern "C" fn(
     contact_info_ptr: ContactInfoPtr,
     protocol: FfiProtocol,
     socket: *mut FfiSocketAddr,
 ) -> bool;
 
-/// Given a reference to `ContactInfo`, create a `ContactInfoInterface` that 
+/// Given a reference to `ContactInfo`, create a `ContactInfoInterface` that
 /// can be used to interact with the ContactInfo struct in C-compatible code.
-/// This interface is only valid for the lifetime of the ContactInfo 
+/// # Safety
+/// This interface is only valid for the lifetime of the ContactInfo
 /// reference, which cannot be guaranteed by this function interface.
-pub unsafe fn create_contact_info_interface(
-    contact_info: &ContactInfo,
-) -> FfiContactInfoInterface {
-    extern "C" fn get_pubkey(
-        contact_info_ptr: ContactInfoPtr,
-    ) -> *const u8 {
+pub unsafe fn create_contact_info_interface(contact_info: &ContactInfo) -> FfiContactInfoInterface {
+    extern "C" fn get_pubkey(contact_info_ptr: ContactInfoPtr) -> Key {
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
-        contact_info.pubkey().as_ref().as_ptr() as *const u8
+        contact_info.pubkey().as_ref().as_ptr()
     }
 
-    extern "C" fn get_wallclock(
-        contact_info_ptr: ContactInfoPtr,
-    ) -> u64 {
+    extern "C" fn get_wallclock(contact_info_ptr: ContactInfoPtr) -> u64 {
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
         contact_info.wallclock()
     }
 
-    extern "C" fn get_shred_version(
-        contact_info_ptr: ContactInfoPtr,
-    ) -> u16 {
+    extern "C" fn get_shred_version(contact_info_ptr: ContactInfoPtr) -> u16 {
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
         contact_info.shred_version()
     }
@@ -241,10 +233,10 @@ pub unsafe fn create_contact_info_interface(
         if contact_info_ptr.is_null() || ffi_version.is_null() {
             return false;
         }
-    
+
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
         let version = contact_info.version();
-    
+
         unsafe {
             (*ffi_version).major = version.major;
             (*ffi_version).minor = version.minor;
@@ -256,12 +248,9 @@ pub unsafe fn create_contact_info_interface(
         true
     }
 
-   // Socket address getter functions
-   // replicates gossip(), rpc(), etc in ContactInfo
-    extern "C" fn get_gossip(
-        contact_info_ptr: ContactInfoPtr,
-        socket: *mut FfiSocketAddr,
-    ) -> bool {
+    // Socket address getter functions
+    // replicates gossip(), rpc(), etc in ContactInfo
+    extern "C" fn get_gossip(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool {
         if contact_info_ptr.is_null() || socket.is_null() {
             return false;
         }
@@ -277,10 +266,7 @@ pub unsafe fn create_contact_info_interface(
         }
     }
 
-    extern "C" fn get_rpc(
-        contact_info_ptr: ContactInfoPtr,
-        socket: *mut FfiSocketAddr,
-    ) -> bool {
+    extern "C" fn get_rpc(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAddr) -> bool {
         if contact_info_ptr.is_null() || socket.is_null() {
             return false;
         }
@@ -323,10 +309,10 @@ pub unsafe fn create_contact_info_interface(
         if contact_info_ptr.is_null() || socket.is_null() {
             return false;
         }
-    
+
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
         let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
-    
+
         match contact_info.serve_repair(protocol) {
             Ok(socket_addr) => {
                 let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
@@ -345,10 +331,10 @@ pub unsafe fn create_contact_info_interface(
         if contact_info_ptr.is_null() || socket.is_null() {
             return false;
         }
-    
+
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
         let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
-    
+
         match contact_info.tpu(protocol) {
             Ok(socket_addr) => {
                 let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
@@ -367,10 +353,10 @@ pub unsafe fn create_contact_info_interface(
         if contact_info_ptr.is_null() || socket.is_null() {
             return false;
         }
-    
+
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
         let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
-    
+
         match contact_info.tpu_forwards(protocol) {
             Ok(socket_addr) => {
                 let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
@@ -408,10 +394,10 @@ pub unsafe fn create_contact_info_interface(
         if contact_info_ptr.is_null() || socket.is_null() {
             return false;
         }
-    
+
         let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
         let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
-    
+
         match contact_info.tvu(protocol) {
             Ok(socket_addr) => {
                 let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
@@ -439,10 +425,178 @@ pub unsafe fn create_contact_info_interface(
     }
 }
 
+#[derive(Debug, Error)]
+pub enum ContactInfoError {
+    #[error("Failed to retrieve version")]
+    VersionRetrievalFailed,
+    #[error("Failed to retrieve pubkey")]
+    PubkeyRetrievalFailed,
+}
+
+impl FfiContactInfoInterface {
+    pub fn pubkey(&self) -> Result<Pubkey, ContactInfoError> {
+        let pubkey_ptr = unsafe { (self.get_pubkey_fn)(self.contact_info_ptr) };
+        if pubkey_ptr.is_null() {
+            return Err(ContactInfoError::PubkeyRetrievalFailed);
+        }
+        let pubkey_bytes = unsafe { std::slice::from_raw_parts(pubkey_ptr, 32) };
+        let pk =
+            Pubkey::try_from(pubkey_bytes).map_err(|_| ContactInfoError::PubkeyRetrievalFailed)?;
+        Ok(pk)
+    }
+
+    pub fn wallclock(&self) -> u64 {
+        unsafe { (self.get_wallclock_fn)(self.contact_info_ptr) }
+    }
+
+    pub fn shred_version(&self) -> u16 {
+        unsafe { (self.get_shred_version_fn)(self.contact_info_ptr) }
+    }
+
+    pub fn version(&self) -> Result<FfiVersion, ContactInfoError> {
+        let mut ffi_version = FfiVersion::default();
+        let success = unsafe {
+            (self.get_version_fn)(self.contact_info_ptr, &mut ffi_version as *mut FfiVersion)
+        };
+        if success {
+            Ok(ffi_version)
+        } else {
+            Err(ContactInfoError::VersionRetrievalFailed)
+        }
+    }
+
+    pub fn gossip(&self) -> Option<FfiSocketAddr> {
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (self.get_gossip_fn)(self.contact_info_ptr, &mut ffi_socket as *mut FfiSocketAddr)
+        };
+
+        if success {
+            Some(ffi_socket)
+        } else {
+            None
+        }
+    }
+
+    pub fn rpc(&self) -> Option<FfiSocketAddr> {
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (self.get_rpc_fn)(self.contact_info_ptr, &mut ffi_socket as *mut FfiSocketAddr)
+        };
+
+        if success {
+            Some(ffi_socket)
+        } else {
+            None
+        }
+    }
+
+    pub fn rpc_pubsub(&self) -> Option<FfiSocketAddr> {
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (self.get_rpc_pubsub_fn)(self.contact_info_ptr, &mut ffi_socket as *mut FfiSocketAddr)
+        };
+
+        if success {
+            Some(ffi_socket)
+        } else {
+            None
+        }
+    }
+
+    pub fn serve_repair(&self, protocol: FfiProtocol) -> Option<FfiSocketAddr> {
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (self.get_serve_repair_fn)(
+                self.contact_info_ptr,
+                protocol,
+                &mut ffi_socket as *mut FfiSocketAddr,
+            )
+        };
+
+        if success {
+            Some(ffi_socket)
+        } else {
+            None
+        }
+    }
+
+    pub fn tpu(&self, protocol: FfiProtocol) -> Option<FfiSocketAddr> {
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (self.get_tpu_fn)(
+                self.contact_info_ptr,
+                protocol,
+                &mut ffi_socket as *mut FfiSocketAddr,
+            )
+        };
+
+        if success {
+            Some(ffi_socket)
+        } else {
+            None
+        }
+    }
+
+    pub fn tpu_forwards(&self, protocol: FfiProtocol) -> Option<FfiSocketAddr> {
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (self.get_tpu_forwards_fn)(
+                self.contact_info_ptr,
+                protocol,
+                &mut ffi_socket as *mut FfiSocketAddr,
+            )
+        };
+
+        if success {
+            Some(ffi_socket)
+        } else {
+            None
+        }
+    }
+
+    pub fn tpu_vote(&self) -> Option<FfiSocketAddr> {
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (self.get_tpu_vote_fn)(self.contact_info_ptr, &mut ffi_socket as *mut FfiSocketAddr)
+        };
+
+        if success {
+            Some(ffi_socket)
+        } else {
+            None
+        }
+    }
+
+    pub fn tvu(&self, protocol: FfiProtocol) -> Option<FfiSocketAddr> {
+        let mut ffi_socket = FfiSocketAddr::default();
+
+        let success = unsafe {
+            (self.get_tvu_fn)(
+                self.contact_info_ptr,
+                protocol,
+                &mut ffi_socket as *mut FfiSocketAddr,
+            )
+        };
+
+        if success {
+            Some(ffi_socket)
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use solana_sdk::pubkey::Pubkey;
+    use {super::*, solana_sdk::pubkey::Pubkey};
 
     #[test]
     fn test_get_pubkey() {
@@ -451,38 +605,42 @@ mod tests {
         let contact_info = ContactInfo::new_rand(&mut rng, Some(node_pubkey));
 
         let interface = unsafe { create_contact_info_interface(&contact_info) };
-        let pubkey_ptr = unsafe { (interface.get_pubkey_fn)(interface.contact_info_ptr) };
-        let pubkey_bytes = unsafe { std::slice::from_raw_parts(pubkey_ptr, 32) };
-        assert_eq!(Pubkey::try_from(pubkey_bytes).unwrap(), *contact_info.pubkey());
+        let pk = interface.pubkey().unwrap();
+
+        assert_eq!(pk, *contact_info.pubkey());
     }
 
     #[test]
     fn test_get_wallclock() {
-        let contact_info = ContactInfo::new(solana_sdk::pubkey::Pubkey::new_unique(), 123456789, 23);
+        let contact_info =
+            ContactInfo::new(solana_sdk::pubkey::Pubkey::new_unique(), 123456789, 23);
         let interface = unsafe { create_contact_info_interface(&contact_info) };
 
-        let wallclock = unsafe { (interface.get_wallclock_fn)(interface.contact_info_ptr) };
-        assert_eq!(wallclock, contact_info.wallclock());
+        assert_eq!(interface.wallclock(), contact_info.wallclock());
     }
 
     #[test]
     fn test_get_shred_version() {
-        let contact_info = ContactInfo::new(solana_sdk::pubkey::Pubkey::new_unique(), 123456789, 23);
+        let contact_info =
+            ContactInfo::new(solana_sdk::pubkey::Pubkey::new_unique(), 123456789, 23);
         let interface = unsafe { create_contact_info_interface(&contact_info) };
 
-        let shred_version = unsafe { (interface.get_shred_version_fn)(interface.contact_info_ptr) };
-        assert_eq!(shred_version, contact_info.shred_version());
+        assert_eq!(interface.shred_version(), contact_info.shred_version());
     }
 
     #[test]
     fn test_get_version() {
-        let contact_info = ContactInfo::new(solana_sdk::pubkey::Pubkey::new_unique(), 123456789, 23);
+        let contact_info =
+            ContactInfo::new(solana_sdk::pubkey::Pubkey::new_unique(), 123456789, 23);
         let interface = unsafe { create_contact_info_interface(&contact_info) };
 
         let mut ffi_version = FfiVersion::default();
 
         let success = unsafe {
-            (interface.get_version_fn)(interface.contact_info_ptr, &mut ffi_version as *mut FfiVersion)
+            (interface.get_version_fn)(
+                interface.contact_info_ptr,
+                &mut ffi_version as *mut FfiVersion,
+            )
         };
 
         assert!(success);
@@ -491,7 +649,10 @@ mod tests {
         assert_eq!(ffi_version.patch, contact_info.version().patch);
         assert_eq!(ffi_version.commit, contact_info.version().commit);
         assert_eq!(ffi_version.feature_set, contact_info.version().feature_set);
-        assert_eq!(ffi_version.client, u16::try_from(contact_info.version().client()).unwrap());
+        assert_eq!(
+            ffi_version.client,
+            u16::try_from(contact_info.version().client()).unwrap()
+        );
     }
 
     #[test]
@@ -596,7 +757,6 @@ mod tests {
         let actual_socket_addr = ffi_socket_addr_to_socket_addr(&ffi_socket);
 
         assert_eq!(expected_socket_addr, actual_socket_addr);
-
     }
 
     #[test]
@@ -638,7 +798,6 @@ mod tests {
         let actual_socket_addr = ffi_socket_addr_to_socket_addr(&ffi_socket);
 
         assert_eq!(expected_socket_addr, actual_socket_addr);
-
     }
 
     #[test]
@@ -680,7 +839,6 @@ mod tests {
         let actual_socket_addr = ffi_socket_addr_to_socket_addr(&ffi_socket);
 
         assert_eq!(expected_socket_addr, actual_socket_addr);
-
     }
 
     #[test]
@@ -743,6 +901,5 @@ mod tests {
         let actual_socket_addr = ffi_socket_addr_to_socket_addr(&ffi_socket);
 
         assert_eq!(expected_socket_addr, actual_socket_addr);
-
     }
 }
