@@ -629,9 +629,7 @@ impl GeyserPlugin for GeyserPluginAdapter {
     }
 
     fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
-        info!("greg: notify_node_update call");
         let result = unsafe { ((*self.plugin).notify_node_update)(interface as *const _) };
-        info!("greg: notify_node_update result: {}", result);
         if result == 0 {
             Ok(())
         } else {
