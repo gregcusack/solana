@@ -354,6 +354,7 @@ pub(crate) fn load_plugin_from_config(
     geyser_plugin_config_file: &Path,
 ) -> Result<(LoadedGeyserPlugin, &str), GeyserPluginManagerError> {
     use std::{fs::File, io::Read, path::PathBuf};
+
     let mut file = match File::open(geyser_plugin_config_file) {
         Ok(file) => file,
         Err(err) => {
@@ -362,12 +363,14 @@ pub(crate) fn load_plugin_from_config(
             )));
         }
     };
+
     let mut contents = String::new();
     if let Err(err) = file.read_to_string(&mut contents) {
         return Err(GeyserPluginManagerError::CannotReadConfigFile(format!(
             "Failed to read the plugin config file {geyser_plugin_config_file:?}, error: {err:?}"
         )));
     }
+
     let result: serde_json::Value = match json5::from_str(&contents) {
         Ok(value) => value,
         Err(err) => {
@@ -376,11 +379,11 @@ pub(crate) fn load_plugin_from_config(
             )));
         }
     };
+
     let libpath = result["libpath"]
         .as_str()
         .ok_or(GeyserPluginManagerError::LibPathNotSet)?;
     let mut libpath = PathBuf::from(libpath);
-
     if libpath.is_relative() {
         let config_dir = geyser_plugin_config_file.parent().ok_or_else(|| {
             GeyserPluginManagerError::CannotOpenConfigFile(format!(
@@ -389,6 +392,7 @@ pub(crate) fn load_plugin_from_config(
         })?;
         libpath = config_dir.join(libpath);
     }
+
     let plugin_name = result["name"].as_str().map(|s| s.to_owned());
 
     let config_file = geyser_plugin_config_file
