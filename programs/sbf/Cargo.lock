@@ -75,6 +75,7 @@ dependencies = [
 name = "agave-geyser-plugin-interface"
 version = "2.2.0"
 dependencies = [
+ "libc",
  "log",
  "solana-clock",
  "solana-signature",

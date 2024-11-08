@@ -1,17 +1,15 @@
+#[cfg(not(test))]
+use agave_geyser_plugin_interface::geyser_plugin_interface::{
+    FfiGeyserPlugin, GeyserPluginAdapter,
+};
 use {
-    agave_geyser_plugin_interface::geyser_plugin_interface::{
-        GeyserPlugin,
-        FfiGeyserPlugin,
-        GeyserPluginAdapter,
-    },
+    agave_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin,
     jsonrpc_core::{ErrorCode, Result as JsonRpcResult},
     libloading::Library,
     log::*,
     std::{
-        ffi::CStr,
         ops::{Deref, DerefMut},
         path::Path,
-        os::raw::c_char,
     },
     tokio::sync::oneshot::Sender as OneShotSender,
 };
@@ -34,12 +32,6 @@ pub struct LoadedGeyserPlugin {
 
 impl LoadedGeyserPlugin {
     pub fn new(library: Library, plugin: Box<dyn GeyserPlugin>, name: Option<String>) -> Self {
-        info!("greg: here13");
-        info!("plugin name: {:?}", plugin.name());
-        info!("greg: here14");
-        if let Some(name) = name.as_ref() {
-            info!("greg: name: {:?}", name);
-        }
         Self {
             name: name.unwrap_or_else(|| plugin.name().to_owned()),
             plugin,
@@ -155,7 +147,6 @@ impl GeyserPluginManager {
         geyser_plugin_config_file: impl AsRef<Path>,
     ) -> JsonRpcResult<String> {
         // First load plugin
-        info!("greg: here20");
         let (mut new_plugin, new_config_file) =
             load_plugin_from_config(geyser_plugin_config_file.as_ref()).map_err(|e| {
                 jsonrpc_core::Error {
@@ -165,7 +156,6 @@ impl GeyserPluginManager {
                 }
             })?;
 
-        info!("greg: here11");
         // Then see if a plugin with this name already exists. If so, abort
         if self
             .plugins
@@ -181,10 +171,8 @@ impl GeyserPluginManager {
                 data: None,
             });
         }
-        info!("greg: here12");
 
         setup_logger_for_plugin(&*new_plugin.plugin)?;
-        info!("greg: here13");
 
         // Call on_load and push plugin
         new_plugin
@@ -199,7 +187,6 @@ impl GeyserPluginManager {
             })?;
         let name = new_plugin.name().to_string();
         self.plugins.push(new_plugin);
-        info!("greg: here14");
 
         Ok(name)
     }
@@ -372,15 +359,11 @@ pub enum GeyserPluginManagerError {
 ///
 /// This returns the geyser plugin, the dynamic library, and the parsed config file as a &str.
 /// (The geyser plugin interface requires a &str for the on_load method).
-// #[cfg(not(test))]
+#[cfg(not(test))]
 pub(crate) fn load_plugin_from_config(
     geyser_plugin_config_file: &Path,
 ) -> Result<(LoadedGeyserPlugin, &str), GeyserPluginManagerError> {
-    info!("greg: here21");
     use std::{fs::File, io::Read, path::PathBuf};
-    type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
-    use libloading::Symbol;
-    info!("greg: here");
     let mut file = match File::open(geyser_plugin_config_file) {
         Ok(file) => file,
         Err(err) => {
@@ -389,14 +372,12 @@ pub(crate) fn load_plugin_from_config(
             )));
         }
     };
-    info!("greg: here2");
     let mut contents = String::new();
     if let Err(err) = file.read_to_string(&mut contents) {
         return Err(GeyserPluginManagerError::CannotReadConfigFile(format!(
             "Failed to read the plugin config file {geyser_plugin_config_file:?}, error: {err:?}"
         )));
     }
-    info!("greg: here3");
     let result: serde_json::Value = match json5::from_str(&contents) {
         Ok(value) => value,
         Err(err) => {
@@ -405,14 +386,11 @@ pub(crate) fn load_plugin_from_config(
             )));
         }
     };
-    info!("greg: here4");
     let libpath = result["libpath"]
         .as_str()
         .ok_or(GeyserPluginManagerError::LibPathNotSet)?;
     let mut libpath = PathBuf::from(libpath);
 
-
-    info!("greg: here5");
     if libpath.is_relative() {
         let config_dir = geyser_plugin_config_file.parent().ok_or_else(|| {
             GeyserPluginManagerError::CannotOpenConfigFile(format!(
@@ -421,66 +399,48 @@ pub(crate) fn load_plugin_from_config(
         })?;
         libpath = config_dir.join(libpath);
     }
-    info!("greg: here6");
     let plugin_name = result["name"].as_str().map(|s| s.to_owned());
 
     let config_file = geyser_plugin_config_file
         .as_os_str()
         .to_str()
         .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;
-    info!("greg: here7");
 
-    // let (plugin, lib) = 
     unsafe {
         let lib = Library::new(libpath)
             .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
         type RustPluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
         type CPluginConstructor = unsafe fn() -> *mut FfiGeyserPlugin;
-        info!("greg: here9");
-        
+
         // Try to load as Rust plugin
         if let Ok(constructor) = lib.get::<RustPluginConstructor>(b"_create_plugin") {
-            info!("greg: here10");
             let plugin_raw = constructor();
             let plugin = Box::from_raw(plugin_raw);
-            return Ok((LoadedGeyserPlugin::new(lib, plugin, plugin_name), config_file));
+            Ok((
+                LoadedGeyserPlugin::new(lib, plugin, plugin_name),
+                config_file,
+            ))
         }
         // Try to load as C plugin
         else if let Ok(constructor) = lib.get::<CPluginConstructor>(b"_create_geyser_plugin_c") {
-            info!("greg: here10");
             let ffi_plugin_ptr = constructor();
             if ffi_plugin_ptr.is_null() {
                 return Err(GeyserPluginManagerError::PluginLoadError(
                     "Failed to create plugin: returned null pointer".to_string(),
                 ));
             }
-            info!("greg: here11");
-            let plugin = Box::new(GeyserPluginAdapter::new(ffi_plugin_ptr)) as Box<dyn GeyserPlugin>;
-            // let plugin = Box::new(GeyserPluginAdapter::new(ffi_plugin_ptr));
-            info!("greg: here12");
-            return Ok((LoadedGeyserPlugin::new(lib, plugin, plugin_name), config_file));
+            let plugin =
+                Box::new(GeyserPluginAdapter::new(ffi_plugin_ptr)) as Box<dyn GeyserPlugin>;
+            Ok((
+                LoadedGeyserPlugin::new(lib, plugin, plugin_name),
+                config_file,
+            ))
         } else {
-            return Err(GeyserPluginManagerError::PluginLoadError(
+            Err(GeyserPluginManagerError::PluginLoadError(
                 "Failed to load _create_plugin symbol".to_string(),
-            ));
+            ))
         }
-
-        // info!("greg: here9");
-        // let constructor: Symbol<PluginConstructor> = lib
-        //     .get(b"_create_plugin")
-        //     .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
-        // info!("greg: here10");
-        // let plugin_raw = constructor();
-        // (Box::from_raw(plugin_raw), lib)
-    };    
-    // info!("greg: here8");
-
-    // // info!("greg: plugin.name(): {:?}", plugin.name());
-    // info!("greg: here22");
-    // Ok((
-    //     LoadedGeyserPlugin::new(lib, plugin, plugin_name),
-    //     config_file,
-    // ))
+    }
 }
 
 #[cfg(test)]
@@ -497,7 +457,6 @@ const TESTPLUGIN2_CONFIG: &str = "TESTPLUGIN2_CONFIG";
 pub(crate) fn load_plugin_from_config(
     geyser_plugin_config_file: &Path,
 ) -> Result<(LoadedGeyserPlugin, &str), GeyserPluginManagerError> {
-    println!("greg: here15");
     if geyser_plugin_config_file.ends_with(TESTPLUGIN_CONFIG) {
         Ok(tests::dummy_plugin_and_library(
             tests::TestPlugin,

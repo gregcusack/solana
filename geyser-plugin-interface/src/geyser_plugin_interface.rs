@@ -10,11 +10,11 @@ use {
     solana_transaction::sanitized::SanitizedTransaction,
     solana_transaction_status::{Reward, RewardsAndNumPartitions, TransactionStatusMeta},
     std::{
-        any::Any, 
+        any::Any,
         error,
         ffi::{CStr, CString},
         io,
-        os::raw::{c_char, c_int, c_void},
+        os::raw::{c_char, c_int},
     },
     thiserror::Error,
 };
@@ -487,7 +487,7 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// Default is true -- if the plugin is not interested in
     /// account data, please return false.
     fn account_data_notifications_enabled(&self) -> bool {
-        true
+        false
     }
 
     /// Check if the plugin is interested in account data from snapshot
@@ -516,7 +516,7 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// Default is true -- if the plugin is not interested in
     /// gossip messages, please return false.
     fn node_update_notifications_enabled(&self) -> bool {
-        true
+        false
     }
 }
 
@@ -527,7 +527,8 @@ pub struct FfiGeyserPlugin {
     pub on_load: unsafe extern "C" fn(config_file: *const c_char, _is_reload: c_int) -> c_int,
     pub on_unload: unsafe extern "C" fn(),
     pub node_update_notifications_enabled: unsafe extern "C" fn() -> c_int,
-    pub notify_node_update: unsafe extern "C" fn(interface: *const FfiContactInfoInterface) -> c_int,
+    pub notify_node_update:
+        unsafe extern "C" fn(interface: *const FfiContactInfoInterface) -> c_int,
 }
 
 unsafe impl Send for GeyserPluginAdapter {}
@@ -543,52 +544,6 @@ impl GeyserPluginAdapter {
         Self { plugin }
     }
 }
-
-// extern "C" {
-//     fn plugin_name() -> *const std::os::raw::c_char;
-// }
-
-// impl GeyserPlugin for GeyserPluginAdapter {
-//     fn name(&self) -> &'static str {
-//         unsafe {
-//             let name_ptr = plugin_name();
-//             if !name_ptr.is_null() {
-//                 let c_str = CStr::from_ptr(name_ptr);
-//                 c_str.to_str().unwrap_or("Unknown Plugin")
-//             } else {
-//                 "Unknown Plugin"
-//             }
-//         }
-//     }
-
-//     fn on_load(&mut self, config_file: &str, _is_reload: bool) -> Result<()> {
-//         let config_cstr = CString::new(config_file).unwrap();
-//         let result = unsafe { (self.plugin.on_load)(config_cstr.as_ptr()) };
-//         if result == 0 {
-//             Ok(())
-//         } else {
-//             Err(GeyserPluginError::Custom(Box::new(io::Error::new(io::ErrorKind::Other, format!("Plugin error with code: {}", result)))))
-//         }
-//     }
-
-//     fn on_unload(&mut self) {
-//         unsafe { (self.plugin.on_unload)() };
-//     }
-
-//     fn node_update_notifications_enabled(&self) -> bool {
-//         unsafe { (self.plugin.node_update_notifications_enabled)() != 0 }
-//     }
-
-//     fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
-//         let result = unsafe { (self.plugin.notify_node_update)(interface as *const _) };
-//         if result == 0 {
-//             Ok(())
-//         } else {
-//             Err(GeyserPluginError::Custom(Box::new(io::Error::new(io::ErrorKind::Other, format!("Plugin error with code: {}", result)))))
-//         }
-//     }
-// }
-
 impl GeyserPlugin for GeyserPluginAdapter {
     fn name(&self) -> &'static str {
         unsafe {
@@ -601,7 +556,9 @@ impl GeyserPlugin for GeyserPluginAdapter {
                 panic!("name returned null pointer");
             }
             if !name_ptr.is_null() {
-                CStr::from_ptr(name_ptr).to_str().unwrap_or("Unknown Plugin")
+                CStr::from_ptr(name_ptr)
+                    .to_str()
+                    .unwrap_or("Unknown Plugin")
             } else {
                 "Unknown Plugin"
             }
@@ -609,7 +566,6 @@ impl GeyserPlugin for GeyserPluginAdapter {
     }
 
     fn on_load(&mut self, config_file: &str, _is_reload: bool) -> Result<()> {
-        info!("greg: on load");
         let config_cstr = CString::new(config_file).unwrap();
         let result = unsafe { ((*self.plugin).on_load)(config_cstr.as_ptr(), 0) };
         if result == 0 {
@@ -630,7 +586,6 @@ impl GeyserPlugin for GeyserPluginAdapter {
     }
 
     fn node_update_notifications_enabled(&self) -> bool {
-        info!("greg: node_update_notifications_enabled");
         unsafe { ((*self.plugin).node_update_notifications_enabled)() != 0 }
     }
 
@@ -645,8 +600,6 @@ impl GeyserPlugin for GeyserPluginAdapter {
             ))))
         }
     }
-
-    // Implement other methods as needed...
 }
 
 impl Drop for GeyserPluginAdapter {
@@ -661,37 +614,3 @@ impl Drop for GeyserPluginAdapter {
         }
     }
 }
-
-// /// Extern function for `notify_node_update` FFI call.
-// #[no_mangle]
-// pub extern "C" fn notify_node_update_ffi(
-//     plugin_instance: *mut c_void,
-//     interface: &FfiContactInfoInterface,
-// ) -> i32 {
-//     // Cast `plugin_instance` to `*const GeyserPluginAdapter`, which implements `GeyserPlugin`
-//     let plugin_instance = unsafe { &*(plugin_instance as *const GeyserPluginAdapter) };
-    
-//     // Coerce `&GeyserPluginAdapter` to `&dyn GeyserPlugin`
-//     let plugin_instance: &dyn GeyserPlugin = plugin_instance;
-
-//     match plugin_instance.notify_node_update(interface) {
-//         Ok(_) => 0,       // 0 for success
-//         Err(_) => -1,     // -1 for error
-//     }
-// }
-
-// /// Extern function for `node_update_notifications_enabled` FFI call.
-// #[no_mangle]
-// pub extern "C" fn node_update_notifications_enabled_ffi(plugin_instance: *mut c_void) -> i32 {
-//     // Cast `plugin_instance` to `*const GeyserPluginAdapter`, which implements `GeyserPlugin`
-//     let plugin_instance = unsafe { &*(plugin_instance as *const GeyserPluginAdapter) };
-
-//     // Coerce `&GeyserPluginAdapter` to `&dyn GeyserPlugin`
-//     let plugin_instance: &dyn GeyserPlugin = plugin_instance;
-
-//     if plugin_instance.node_update_notifications_enabled() {
-//         1 // 1 for true
-//     } else {
-//         0 // 0 for false
-//     }
-// }
