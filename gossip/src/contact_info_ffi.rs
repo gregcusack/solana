@@ -34,7 +34,7 @@ pub struct FfiVersion {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct FfiIpAddr {
     pub is_v4: u8,      // 1 if IPv4, 0 if IPv6
     pub addr: [u8; 16], // IP address bytes
@@ -43,8 +43,7 @@ pub struct FfiIpAddr {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FfiSocketAddr {
-    pub is_v4: u8,      // 1 if IPv4, 0 if IPv6
-    pub addr: [u8; 16], // IP address bytes
+    pub ip: FfiIpAddr,
     pub port: u16,
 }
 
@@ -67,24 +66,23 @@ fn ffi_socket_addr_from_socket_addr(socket_addr: &SocketAddr) -> FfiSocketAddr {
     let ip_addr = socket_addr.ip();
     let ffi_ip_addr = ffi_ip_addr_from_ip_addr(&ip_addr);
     FfiSocketAddr {
-        is_v4: ffi_ip_addr.is_v4,
-        addr: ffi_ip_addr.addr,
+        ip: ffi_ip_addr,
         port: socket_addr.port(),
     }
 }
 
 // Convert FfiSocketAddr to SocketAddr
 pub fn ffi_socket_addr_to_socket_addr(ffi_socket: &FfiSocketAddr) -> SocketAddr {
-    let ip_addr = if ffi_socket.is_v4 == 1 {
+    let ip_addr = if ffi_socket.ip.is_v4 == 1 {
         IpAddr::V4(Ipv4Addr::new(
-            ffi_socket.addr[0],
-            ffi_socket.addr[1],
-            ffi_socket.addr[2],
-            ffi_socket.addr[3],
+            ffi_socket.ip.addr[0],
+            ffi_socket.ip.addr[1],
+            ffi_socket.ip.addr[2],
+            ffi_socket.ip.addr[3],
         ))
     } else {
         let mut octets = [0u8; 16];
-        octets.copy_from_slice(&ffi_socket.addr);
+        octets.copy_from_slice(&ffi_socket.ip.addr);
         IpAddr::V6(Ipv6Addr::from(octets))
     };
 

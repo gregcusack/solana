@@ -500,6 +500,6 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// Default is true -- if the plugin is not interested in
     /// gossip messages, please return false.
     fn node_update_notifications_enabled(&self) -> bool {
-        true
+        false
     }
 }
