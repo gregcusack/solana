@@ -3,6 +3,7 @@
 /// In addition, the dynamic library must export a "C" function _create_plugin which
 /// creates the implementation of the plugin.
 use {
+    log::*,
     solana_gossip::contact_info_ffi::FfiContactInfoInterface,
     solana_clock::{Slot, UnixTimestamp},
     solana_signature::Signature,
@@ -523,34 +524,84 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
 #[repr(C)]
 pub struct FfiGeyserPlugin {
     pub name: unsafe extern "C" fn() -> *const c_char,
-    pub on_load: unsafe extern "C" fn(config_file: *const c_char) -> c_int,
+    pub on_load: unsafe extern "C" fn(config_file: *const c_char, _is_reload: c_int) -> c_int,
     pub on_unload: unsafe extern "C" fn(),
     pub node_update_notifications_enabled: unsafe extern "C" fn() -> c_int,
     pub notify_node_update: unsafe extern "C" fn(interface: *const FfiContactInfoInterface) -> c_int,
 }
 
+unsafe impl Send for GeyserPluginAdapter {}
+unsafe impl Sync for GeyserPluginAdapter {}
+
 #[derive(Debug)]
 pub struct GeyserPluginAdapter {
-    plugin: FfiGeyserPlugin,
+    plugin: *mut FfiGeyserPlugin,
 }
 
 impl GeyserPluginAdapter {
-    pub fn new(plugin: FfiGeyserPlugin) -> Self {
+    pub fn new(plugin: *mut FfiGeyserPlugin) -> Self {
         Self { plugin }
     }
 }
 
-extern "C" {
-    fn plugin_name() -> *const std::os::raw::c_char;
-}
+// extern "C" {
+//     fn plugin_name() -> *const std::os::raw::c_char;
+// }
+
+// impl GeyserPlugin for GeyserPluginAdapter {
+//     fn name(&self) -> &'static str {
+//         unsafe {
+//             let name_ptr = plugin_name();
+//             if !name_ptr.is_null() {
+//                 let c_str = CStr::from_ptr(name_ptr);
+//                 c_str.to_str().unwrap_or("Unknown Plugin")
+//             } else {
+//                 "Unknown Plugin"
+//             }
+//         }
+//     }
+
+//     fn on_load(&mut self, config_file: &str, _is_reload: bool) -> Result<()> {
+//         let config_cstr = CString::new(config_file).unwrap();
+//         let result = unsafe { (self.plugin.on_load)(config_cstr.as_ptr()) };
+//         if result == 0 {
+//             Ok(())
+//         } else {
+//             Err(GeyserPluginError::Custom(Box::new(io::Error::new(io::ErrorKind::Other, format!("Plugin error with code: {}", result)))))
+//         }
+//     }
+
+//     fn on_unload(&mut self) {
+//         unsafe { (self.plugin.on_unload)() };
+//     }
+
+//     fn node_update_notifications_enabled(&self) -> bool {
+//         unsafe { (self.plugin.node_update_notifications_enabled)() != 0 }
+//     }
+
+//     fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
+//         let result = unsafe { (self.plugin.notify_node_update)(interface as *const _) };
+//         if result == 0 {
+//             Ok(())
+//         } else {
+//             Err(GeyserPluginError::Custom(Box::new(io::Error::new(io::ErrorKind::Other, format!("Plugin error with code: {}", result)))))
+//         }
+//     }
+// }
 
 impl GeyserPlugin for GeyserPluginAdapter {
     fn name(&self) -> &'static str {
         unsafe {
-            let name_ptr = plugin_name();
+            if self.plugin.is_null() {
+                panic!("plugin pointer is null");
+            }
+            let name_fn = (*self.plugin).name;
+            let name_ptr = name_fn();
+            if name_ptr.is_null() {
+                panic!("name returned null pointer");
+            }
             if !name_ptr.is_null() {
-                let c_str = CStr::from_ptr(name_ptr);
-                c_str.to_str().unwrap_or("Unknown Plugin")
+                CStr::from_ptr(name_ptr).to_str().unwrap_or("Unknown Plugin")
             } else {
                 "Unknown Plugin"
             }
@@ -558,63 +609,91 @@ impl GeyserPlugin for GeyserPluginAdapter {
     }
 
     fn on_load(&mut self, config_file: &str, _is_reload: bool) -> Result<()> {
+        info!("greg: on load");
         let config_cstr = CString::new(config_file).unwrap();
-        let result = unsafe { (self.plugin.on_load)(config_cstr.as_ptr()) };
+        let result = unsafe { ((*self.plugin).on_load)(config_cstr.as_ptr(), 0) };
         if result == 0 {
             Ok(())
         } else {
-            Err(GeyserPluginError::Custom(Box::new(io::Error::new(io::ErrorKind::Other, format!("Plugin error with code: {}", result)))))
+            Err(GeyserPluginError::Custom(Box::new(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Plugin error with code: {}", result),
+            ))))
         }
     }
 
     fn on_unload(&mut self) {
-        unsafe { (self.plugin.on_unload)() };
+        unsafe {
+            ((*self.plugin).on_unload)();
+            libc::free(self.plugin as *mut libc::c_void);
+        }
     }
 
     fn node_update_notifications_enabled(&self) -> bool {
-        unsafe { (self.plugin.node_update_notifications_enabled)() != 0 }
+        info!("greg: node_update_notifications_enabled");
+        unsafe { ((*self.plugin).node_update_notifications_enabled)() != 0 }
     }
 
     fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
-        let result = unsafe { (self.plugin.notify_node_update)(interface as *const _) };
+        info!("greg: notify_node_update call");
+        let result = unsafe { ((*self.plugin).notify_node_update)(interface as *const _) };
+        info!("greg: notify_node_update result: {}", result);
         if result == 0 {
             Ok(())
         } else {
-            Err(GeyserPluginError::Custom(Box::new(io::Error::new(io::ErrorKind::Other, format!("Plugin error with code: {}", result)))))
+            Err(GeyserPluginError::Custom(Box::new(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Plugin error with code: {}", result),
+            ))))
+        }
+    }
+
+    // Implement other methods as needed...
+}
+
+impl Drop for GeyserPluginAdapter {
+    fn drop(&mut self) {
+        unsafe {
+            // Ensure on_unload is called once
+            if !self.plugin.is_null() {
+                ((*self.plugin).on_unload)();
+                libc::free(self.plugin as *mut libc::c_void);
+                self.plugin = std::ptr::null_mut();
+            }
         }
     }
 }
 
-/// Extern function for `notify_node_update` FFI call.
-#[no_mangle]
-pub extern "C" fn notify_node_update_ffi(
-    plugin_instance: *mut c_void,
-    interface: &FfiContactInfoInterface,
-) -> i32 {
-    // Cast `plugin_instance` to `*const GeyserPluginAdapter`, which implements `GeyserPlugin`
-    let plugin_instance = unsafe { &*(plugin_instance as *const GeyserPluginAdapter) };
+// /// Extern function for `notify_node_update` FFI call.
+// #[no_mangle]
+// pub extern "C" fn notify_node_update_ffi(
+//     plugin_instance: *mut c_void,
+//     interface: &FfiContactInfoInterface,
+// ) -> i32 {
+//     // Cast `plugin_instance` to `*const GeyserPluginAdapter`, which implements `GeyserPlugin`
+//     let plugin_instance = unsafe { &*(plugin_instance as *const GeyserPluginAdapter) };
     
-    // Coerce `&GeyserPluginAdapter` to `&dyn GeyserPlugin`
-    let plugin_instance: &dyn GeyserPlugin = plugin_instance;
+//     // Coerce `&GeyserPluginAdapter` to `&dyn GeyserPlugin`
+//     let plugin_instance: &dyn GeyserPlugin = plugin_instance;
 
-    match plugin_instance.notify_node_update(interface) {
-        Ok(_) => 0,       // 0 for success
-        Err(_) => -1,     // -1 for error
-    }
-}
+//     match plugin_instance.notify_node_update(interface) {
+//         Ok(_) => 0,       // 0 for success
+//         Err(_) => -1,     // -1 for error
+//     }
+// }
 
-/// Extern function for `node_update_notifications_enabled` FFI call.
-#[no_mangle]
-pub extern "C" fn node_update_notifications_enabled_ffi(plugin_instance: *mut c_void) -> i32 {
-    // Cast `plugin_instance` to `*const GeyserPluginAdapter`, which implements `GeyserPlugin`
-    let plugin_instance = unsafe { &*(plugin_instance as *const GeyserPluginAdapter) };
+// /// Extern function for `node_update_notifications_enabled` FFI call.
+// #[no_mangle]
+// pub extern "C" fn node_update_notifications_enabled_ffi(plugin_instance: *mut c_void) -> i32 {
+//     // Cast `plugin_instance` to `*const GeyserPluginAdapter`, which implements `GeyserPlugin`
+//     let plugin_instance = unsafe { &*(plugin_instance as *const GeyserPluginAdapter) };
 
-    // Coerce `&GeyserPluginAdapter` to `&dyn GeyserPlugin`
-    let plugin_instance: &dyn GeyserPlugin = plugin_instance;
+//     // Coerce `&GeyserPluginAdapter` to `&dyn GeyserPlugin`
+//     let plugin_instance: &dyn GeyserPlugin = plugin_instance;
 
-    if plugin_instance.node_update_notifications_enabled() {
-        1 // 1 for true
-    } else {
-        0 // 0 for false
-    }
-}
+//     if plugin_instance.node_update_notifications_enabled() {
+//         1 // 1 for true
+//     } else {
+//         0 // 0 for false
+//     }
+// }
