@@ -73,14 +73,16 @@ impl GeyserPluginService {
         )>,
     ) -> Result<Self, GeyserPluginServiceError> {
         info!(
-            "Starting GeyserPluginService from config files: {:?}",
+            "klklkStarting GeyserPluginService from config files: {:?}",
             geyser_plugin_config_files
         );
         let mut plugin_manager = GeyserPluginManager::new();
-
+        info!("greg: here16");
         for geyser_plugin_config_file in geyser_plugin_config_files {
+            info!("greg: here17");
             Self::load_plugin(&mut plugin_manager, geyser_plugin_config_file)?;
         }
+        info!("greg: here18");
 
         let account_data_notifications_enabled =
             plugin_manager.account_data_notifications_enabled();
@@ -170,6 +172,7 @@ impl GeyserPluginService {
         plugin_manager: &mut GeyserPluginManager,
         geyser_plugin_config_file: &Path,
     ) -> Result<(), GeyserPluginServiceError> {
+        info!("greg: here19");
         plugin_manager
             .load_plugin(geyser_plugin_config_file)
             .map_err(|e| GeyserPluginServiceError::FailedToLoadPlugin(e.into()))?;
