@@ -90,6 +90,7 @@ impl GeyserPluginService {
         let entry_notifications_enabled = plugin_manager.entry_notifications_enabled();
         let gossip_messages_notifications_enabled =
             plugin_manager.gossip_messages_notifications_enabled();
+        info!("greg: gossip plugin enabled: {}", gossip_messages_notifications_enabled);
         let plugin_manager = Arc::new(RwLock::new(plugin_manager));
 
         let accounts_update_notifier: Option<AccountsUpdateNotifier> =
