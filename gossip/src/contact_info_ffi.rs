@@ -6,7 +6,7 @@ use {
     thiserror::Error,
 };
 
-#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy, Debug)]
 pub enum FfiProtocol {
     UDP,
