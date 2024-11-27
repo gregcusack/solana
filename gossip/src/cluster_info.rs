@@ -93,7 +93,7 @@ use {
         iter::repeat,
         net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket},
         num::NonZeroUsize,
-        ops::{Deref, Div},
+        ops::{Deref, DerefMut, Div},
         path::{Path, PathBuf},
         result::Result,
         sync::{
@@ -162,6 +162,10 @@ pub struct ClusterInfo {
     instance: RwLock<NodeInstance>,
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
+    /// GeyserPlugin gossip message notifier
+    gossip_message_notifier: Option<GossipMessageNotifier>,
+    // Cursor for tracking CRDS entries
+    crds_cursor: Mutex<Cursor>,
 }
 
 struct PullData {
@@ -232,17 +236,46 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
+            gossip_message_notifier: None,
+            crds_cursor: Mutex::default(),
         };
         me.refresh_my_gossip_contact_info();
         me
     }
 
+    pub fn process_new_contact_info(&self) {
+        if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+            let mut crds_cursor = self.crds_cursor.lock().unwrap();
+            let crds = self.gossip.crds.read().unwrap();
+
+            // Get new entries starting from the cursor position
+            let entries = crds.get_entries(crds_cursor.deref_mut());
+
+            // Collect new ContactInfo entries
+            let new_contact_infos: Vec<ContactInfo> = entries
+                .filter_map(|versioned_value| {
+                    if let CrdsData::ContactInfo(ref contact_info) = versioned_value.value.data() {
+                        Some(contact_info.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Release locks
+            drop(crds);
+            drop(crds_cursor);
+
+            // Process the new ContactInfo entries
+            for contact_info in new_contact_infos {
+                // Send via Geyser plugin
+                gossip_message_notifier.notify_receive_node_update(&contact_info);
+            }
+        }
+    }
+
     pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
-        self.gossip
-            .crds
-            .write()
-            .unwrap()
-            .set_gossip_message_notifier(notifier);
+        self.gossip_message_notifier = notifier;
     }
 
     pub fn set_contact_debug_interval(&mut self, new: u64) {
@@ -1601,6 +1634,9 @@ impl ClusterInfo {
                         self.save_contact_info();
                         last_contact_info_save = start;
                     }
+
+                    // Process new ContactInfo entries
+                    self.process_new_contact_info();
 
                     let (stakes, _feature_set) = match bank_forks {
                         Some(ref bank_forks) => {
