@@ -100,7 +100,7 @@ use {
             atomic::{AtomicBool, Ordering},
             Arc, Mutex, RwLock, RwLockReadGuard,
         },
-        thread::{sleep, Builder, JoinHandle},
+        thread::{self, sleep, Builder, JoinHandle},
         time::{Duration, Instant},
     },
     thiserror::Error,
@@ -243,32 +243,35 @@ impl ClusterInfo {
         me
     }
 
+    pub fn start_periodic_contact_info_processing(self: Arc<Self>, stop_signal: Arc<AtomicBool>) {
+        thread::spawn(move || {
+            while !stop_signal.load(Ordering::Relaxed) {
+                self.process_new_contact_info(); // Call the method
+                thread::sleep(Duration::from_secs(5)); // Sleep for 5 seconds
+            }
+        });
+    }
+
     pub fn process_new_contact_info(&self) {
         if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
             let mut crds_cursor = self.crds_cursor.lock().unwrap();
             let crds = self.gossip.crds.read().unwrap();
 
-            // Get new entries starting from the cursor position
-            let entries = crds.get_entries(crds_cursor.deref_mut());
-
-            // Collect new ContactInfo entries
-            let new_contact_infos: Vec<ContactInfo> = entries
-                .filter_map(|versioned_value| {
-                    if let CrdsData::ContactInfo(ref contact_info) = versioned_value.value.data() {
-                        Some(contact_info.clone())
-                    } else {
-                        None
-                    }
+            // Get new ContactInfo entries starting from the cursor position
+            let entries = crds
+                .get_entries(crds_cursor.deref_mut())
+                .filter_map(|entry| {
+                    let CrdsData::ContactInfo(ref contact_info) = entry.value.data() else {
+                        return None;
+                    };
+                    Some(contact_info.clone())
                 })
-                .collect();
+                .collect::<Vec<_>>();
 
-            // Release locks
             drop(crds);
             drop(crds_cursor);
 
-            // Process the new ContactInfo entries
-            for contact_info in new_contact_infos {
-                // Send via Geyser plugin
+            for contact_info in entries {
                 gossip_message_notifier.notify_receive_node_update(&contact_info);
             }
         }
