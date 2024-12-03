@@ -95,10 +95,10 @@ fn main() -> Result<()> {
     let mut read_channels = Vec::new();
     let mut read_threads = Vec::new();
     let recycler = PacketBatchRecycler::default();
-    let (_port, read_sockets) = solana_net_utils::multi_bind_in_range(
+    let (_port, read_sockets) = solana_net_utils::multi_bind_in_range_with_config(
         ip_addr,
         (port, port + num_sockets as u16),
-        SocketConfig::default(),
+        SocketConfig::default().reuseport(true),
         num_sockets,
     )
     .unwrap();

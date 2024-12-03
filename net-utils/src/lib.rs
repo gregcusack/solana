@@ -526,14 +526,35 @@ fn udp_socket_with_config(config: SocketConfig) -> io::Result<Socket> {
     Ok(sock)
 }
 
-// Find a port in the given range that is available for both TCP and UDP
-pub fn bind_common_in_range(
+// Find a port in the given range with a socket config that is available for both TCP and UDP
+pub fn bind_common_in_range_with_config(
     ip_addr: IpAddr,
     range: PortRange,
     config: SocketConfig,
 ) -> io::Result<(u16, (UdpSocket, TcpListener))> {
     for port in range.0..range.1 {
         if let Ok((sock, listener)) = bind_common_with_config(ip_addr, port, config.clone()) {
+            return Result::Ok((sock.local_addr().unwrap().port(), (sock, listener)));
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::Other,
+        format!("No available TCP/UDP ports in {range:?}"),
+    ))
+}
+
+// Find a port in the given range that is available for both TCP and UDP
+#[deprecated(
+    since = "2.1.5",
+    note = "use `bind_common_in_range_with_config` instead"
+)]
+pub fn bind_common_in_range(
+    ip_addr: IpAddr,
+    range: PortRange,
+) -> io::Result<(u16, (UdpSocket, TcpListener))> {
+    for port in range.0..range.1 {
+        if let Ok((sock, listener)) = bind_common(ip_addr, port) {
             return Result::Ok((sock.local_addr().unwrap().port(), (sock, listener)));
         }
     }
@@ -571,7 +592,10 @@ pub fn bind_in_range_with_config(
     ))
 }
 
-pub fn bind_with_any_port(ip_addr: IpAddr, config: SocketConfig) -> io::Result<UdpSocket> {
+pub fn bind_with_any_port_with_config(
+    ip_addr: IpAddr,
+    config: SocketConfig,
+) -> io::Result<UdpSocket> {
     let sock = udp_socket_with_config(config)?;
     let addr = SocketAddr::new(ip_addr, 0);
     match sock.bind(&SockAddr::from(addr)) {
@@ -583,11 +607,80 @@ pub fn bind_with_any_port(ip_addr: IpAddr, config: SocketConfig) -> io::Result<U
     }
 }
 
+#[deprecated(since = "2.1.5", note = "use `bind_with_any_port_with_config` instead")]
+pub fn bind_with_any_port(ip_addr: IpAddr) -> io::Result<UdpSocket> {
+    let sock = udp_socket_with_config(SocketConfig::default())?;
+    let addr = SocketAddr::new(ip_addr, 0);
+    match sock.bind(&SockAddr::from(addr)) {
+        Ok(_) => Result::Ok(sock.into()),
+        Err(err) => Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("No available UDP port: {err}"),
+        )),
+    }
+}
+
 // binds many sockets to the same port in a range with config
-pub fn multi_bind_in_range(
+pub fn multi_bind_in_range_with_config(
     ip_addr: IpAddr,
     range: PortRange,
     config: SocketConfig,
+    mut num: usize,
+) -> io::Result<(u16, Vec<UdpSocket>)> {
+    if !config.reuseport {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "SocketConfig.reuseport must be true for multi_bind_in_range_with_config",
+        ));
+    }
+    if cfg!(windows) && num != 1 {
+        // See https://github.com/solana-labs/solana/issues/4607
+        warn!(
+            "multi_bind_in_range_with_config() only supports 1 socket in windows ({} requested)",
+            num
+        );
+        num = 1;
+    }
+    let mut sockets = Vec::with_capacity(num);
+
+    const NUM_TRIES: usize = 100;
+    let mut port = 0;
+    let mut error = None;
+    for _ in 0..NUM_TRIES {
+        port = {
+            let (port, _) = bind_in_range(ip_addr, range)?;
+            port
+        }; // drop the probe, port should be available... briefly.
+
+        for _ in 0..num {
+            let sock = bind_to_with_config(ip_addr, port, config.clone());
+            if let Ok(sock) = sock {
+                sockets.push(sock);
+            } else {
+                error = Some(sock);
+                break;
+            }
+        }
+        if sockets.len() == num {
+            break;
+        } else {
+            sockets.clear();
+        }
+    }
+    if sockets.len() != num {
+        error.unwrap()?;
+    }
+    Ok((port, sockets))
+}
+
+// binds many sockets to the same port in a range
+#[deprecated(
+    since = "2.1.5",
+    note = "use `multi_bind_in_range_with_config` instead"
+)]
+pub fn multi_bind_in_range(
+    ip_addr: IpAddr,
+    range: PortRange,
     mut num: usize,
 ) -> io::Result<(u16, Vec<UdpSocket>)> {
     if cfg!(windows) && num != 1 {
@@ -609,6 +702,7 @@ pub fn multi_bind_in_range(
             port
         }; // drop the probe, port should be available... briefly.
 
+        let config = SocketConfig::default().reuseport(true);
         for _ in 0..num {
             let sock = bind_to_with_config(ip_addr, port, config.clone());
             if let Ok(sock) = sock {
@@ -922,7 +1016,8 @@ mod tests {
         bind_to(ip_addr, 2002, false).unwrap_err();
         bind_in_range(ip_addr, (2002, 2003)).unwrap_err();
 
-        let (port, v) = multi_bind_in_range(ip_addr, (2010, 2110), config.clone(), 10).unwrap();
+        let (port, v) =
+            multi_bind_in_range_with_config(ip_addr, (2010, 2110), config.clone(), 10).unwrap();
         for sock in &v {
             assert_eq!(port, sock.local_addr().unwrap().port());
         }
@@ -932,8 +1027,8 @@ mod tests {
     fn test_bind_with_any_port() {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         let config = SocketConfig::default();
-        let x = bind_with_any_port(ip_addr, config.clone()).unwrap();
-        let y = bind_with_any_port(ip_addr, config.clone()).unwrap();
+        let x = bind_with_any_port_with_config(ip_addr, config.clone()).unwrap();
+        let y = bind_with_any_port_with_config(ip_addr, config.clone()).unwrap();
         assert_ne!(
             x.local_addr().unwrap().port(),
             y.local_addr().unwrap().port()
@@ -965,10 +1060,11 @@ mod tests {
     fn test_bind_common_in_range() {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         let config = SocketConfig::default();
-        let (port, _sockets) = bind_common_in_range(ip_addr, (3100, 3150), config.clone()).unwrap();
+        let (port, _sockets) =
+            bind_common_in_range_with_config(ip_addr, (3100, 3150), config.clone()).unwrap();
         assert!((3100..3150).contains(&port));
 
-        bind_common_in_range(ip_addr, (port, port + 1), config.clone()).unwrap_err();
+        bind_common_in_range_with_config(ip_addr, (port, port + 1), config.clone()).unwrap_err();
     }
 
     #[test]
@@ -977,7 +1073,7 @@ mod tests {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         let config = SocketConfig::default();
         let (_server_port, (server_udp_socket, server_tcp_listener)) =
-            bind_common_in_range(ip_addr, (3200, 3250), config).unwrap();
+            bind_common_in_range_with_config(ip_addr, (3200, 3250), config).unwrap();
 
         let _runtime = ip_echo_server(
             server_tcp_listener,
@@ -1000,9 +1096,9 @@ mod tests {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         let config = SocketConfig::default();
         let (_server_port, (server_udp_socket, server_tcp_listener)) =
-            bind_common_in_range(ip_addr, (3200, 3250), config.clone()).unwrap();
+            bind_common_in_range_with_config(ip_addr, (3200, 3250), config.clone()).unwrap();
         let (client_port, (client_udp_socket, client_tcp_listener)) =
-            bind_common_in_range(ip_addr, (3200, 3250), config).unwrap();
+            bind_common_in_range_with_config(ip_addr, (3200, 3250), config).unwrap();
 
         let _runtime = ip_echo_server(
             server_tcp_listener,
@@ -1029,14 +1125,14 @@ mod tests {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         let config = SocketConfig::default();
         let (_server_port, (server_udp_socket, _server_tcp_listener)) =
-            bind_common_in_range(ip_addr, (3200, 3250), config.clone()).unwrap();
+            bind_common_in_range_with_config(ip_addr, (3200, 3250), config.clone()).unwrap();
 
         // make the socket unreachable by not running the ip echo server!
 
         let server_ip_echo_addr = server_udp_socket.local_addr().unwrap();
 
         let (correct_client_port, (_client_udp_socket, client_tcp_listener)) =
-            bind_common_in_range(ip_addr, (3200, 3250), config).unwrap();
+            bind_common_in_range_with_config(ip_addr, (3200, 3250), config).unwrap();
 
         assert!(!do_verify_reachable_ports(
             &server_ip_echo_addr,
@@ -1053,14 +1149,14 @@ mod tests {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         let config = SocketConfig::default();
         let (_server_port, (server_udp_socket, _server_tcp_listener)) =
-            bind_common_in_range(ip_addr, (3200, 3250), config.clone()).unwrap();
+            bind_common_in_range_with_config(ip_addr, (3200, 3250), config.clone()).unwrap();
 
         // make the socket unreachable by not running the ip echo server!
 
         let server_ip_echo_addr = server_udp_socket.local_addr().unwrap();
 
         let (_correct_client_port, (client_udp_socket, _client_tcp_listener)) =
-            bind_common_in_range(ip_addr, (3200, 3250), config).unwrap();
+            bind_common_in_range_with_config(ip_addr, (3200, 3250), config).unwrap();
 
         assert!(!do_verify_reachable_ports(
             &server_ip_echo_addr,
@@ -1088,5 +1184,18 @@ mod tests {
             assert!(port2 == port1 + offset);
         }
         assert!(bind_two_in_range_with_offset(ip_addr, (1024, 1044), offset).is_err());
+    }
+
+    #[test]
+    fn test_multi_bind_in_range_with_config_reuseport_disabled() {
+        let ip_addr: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let config = SocketConfig::default(); //reuseport is false by default
+
+        let result = multi_bind_in_range_with_config(ip_addr, (2010, 2110), config, 2);
+
+        assert!(
+            result.is_err(),
+            "Expected an error when reuseport is not set to true"
+        );
     }
 }

@@ -55,10 +55,11 @@ use {
     solana_ledger::shred::Shred,
     solana_measure::measure::Measure,
     solana_net_utils::{
-        bind_common_in_range, bind_common_with_config, bind_in_range, bind_in_range_with_config,
-        bind_more_with_config, bind_to_localhost, bind_to_unspecified,
+        bind_common_in_range_with_config, bind_common_with_config, bind_in_range,
+        bind_in_range_with_config, bind_more_with_config, bind_to_localhost, bind_to_unspecified,
         bind_two_in_range_with_offset_and_config, find_available_port_in_range,
-        multi_bind_in_range, PortRange, SocketConfig, SocketUsage, VALIDATOR_PORT_RANGE,
+        multi_bind_in_range_with_config, PortRange, SocketConfig, SocketUsage,
+        VALIDATOR_PORT_RANGE,
     },
     solana_perf::{
         data_budget::DataBudget,
@@ -2642,7 +2643,8 @@ impl Node {
         let tpu_quic =
             bind_more_with_config(tpu_quic, num_quic_endpoints, quic_config.clone()).unwrap();
         let (gossip_port, (gossip, ip_echo)) =
-            bind_common_in_range(localhost_ip_addr, port_range, udp_config.clone()).unwrap();
+            bind_common_in_range_with_config(localhost_ip_addr, port_range, udp_config.clone())
+                .unwrap();
         let gossip_addr = SocketAddr::new(localhost_ip_addr, gossip_port);
         let tvu = bind_to_localhost().unwrap();
         let tvu_quic = bind_to_localhost().unwrap();
@@ -2755,7 +2757,8 @@ impl Node {
                 ),
             )
         } else {
-            bind_common_in_range(bind_ip_addr, port_range, config).expect("Failed to bind")
+            bind_common_in_range_with_config(bind_ip_addr, port_range, config)
+                .expect("Failed to bind")
         }
     }
 
@@ -2925,7 +2928,7 @@ impl Node {
             Self::get_gossip_port(&gossip_addr, port_range, bind_ip_addr);
 
         let tvu_config = SocketConfig::default().reuseport(true);
-        let (tvu_port, tvu_sockets) = multi_bind_in_range(
+        let (tvu_port, tvu_sockets) = multi_bind_in_range_with_config(
             bind_ip_addr,
             port_range,
             tvu_config.clone(),
@@ -2941,7 +2944,7 @@ impl Node {
             .reuseport(true)
             .usage(SocketUsage::ReadOnly);
         let (tpu_port, tpu_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, tpu_config.clone(), 32)
+            multi_bind_in_range_with_config(bind_ip_addr, port_range, tpu_config.clone(), 32)
                 .expect("tpu multi_bind");
 
         let (_tpu_port_quic, tpu_quic) = Self::bind_with_config(
@@ -2955,9 +2958,13 @@ impl Node {
         let tpu_forwards_config = SocketConfig::default()
             .reuseport(true)
             .usage(SocketUsage::ReadOnly);
-        let (tpu_forwards_port, tpu_forwards_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, tpu_forwards_config.clone(), 8)
-                .expect("tpu_forwards multi_bind");
+        let (tpu_forwards_port, tpu_forwards_sockets) = multi_bind_in_range_with_config(
+            bind_ip_addr,
+            port_range,
+            tpu_forwards_config.clone(),
+            8,
+        )
+        .expect("tpu_forwards multi_bind");
 
         let (_tpu_forwards_port_quic, tpu_forwards_quic) = Self::bind_with_config(
             bind_ip_addr,
@@ -2978,7 +2985,7 @@ impl Node {
             .reuseport(true)
             .usage(SocketUsage::ReadOnly);
         let (tpu_vote_port, tpu_vote_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, tpu_vote_config.clone(), 1)
+            multi_bind_in_range_with_config(bind_ip_addr, port_range, tpu_vote_config.clone(), 1)
                 .expect("tpu_vote multi_bind");
 
         let tpu_vote_config = SocketConfig::default().usage(SocketUsage::ReadOnly);
@@ -2999,7 +3006,7 @@ impl Node {
             .reuseport(true)
             .usage(SocketUsage::WriteOnly);
         let (_, retransmit_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, retransmit_config, 8)
+            multi_bind_in_range_with_config(bind_ip_addr, port_range, retransmit_config, 8)
                 .expect("retransmit multi_bind");
 
         let repair_config = SocketConfig::default();
@@ -3016,8 +3023,9 @@ impl Node {
         let broadcast_config = SocketConfig::default()
             .reuseport(true)
             .usage(SocketUsage::WriteOnly);
-        let (_, broadcast) = multi_bind_in_range(bind_ip_addr, port_range, broadcast_config, 4)
-            .expect("broadcast multi_bind");
+        let (_, broadcast) =
+            multi_bind_in_range_with_config(bind_ip_addr, port_range, broadcast_config, 4)
+                .expect("broadcast multi_bind");
 
         let ancestor_hashes_config = SocketConfig::default();
         let (_, ancestor_hashes_requests) =

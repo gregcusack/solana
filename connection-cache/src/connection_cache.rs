@@ -572,7 +572,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 udp_socket: Arc::new(
-                    solana_net_utils::bind_with_any_port(
+                    solana_net_utils::bind_with_any_port_with_config(
                         IpAddr::V4(Ipv4Addr::UNSPECIFIED),
                         SocketConfig::default(),
                     )
@@ -586,7 +586,7 @@ mod tests {
         fn new() -> Result<Self, ClientError> {
             Ok(Self {
                 udp_socket: Arc::new(
-                    solana_net_utils::bind_with_any_port(
+                    solana_net_utils::bind_with_any_port_with_config(
                         IpAddr::V4(Ipv4Addr::UNSPECIFIED),
                         SocketConfig::default(),
                     )

@@ -63,7 +63,7 @@ pub struct UdpConfig {
 
 impl NewConnectionConfig for UdpConfig {
     fn new() -> Result<Self, ClientError> {
-        let socket = solana_net_utils::bind_with_any_port(
+        let socket = solana_net_utils::bind_with_any_port_with_config(
             IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             SocketConfig::default(),
         )
