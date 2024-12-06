@@ -342,15 +342,19 @@ impl ClusterInfo {
         };
 
         if nodes.is_empty() {
+            info!("greg: nodes empty");
             return;
         }
 
         let num_nodes = nodes.len();
         let filename = self.contact_info_path.join("contact-info.bin");
         let tmp_filename = &filename.with_extension("tmp");
+        self.stats.total_contact_infos_serialized.add_relaxed(num_nodes as u64);
+        info!("greg: writing {} contact infos to {:?}", num_nodes, tmp_filename);
 
         match File::create(tmp_filename) {
             Ok(mut file) => {
+                let _st = ScopedTimer::from(&self.stats.total_serialize_contact_info_time);
                 if let Err(err) = CrdsValue::bincode_serialize_many(nodes, &mut file) {
                     warn!(
                         "Failed to serialize contact info info {}: {}",
@@ -394,12 +398,16 @@ impl ClusterInfo {
         }
 
         let nodes: Vec<CrdsValue> = match fs::read(&filename) {
-            Ok(bytes) => CrdsValue::bincode_deserialize_many(&bytes)
-                .collect::<Result<_, _>>()
-                .unwrap_or_else(|err| {
-                    warn!("Failed to deserialize {}: {}", filename.display(), err);
-                    vec![]
-                }),
+            Ok(bytes) => {
+                info!("greg: reading in contact info from {:?}", filename);
+                let _st = ScopedTimer::from(&self.stats.total_deserialize_contact_info_time);
+                CrdsValue::bincode_deserialize_many(&bytes)
+                    .collect::<Result<_, _>>()
+                    .unwrap_or_else(|err| {
+                        warn!("Failed to deserialize {}: {}", filename.display(), err);
+                        vec![]
+                    })
+                },
             Err(err) => {
                 warn!("Failed to open {}: {}", filename.display(), err);
                 vec![]
@@ -411,6 +419,8 @@ impl ClusterInfo {
             nodes.len(),
             filename.display()
         );
+        self.stats.total_contact_infos_deserialized.add_relaxed(nodes.len() as u64);
+        info!("greg: read {} contact infos from {:?}", nodes.len(), filename.display());
         let now = timestamp();
         let mut gossip_crds = self.gossip.crds.write().unwrap();
         for node in nodes {

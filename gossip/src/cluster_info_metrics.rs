@@ -180,6 +180,10 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) total_serialize_contact_info_time: Counter,
+    pub(crate) total_contact_infos_serialized: Counter,
+    pub(crate) total_deserialize_contact_info_time: Counter,
+    pub(crate) total_contact_infos_deserialized: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -316,6 +320,26 @@ pub(crate) fn submit_gossip_stats(
         (
             "push_response_count",
             stats.push_response_count.clear(),
+            i64
+        ),
+        (
+            "total_serialize_contact_info_time",
+            stats.total_serialize_contact_info_time.clear(),
+            i64
+        ),
+        (
+            "total_contact_infos_serialized",
+            stats.total_contact_infos_serialized.clear(),
+            i64
+        ),
+        (
+            "total_deserialize_contact_info_time",
+            stats.total_deserialize_contact_info_time.clear(),
+            i64
+        ),
+        (
+            "total_contact_infos_deserialized",
+            stats.total_contact_infos_deserialized.clear(),
             i64
         ),
     );
