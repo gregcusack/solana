@@ -16,7 +16,7 @@ use {
         connection_cache_stats::ConnectionCacheStats,
     },
     solana_keypair::Keypair,
-    solana_net_utils::SocketConfig,
+    solana_net_utils::{SocketConfig, DEFAULT_RECV_BUFFER_SIZE, DEFAULT_SEND_BUFFER_SIZE},
     std::{
         net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
         sync::Arc,
@@ -65,7 +65,11 @@ impl NewConnectionConfig for UdpConfig {
     fn new() -> Result<Self, ClientError> {
         let socket = solana_net_utils::bind_with_any_port_with_config(
             IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-            SocketConfig::default(),
+            SocketConfig::new(
+                /*reuseport*/ false,
+                DEFAULT_RECV_BUFFER_SIZE,
+                DEFAULT_SEND_BUFFER_SIZE,
+            ),
         )
         .map_err(Into::<ClientError>::into)?;
         Ok(Self {

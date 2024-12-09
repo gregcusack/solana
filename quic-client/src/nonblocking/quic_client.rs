@@ -17,7 +17,9 @@ use {
     },
     solana_keypair::Keypair,
     solana_measure::measure::Measure,
-    solana_net_utils::{SocketConfig, VALIDATOR_PORT_RANGE},
+    solana_net_utils::{
+        SocketConfig, DEFAULT_RECV_BUFFER_SIZE, DEFAULT_SEND_BUFFER_SIZE, VALIDATOR_PORT_RANGE,
+    },
     solana_quic_definitions::{
         QUIC_CONNECTION_HANDSHAKE_TIMEOUT, QUIC_KEEP_ALIVE, QUIC_MAX_TIMEOUT,
     },
@@ -75,7 +77,11 @@ impl QuicLazyInitializedEndpoint {
         let mut endpoint = if let Some(endpoint) = &self.client_endpoint {
             endpoint.clone()
         } else {
-            let config = SocketConfig::default();
+            let config = SocketConfig::new(
+                /*reuseport*/ false,
+                DEFAULT_RECV_BUFFER_SIZE,
+                DEFAULT_SEND_BUFFER_SIZE,
+            );
             let client_socket = solana_net_utils::bind_in_range_with_config(
                 IpAddr::V4(Ipv4Addr::UNSPECIFIED),
                 VALIDATOR_PORT_RANGE,

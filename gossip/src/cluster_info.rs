@@ -58,7 +58,8 @@ use {
         bind_common_in_range_with_config, bind_common_with_config, bind_in_range,
         bind_in_range_with_config, bind_more_with_config, bind_to_localhost, bind_to_unspecified,
         bind_two_in_range_with_offset_and_config, find_available_port_in_range,
-        multi_bind_in_range_with_config, PortRange, SocketConfig, VALIDATOR_PORT_RANGE,
+        multi_bind_in_range_with_config, PortRange, SocketConfig, DEFAULT_RECV_BUFFER_SIZE,
+        DEFAULT_SEND_BUFFER_SIZE, VALIDATOR_PORT_RANGE,
     },
     solana_perf::{
         data_budget::DataBudget,
@@ -2628,8 +2629,16 @@ impl Node {
         let localhost_ip_addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
         let port_range = (1024, 65535);
 
-        let udp_config = SocketConfig::default();
-        let quic_config = SocketConfig::default().reuseport(true);
+        let udp_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
+        let quic_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let ((_tpu_port, tpu), (_tpu_quic_port, tpu_quic)) =
             bind_two_in_range_with_offset_and_config(
                 localhost_ip_addr,
@@ -2747,7 +2756,11 @@ impl Node {
         port_range: PortRange,
         bind_ip_addr: IpAddr,
     ) -> (u16, (UdpSocket, TcpListener)) {
-        let config = SocketConfig::default();
+        let config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         if gossip_addr.port() != 0 {
             (
                 gossip_addr.port(),
@@ -2778,13 +2791,25 @@ impl Node {
         let (gossip_port, (gossip, ip_echo)) =
             Self::get_gossip_port(gossip_addr, port_range, bind_ip_addr);
 
-        let read_write_socket_config = SocketConfig::default();
+        let read_write_socket_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (tvu_port, tvu) =
             Self::bind_with_config(bind_ip_addr, port_range, read_write_socket_config.clone());
         let (tvu_quic_port, tvu_quic) =
             Self::bind_with_config(bind_ip_addr, port_range, read_write_socket_config.clone());
-        let tpu_udp_config = SocketConfig::default();
-        let tpu_quic_config = SocketConfig::default().reuseport(true);
+        let tpu_udp_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
+        let tpu_quic_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let ((tpu_port, tpu), (_tpu_quic_port, tpu_quic)) =
             bind_two_in_range_with_offset_and_config(
                 bind_ip_addr,
@@ -2798,8 +2823,16 @@ impl Node {
             bind_more_with_config(tpu_quic, DEFAULT_QUIC_ENDPOINTS, tpu_quic_config.clone())
                 .unwrap();
 
-        let tpu_forwards_udp_config = SocketConfig::default();
-        let tpu_forwards_quic_config = SocketConfig::default().reuseport(true);
+        let tpu_forwards_udp_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
+        let tpu_forwards_quic_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let ((tpu_forwards_port, tpu_forwards), (_tpu_forwards_quic_port, tpu_forwards_quic)) =
             bind_two_in_range_with_offset_and_config(
                 bind_ip_addr,
@@ -2816,8 +2849,16 @@ impl Node {
         )
         .unwrap();
 
-        let tpu_vote_udp_config = SocketConfig::default();
-        let tpu_vote_quic_config = SocketConfig::default().reuseport(true);
+        let tpu_vote_udp_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
+        let tpu_vote_quic_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (tpu_vote_port, tpu_vote) =
             Self::bind_with_config(bind_ip_addr, port_range, tpu_vote_udp_config.clone());
         // using udp port for quic really because we need to reusport set to false, since Self::bind() defaults to false
@@ -2827,7 +2868,11 @@ impl Node {
             bind_more_with_config(tpu_vote_quic, DEFAULT_QUIC_ENDPOINTS, tpu_vote_quic_config)
                 .unwrap();
 
-        let write_only_socket_config = SocketConfig::default();
+        let write_only_socket_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
 
         let (_, retransmit_socket) =
             Self::bind_with_config(bind_ip_addr, port_range, write_only_socket_config.clone());
@@ -2920,7 +2965,11 @@ impl Node {
         let (gossip_port, (gossip, ip_echo)) =
             Self::get_gossip_port(&gossip_addr, port_range, bind_ip_addr);
 
-        let tvu_config = SocketConfig::default().reuseport(true);
+        let tvu_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (tvu_port, tvu_sockets) = multi_bind_in_range_with_config(
             bind_ip_addr,
             port_range,
@@ -2929,11 +2978,19 @@ impl Node {
         )
         .expect("tvu multi_bind");
 
-        let tvu_config = SocketConfig::default().reuseport(false);
+        let tvu_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (tvu_quic_port, tvu_quic) =
             Self::bind_with_config(bind_ip_addr, port_range, tvu_config);
 
-        let tpu_config = SocketConfig::default().reuseport(true);
+        let tpu_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (tpu_port, tpu_sockets) =
             multi_bind_in_range_with_config(bind_ip_addr, port_range, tpu_config.clone(), 32)
                 .expect("tpu multi_bind");
@@ -2946,7 +3003,11 @@ impl Node {
         let tpu_quic =
             bind_more_with_config(tpu_quic, num_quic_endpoints.get(), tpu_config.clone()).unwrap();
 
-        let tpu_forwards_config = SocketConfig::default().reuseport(true);
+        let tpu_forwards_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (tpu_forwards_port, tpu_forwards_sockets) = multi_bind_in_range_with_config(
             bind_ip_addr,
             port_range,
@@ -2970,16 +3031,28 @@ impl Node {
         )
         .unwrap();
 
-        let tpu_vote_config = SocketConfig::default().reuseport(true);
+        let tpu_vote_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (tpu_vote_port, tpu_vote_sockets) =
             multi_bind_in_range_with_config(bind_ip_addr, port_range, tpu_vote_config.clone(), 1)
                 .expect("tpu_vote multi_bind");
 
-        let tpu_vote_config = SocketConfig::default();
+        let tpu_vote_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (tpu_vote_quic_port, tpu_vote_quic) =
             Self::bind_with_config(bind_ip_addr, port_range, tpu_vote_config.clone());
 
-        let tpu_vote_config = SocketConfig::default().reuseport(true);
+        let tpu_vote_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let tpu_vote_quic = bind_more_with_config(
             tpu_vote_quic,
             num_quic_endpoints.get(),
@@ -2987,28 +3060,48 @@ impl Node {
         )
         .unwrap();
 
-        let retransmit_config = SocketConfig::default().reuseport(true);
+        let retransmit_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (_, retransmit_sockets) =
             multi_bind_in_range_with_config(bind_ip_addr, port_range, retransmit_config, 8)
                 .expect("retransmit multi_bind");
 
-        let repair_config = SocketConfig::default();
+        let repair_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (_, repair) = Self::bind_with_config(bind_ip_addr, port_range, repair_config.clone());
         let (_, repair_quic) =
             Self::bind_with_config(bind_ip_addr, port_range, repair_config.clone());
 
-        let serve_repair_config = SocketConfig::default();
+        let serve_repair_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (serve_repair_port, serve_repair) =
             Self::bind_with_config(bind_ip_addr, port_range, serve_repair_config.clone());
         let (serve_repair_quic_port, serve_repair_quic) =
             Self::bind_with_config(bind_ip_addr, port_range, serve_repair_config);
 
-        let broadcast_config = SocketConfig::default().reuseport(true);
+        let broadcast_config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (_, broadcast) =
             multi_bind_in_range_with_config(bind_ip_addr, port_range, broadcast_config, 4)
                 .expect("broadcast multi_bind");
 
-        let ancestor_hashes_config = SocketConfig::default();
+        let ancestor_hashes_config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (_, ancestor_hashes_requests) =
             Self::bind_with_config(bind_ip_addr, port_range, ancestor_hashes_config.clone());
         let (_, ancestor_hashes_requests_quic) =

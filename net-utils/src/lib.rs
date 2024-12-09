@@ -37,16 +37,9 @@ pub const VALIDATOR_PORT_RANGE: PortRange = (8000, 10_000);
 pub const MINIMUM_VALIDATOR_PORT_RANGE_WIDTH: u16 = 17; // VALIDATOR_PORT_RANGE must be at least this wide
 
 #[cfg(not(any(windows, target_os = "ios")))]
-const DEFAULT_RECV_BUFFER_SIZE: usize = 64 * 1024 * 1024; // 64MB - Doubled to 128MB by the kernel
+pub const DEFAULT_RECV_BUFFER_SIZE: usize = 64 * 1024 * 1024; // 64MB - Doubled to 128MB by the kernel
 #[cfg(not(any(windows, target_os = "ios")))]
-const DEFAULT_SEND_BUFFER_SIZE: usize = 64 * 1024 * 1024; // 64MB - Doubled to 128MB by the kernel
-
-#[derive(Clone, Debug)]
-pub enum SocketUsage {
-    ReadOnly,
-    WriteOnly,
-    ReadWrite,
-}
+pub const DEFAULT_SEND_BUFFER_SIZE: usize = 64 * 1024 * 1024; // 64MB - Doubled to 128MB by the kernel
 
 pub(crate) const HEADER_LENGTH: usize = 4;
 pub(crate) const IP_ECHO_SERVER_RESPONSE_LENGTH: usize = HEADER_LENGTH + 23;
@@ -403,62 +396,24 @@ pub fn is_host_port(string: String) -> Result<(), String> {
 pub struct SocketConfig {
     reuseport: bool,
     #[cfg(not(any(windows, target_os = "ios")))]
-    usage: SocketUsage,
-    #[cfg(not(any(windows, target_os = "ios")))]
     recv_buffer_size: usize,
     #[cfg(not(any(windows, target_os = "ios")))]
     send_buffer_size: usize,
 }
 
-#[cfg(not(any(windows, target_os = "ios")))]
-impl Default for SocketConfig {
-    fn default() -> Self {
-        Self {
-            reuseport: false,
-            #[cfg(not(any(windows, target_os = "ios")))]
-            usage: SocketUsage::ReadWrite,
-            #[cfg(not(any(windows, target_os = "ios")))]
-            recv_buffer_size: DEFAULT_RECV_BUFFER_SIZE,
-            #[cfg(not(any(windows, target_os = "ios")))]
-            send_buffer_size: DEFAULT_SEND_BUFFER_SIZE,
-        }
-    }
-}
-
 impl SocketConfig {
-    pub fn reuseport(mut self, reuseport: bool) -> Self {
-        self.reuseport = reuseport;
-        self
+    #[cfg(not(any(windows, target_os = "ios")))]
+    pub fn new(reuseport: bool, recv_buffer_size: usize, send_buffer_size: usize) -> Self {
+        Self {
+            reuseport,
+            recv_buffer_size,
+            send_buffer_size,
+        }
     }
 
-    // allow here to supress unused warnings from windows/ios builds
-    #[allow(unused_mut, unused_variables)]
-    pub fn usage(mut self, usage: SocketUsage) -> Self {
-        #[cfg(not(any(windows, target_os = "ios")))]
-        {
-            self.usage = usage;
-        }
-        self
-    }
-
-    // allow here to supress unused warnings from windows/ios builds
-    #[allow(unused_mut, unused_variables)]
-    pub fn recv_buffer_size(mut self, size: usize) -> Self {
-        #[cfg(not(any(windows, target_os = "ios")))]
-        {
-            self.recv_buffer_size = size;
-        }
-        self
-    }
-
-    // allow here to supress unused warnings from windows/ios builds
-    #[allow(unused_mut, unused_variables)]
-    pub fn send_buffer_size(mut self, size: usize) -> Self {
-        #[cfg(not(any(windows, target_os = "ios")))]
-        {
-            self.send_buffer_size = size;
-        }
-        self
+    #[cfg(any(windows, target_os = "ios"))]
+    pub fn new() -> Self {
+        Self { reuseport: false }
     }
 }
 
@@ -473,7 +428,6 @@ fn udp_socket_with_config(config: SocketConfig) -> io::Result<Socket> {
     use nix::sys::socket::{setsockopt, sockopt::ReusePort};
     let SocketConfig {
         reuseport,
-        usage: _,
         recv_buffer_size,
         send_buffer_size,
     } = config;
@@ -518,11 +472,23 @@ pub fn bind_common_in_range(
     ip_addr: IpAddr,
     range: PortRange,
 ) -> io::Result<(u16, (UdpSocket, TcpListener))> {
-    bind_common_in_range_with_config(ip_addr, range, SocketConfig::default())
+    bind_common_in_range_with_config(
+        ip_addr,
+        range,
+        SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        ),
+    )
 }
 
 pub fn bind_in_range(ip_addr: IpAddr, range: PortRange) -> io::Result<(u16, UdpSocket)> {
-    let config = SocketConfig::default();
+    let config = SocketConfig::new(
+        /*reuseport*/ false,
+        DEFAULT_RECV_BUFFER_SIZE,
+        DEFAULT_SEND_BUFFER_SIZE,
+    );
     bind_in_range_with_config(ip_addr, range, config)
 }
 
@@ -565,7 +531,14 @@ pub fn bind_with_any_port_with_config(
 
 #[deprecated(since = "2.2.0", note = "use `bind_with_any_port_with_config` instead")]
 pub fn bind_with_any_port(ip_addr: IpAddr) -> io::Result<UdpSocket> {
-    bind_with_any_port_with_config(ip_addr, SocketConfig::default())
+    bind_with_any_port_with_config(
+        ip_addr,
+        SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        ),
+    )
 }
 
 // binds many sockets to the same port in a range with config
@@ -633,12 +606,20 @@ pub fn multi_bind_in_range(
     range: PortRange,
     mut num: usize,
 ) -> io::Result<(u16, Vec<UdpSocket>)> {
-    let config = SocketConfig::default().reuseport(true);
+    let config = SocketConfig::new(
+        /*reuseport*/ true,
+        DEFAULT_RECV_BUFFER_SIZE,
+        DEFAULT_SEND_BUFFER_SIZE,
+    );
     multi_bind_in_range_with_config(ip_addr, range, config, num)
 }
 
 pub fn bind_to(ip_addr: IpAddr, port: u16, reuseport: bool) -> io::Result<UdpSocket> {
-    let config = SocketConfig::default().reuseport(reuseport);
+    let config = SocketConfig::new(
+        /*reuseport*/ reuseport,
+        DEFAULT_RECV_BUFFER_SIZE,
+        DEFAULT_SEND_BUFFER_SIZE,
+    );
     bind_to_with_config(ip_addr, port, config)
 }
 
@@ -648,7 +629,11 @@ pub async fn bind_to_async(
     port: u16,
     reuseport: bool,
 ) -> io::Result<TokioUdpSocket> {
-    let config = SocketConfig::default().reuseport(reuseport);
+    let config = SocketConfig::new(
+        /*reuseport*/ reuseport,
+        DEFAULT_RECV_BUFFER_SIZE,
+        DEFAULT_SEND_BUFFER_SIZE,
+    );
     let socket = bind_to_with_config_non_blocking(ip_addr, port, config)?;
     TokioUdpSocket::from_std(socket)
 }
@@ -717,7 +702,11 @@ pub fn bind_to_with_config_non_blocking(
 
 // binds both a UdpSocket and a TcpListener
 pub fn bind_common(ip_addr: IpAddr, port: u16) -> io::Result<(UdpSocket, TcpListener)> {
-    let config = SocketConfig::default();
+    let config = SocketConfig::new(
+        /*reuseport*/ false,
+        DEFAULT_RECV_BUFFER_SIZE,
+        DEFAULT_SEND_BUFFER_SIZE,
+    );
     bind_common_with_config(ip_addr, port, config)
 }
 
@@ -740,8 +729,16 @@ pub fn bind_two_in_range_with_offset(
     range: PortRange,
     offset: u16,
 ) -> io::Result<((u16, UdpSocket), (u16, UdpSocket))> {
-    let sock1_config = SocketConfig::default();
-    let sock2_config = SocketConfig::default();
+    let sock1_config = SocketConfig::new(
+        /*reuseport*/ false,
+        DEFAULT_RECV_BUFFER_SIZE,
+        DEFAULT_SEND_BUFFER_SIZE,
+    );
+    let sock2_config = SocketConfig::new(
+        /*reuseport*/ false,
+        DEFAULT_RECV_BUFFER_SIZE,
+        DEFAULT_SEND_BUFFER_SIZE,
+    );
     bind_two_in_range_with_offset_and_config(ip_addr, range, offset, sock1_config, sock2_config)
 }
 
@@ -919,7 +916,11 @@ mod tests {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         assert_eq!(bind_in_range(ip_addr, (2000, 2001)).unwrap().0, 2000);
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        let config = SocketConfig::default().reuseport(true);
+        let config = SocketConfig::new(
+            /*reuseport*/ true,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let x = bind_to_with_config(ip_addr, 2002, config.clone()).unwrap();
         let y = bind_to_with_config(ip_addr, 2002, config.clone()).unwrap();
         assert_eq!(
@@ -939,7 +940,11 @@ mod tests {
     #[test]
     fn test_bind_with_any_port() {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        let config = SocketConfig::default();
+        let config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let x = bind_with_any_port_with_config(ip_addr, config.clone()).unwrap();
         let y = bind_with_any_port_with_config(ip_addr, config.clone()).unwrap();
         assert_ne!(
@@ -972,7 +977,11 @@ mod tests {
     #[test]
     fn test_bind_common_in_range() {
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        let config = SocketConfig::default();
+        let config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (port, _sockets) =
             bind_common_in_range_with_config(ip_addr, (3100, 3150), config.clone()).unwrap();
         assert!((3100..3150).contains(&port));
@@ -984,7 +993,11 @@ mod tests {
     fn test_get_public_ip_addr_none() {
         solana_logger::setup();
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        let config = SocketConfig::default();
+        let config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (_server_port, (server_udp_socket, server_tcp_listener)) =
             bind_common_in_range_with_config(ip_addr, (3200, 3250), config).unwrap();
 
@@ -1007,7 +1020,11 @@ mod tests {
     fn test_get_public_ip_addr_reachable() {
         solana_logger::setup();
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        let config = SocketConfig::default();
+        let config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (_server_port, (server_udp_socket, server_tcp_listener)) =
             bind_common_in_range_with_config(ip_addr, (3200, 3250), config.clone()).unwrap();
         let (client_port, (client_udp_socket, client_tcp_listener)) =
@@ -1036,7 +1053,11 @@ mod tests {
     fn test_get_public_ip_addr_tcp_unreachable() {
         solana_logger::setup();
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        let config = SocketConfig::default();
+        let config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (_server_port, (server_udp_socket, _server_tcp_listener)) =
             bind_common_in_range_with_config(ip_addr, (3200, 3250), config.clone()).unwrap();
 
@@ -1060,7 +1081,11 @@ mod tests {
     fn test_get_public_ip_addr_udp_unreachable() {
         solana_logger::setup();
         let ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        let config = SocketConfig::default();
+        let config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        );
         let (_server_port, (server_udp_socket, _server_tcp_listener)) =
             bind_common_in_range_with_config(ip_addr, (3200, 3250), config.clone()).unwrap();
 
@@ -1102,7 +1127,11 @@ mod tests {
     #[test]
     fn test_multi_bind_in_range_with_config_reuseport_disabled() {
         let ip_addr: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-        let config = SocketConfig::default(); //reuseport is false by default
+        let config = SocketConfig::new(
+            /*reuseport*/ false,
+            DEFAULT_RECV_BUFFER_SIZE,
+            DEFAULT_SEND_BUFFER_SIZE,
+        ); //reuseport is false by default
 
         let result = multi_bind_in_range_with_config(ip_addr, (2010, 2110), config, 2);
 

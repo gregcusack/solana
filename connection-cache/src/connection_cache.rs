@@ -514,7 +514,7 @@ mod tests {
         async_trait::async_trait,
         rand::{Rng, SeedableRng},
         rand_chacha::ChaChaRng,
-        solana_net_utils::SocketConfig,
+        solana_net_utils::{SocketConfig, DEFAULT_RECV_BUFFER_SIZE, DEFAULT_SEND_BUFFER_SIZE},
         solana_transaction_error::TransportResult,
         std::{
             net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
@@ -574,7 +574,11 @@ mod tests {
                 udp_socket: Arc::new(
                     solana_net_utils::bind_with_any_port_with_config(
                         IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-                        SocketConfig::default(),
+                        SocketConfig::new(
+                            /*reuseport*/ false,
+                            DEFAULT_RECV_BUFFER_SIZE,
+                            DEFAULT_SEND_BUFFER_SIZE,
+                        ),
                     )
                     .expect("Unable to bind to UDP socket"),
                 ),
@@ -588,7 +592,11 @@ mod tests {
                 udp_socket: Arc::new(
                     solana_net_utils::bind_with_any_port_with_config(
                         IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-                        SocketConfig::default(),
+                        SocketConfig::new(
+                            /*reuseport*/ false,
+                            DEFAULT_RECV_BUFFER_SIZE,
+                            DEFAULT_SEND_BUFFER_SIZE,
+                        ),
                     )
                     .map_err(Into::<ClientError>::into)?,
                 ),
