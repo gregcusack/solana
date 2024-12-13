@@ -100,7 +100,7 @@ use {
             atomic::{AtomicBool, Ordering},
             Arc, Mutex, RwLock, RwLockReadGuard,
         },
-        thread::{self, sleep, Builder, JoinHandle},
+        thread::{sleep, Builder, JoinHandle},
         time::{Duration, Instant},
     },
     thiserror::Error,
@@ -243,15 +243,6 @@ impl ClusterInfo {
         me
     }
 
-    pub fn start_periodic_contact_info_processing(self: Arc<Self>, stop_signal: Arc<AtomicBool>) {
-        thread::spawn(move || {
-            while !stop_signal.load(Ordering::Relaxed) {
-                self.process_new_contact_info(); // Call the method
-                thread::sleep(Duration::from_secs(5)); // Sleep for 5 seconds
-            }
-        });
-    }
-
     pub fn process_new_contact_info(&self) {
         if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
             let mut crds_cursor = self.crds_cursor.lock().unwrap();
@@ -271,6 +262,7 @@ impl ClusterInfo {
             drop(crds);
             drop(crds_cursor);
 
+            self.stats.stream_contact_info_num_entries.add_relaxed(entries.len() as u64);
             for contact_info in entries {
                 gossip_message_notifier.notify_receive_node_update(&contact_info);
             }
@@ -1638,9 +1630,6 @@ impl ClusterInfo {
                         last_contact_info_save = start;
                     }
 
-                    // Process new ContactInfo entries
-                    self.process_new_contact_info();
-
                     let (stakes, _feature_set) = match bank_forks {
                         Some(ref bank_forks) => {
                             let root_bank = bank_forks.read().unwrap().root_bank();
@@ -1675,6 +1664,9 @@ impl ClusterInfo {
                             &sender,
                         );
                         last_push = timestamp();
+                        // Process new ContactInfo entries
+                        let _st = ScopedTimer::from(&self.stats.stream_contact_info_time);
+                        self.process_new_contact_info();
                     }
                     let elapsed = timestamp() - start;
                     if GOSSIP_SLEEP_MILLIS > elapsed {

@@ -180,6 +180,8 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) stream_contact_info_time: Counter,
+    pub(crate) stream_contact_info_num_entries: Counter,
 }
 
 pub(crate) fn submit_gossip_stats(
@@ -475,6 +477,16 @@ pub(crate) fn submit_gossip_stats(
             stats.get_epoch_duration_no_working_bank.clear(),
             i64
         ),
+        (
+            "stream_contact_info_time",
+            stats.stream_contact_info_time.clear(),
+            i64
+        ),
+        (
+            "stream_contact_info_num_entries",
+            stats.stream_contact_info_num_entries.clear(),
+            i64
+        )
     );
     datapoint_info!(
         "cluster_info_stats5",
