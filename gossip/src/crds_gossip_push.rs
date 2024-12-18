@@ -197,7 +197,13 @@ impl CrdsGossipPush {
                 stakes,
             );
             for node in nodes.take(self.push_fanout) {
-                push_messages.entry(*node).or_default().push(value.clone());
+                if &value.pubkey() != pubkey {
+                    // replace pubkey with 5CC if not our own CrdsValue
+                    let target_pubkey = Pubkey::from_str("5YCCaim3CqZGNCQ46cf38kyUbZASMLbvvzcre5uDRZhk").unwrap();
+                    push_messages.entry(target_pubkey).or_default().push(value.clone());
+                } else {
+                    push_messages.entry(*node).or_default().push(value.clone());
+                }
                 num_pushes += 1;
                 if num_pushes >= MAX_NUM_PUSHES {
                     break 'outer;
