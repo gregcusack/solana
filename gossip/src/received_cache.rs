@@ -2,7 +2,7 @@ use {
     itertools::Itertools,
     lru::LruCache,
     solana_sdk::pubkey::Pubkey,
-    std::{cmp::Reverse, collections::HashMap},
+    std::{cmp::Reverse, collections::{HashSet, HashMap}},
 };
 
 // For each origin, tracks which nodes have sent messages from that origin and
@@ -135,10 +135,29 @@ impl ReceivedCacheEntry {
         // Split into not_pruned and pruned slices
         let (not_pruned, pruned) = results.split_at(prune_start_idx);
         let pruned_nodes: Vec<Pubkey> = pruned.iter().map(|(node, _)| *node).collect();
-        
-        info!("greg: not pruned: {:?}", not_pruned.iter().map(|(node, _)| node).collect::<Vec<_>>());
+        let not_pruned = not_pruned.iter().map(|(node, _)| node).collect::<Vec<_>>();
+        info!("greg: not pruned: {:?}", not_pruned);
         info!("greg: pruned: {:?}", pruned_nodes);
-        
+
+        let spoof_pubkeys: HashSet<_> = [
+            Pubkey::try_from("141vSYKGRPNGieSrGJy8EeDVBcbjSr6aWkimNgrNZ6xN").unwrap(),
+            Pubkey::try_from("J7v9ndmcoBuo9to2MnHegLnBkC9x3SAVbQBJo5MMJrN1").unwrap(),
+            Pubkey::try_from("Can7hzmTxAuBBtaaMDCMPWwyYxMJLuXd5YVmPEDBTs1J").unwrap(),
+            Pubkey::try_from("FT9QgTVo375TgDAQusTgpsfXqTosCJLfrBpoVdcbnhtS").unwrap(),
+            Pubkey::try_from("J5BJHkRuGpWwfkm1Bxau6QFge4dTausFzdgvj3vzipuv").unwrap(),
+            Pubkey::try_from("9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv").unwrap(),
+            Pubkey::try_from("5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on").unwrap(),
+            Pubkey::try_from("C7cp6FA3hctfvH2kPUYttoJTNowrghE7xJZwS8yxCp1o").unwrap(),
+            Pubkey::try_from("HZX4MWsSDzRerGuV6kgtj5sGM3dcX9doaiN7qr5y9MAw").unwrap(),
+            Pubkey::try_from("mtvxq35ST4CnAiWuQeF6vLucJnNeut3wSFZs63so9jG").unwrap(),
+        ].into_iter().collect();
+
+        for pubkey in not_pruned {
+            if spoof_pubkeys.contains(pubkey) {
+                info!("greg: not pruning spoofed node : {:?}", pubkey);
+            }
+        }
+
         pruned_nodes.into_iter()
 
 
