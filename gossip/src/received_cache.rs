@@ -106,7 +106,9 @@ impl ReceivedCacheEntry {
             let stake = stakes.get(pubkey).min(stakes.get(origin));
             (stake.copied().unwrap_or_default() as f64 * stake_threshold) as u64
         };
-        self.nodes
+
+        // Build a vector of (node, accumulated_stake) after sorting and scanning
+        let results: Vec<(Pubkey, u64)> = self.nodes
             .into_iter()
             .map(|(node, score)| {
                 let stake = stakes.get(&node).copied().unwrap_or_default();
@@ -118,9 +120,46 @@ impl ReceivedCacheEntry {
                 *acc = acc.saturating_add(stake);
                 Some((node, old))
             })
+            .collect();
+
+        // Find the index where pruning starts:
+        // skip min_ingress_nodes and then skip while stake < min_ingress_stake
+        let prune_start_idx = results
+            .iter()
+            .enumerate()
             .skip(min_ingress_nodes)
-            .skip_while(move |&(_, stake)| stake < min_ingress_stake)
-            .map(|(node, _stake)| node)
+            .find(|&(_, &(_, stake))| stake >= min_ingress_stake)
+            .map(|(i, _)| i)
+            .unwrap_or(results.len());
+
+        // Split into not_pruned and pruned slices
+        let (not_pruned, pruned) = results.split_at(prune_start_idx);
+        let pruned_nodes: Vec<Pubkey> = pruned.iter().map(|(node, _)| *node).collect();
+        
+        info!("greg: not pruned: {:?}", not_pruned.iter().map(|(node, _)| node).collect::<Vec<_>>());
+        info!("greg: pruned: {:?}", pruned_nodes);
+        
+        pruned_nodes.into_iter()
+
+
+        // Return an iterator over pruned nodes
+        // pruned.iter().map(|(node, _)| *node)
+ 
+        // self.nodes
+        //     .into_iter()
+        //     .map(|(node, score)| {
+        //         let stake = stakes.get(&node).copied().unwrap_or_default();
+        //         (node, score, stake)
+        //     })
+        //     .sorted_unstable_by_key(|&(_, score, stake)| Reverse((score, stake)))
+        //     .scan(0u64, |acc, (node, _score, stake)| {
+        //         let old = *acc;
+        //         *acc = acc.saturating_add(stake);
+        //         Some((node, old))
+        //     })
+        //     .skip(min_ingress_nodes)
+        //     .skip_while(move |&(_, stake)| stake < min_ingress_stake)
+        //     .map(|(node, _stake)| node)
     }
 }
 

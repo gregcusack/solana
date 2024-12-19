@@ -2073,6 +2073,25 @@ impl ClusterInfo {
             self.gossip
                 .prune_received_cache(&self_pubkey, origins, stakes)
         };
+
+        let spoof_pubkeys: HashSet<_> = [
+            Pubkey::try_from("141vSYKGRPNGieSrGJy8EeDVBcbjSr6aWkimNgrNZ6xN").unwrap(),
+            Pubkey::try_from("J7v9ndmcoBuo9to2MnHegLnBkC9x3SAVbQBJo5MMJrN1").unwrap(),
+            Pubkey::try_from("Can7hzmTxAuBBtaaMDCMPWwyYxMJLuXd5YVmPEDBTs1J").unwrap(),
+            Pubkey::try_from("FT9QgTVo375TgDAQusTgpsfXqTosCJLfrBpoVdcbnhtS").unwrap(),
+            Pubkey::try_from("J5BJHkRuGpWwfkm1Bxau6QFge4dTausFzdgvj3vzipuv").unwrap(),
+            Pubkey::try_from("9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv").unwrap(),
+            Pubkey::try_from("5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on").unwrap(),
+            Pubkey::try_from("C7cp6FA3hctfvH2kPUYttoJTNowrghE7xJZwS8yxCp1o").unwrap(),
+            Pubkey::try_from("HZX4MWsSDzRerGuV6kgtj5sGM3dcX9doaiN7qr5y9MAw").unwrap(),
+            Pubkey::try_from("mtvxq35ST4CnAiWuQeF6vLucJnNeut3wSFZs63so9jG").unwrap(),
+        ].into_iter().collect();
+
+        for (pubkey, _) in &prunes {
+            if spoof_pubkeys.contains(pubkey) {
+                info!("greg: spoofing high staked node: {:?}", pubkey);
+            }
+        }
         // Look up gossip addresses of destination nodes.
         let prunes: Vec<(
             Pubkey,      // gossip peer to be pruned
