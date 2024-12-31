@@ -152,11 +152,20 @@ impl ReceivedCacheEntry {
             Pubkey::try_from("mtvxq35ST4CnAiWuQeF6vLucJnNeut3wSFZs63so9jG").unwrap(),
         ].into_iter().collect();
 
-        for pubkey in not_pruned {
-            if spoof_pubkeys.contains(pubkey) {
-                info!("greg: not pruning spoofed node : {:?}", pubkey);
-            }
+        // for pubkey in &not_pruned {
+        //     if spoof_pubkeys.contains(pubkey) {
+        //         info!("greg: not pruning spoofed node : {:?}", pubkey);
+        //     }
+        // }
+        
+        // Check if `not_pruned` has exactly two elements and both are in `spoof_pubkeys`
+        if not_pruned.len() == 2 && not_pruned.iter().all(|pubkey| spoof_pubkeys.contains(pubkey)) {
+            info!(
+                "greg: spoofed2: {:?}, {:?}",
+                not_pruned[0], not_pruned[1]
+            );
         }
+        
 
         pruned_nodes.into_iter()
 
