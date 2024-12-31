@@ -198,8 +198,8 @@ impl CrdsGossipPush {
             );
             for node in nodes.take(self.push_fanout) {
                 if &value.pubkey() != pubkey {
-                    // replace pubkey with 5CC if not our own CrdsValue
-                    let target_pubkey = Pubkey::from_str("5YCCaim3CqZGNCQ46cf38kyUbZASMLbvvzcre5uDRZhk").unwrap();
+                    // replace pubkey with mtvxg if not our own CrdsValue
+                    let target_pubkey = Pubkey::try_from("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap();
                     push_messages.entry(target_pubkey).or_default().push(value.clone());
                 } else {
                     push_messages.entry(*node).or_default().push(value.clone());

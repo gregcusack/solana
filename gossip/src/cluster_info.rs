@@ -1336,24 +1336,112 @@ impl ClusterInfo {
                 !data.is_empty()
             })
         }
-        let push_messages: Vec<_> = {
+
+        // high staked tds canary
+        // let target_peer = Pubkey::try_from("mtvxgXNDuGUdFrVWLRQREveyViydC2h8vY2qTbapCRK").unwrap();
+        // zero staked dev14 devbox
+        let target_peer = Pubkey::try_from("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap();
+        let (push_messages, target_peer_socketaddr): (Vec<_>, Option<SocketAddr>) = {
             let gossip_crds =
                 self.time_gossip_read_lock("push_req_lookup", &self.stats.new_push_requests2);
-            push_messages
+            let pms = push_messages
                 .into_iter()
                 .filter_map(|(pubkey, messages)| {
                     let peer: &ContactInfo = gossip_crds.get(pubkey)?;
+                    // info!("greg: tx to: {:?}", pubkey);
+                    // the peer is always going to be mtvxg since we set that in `new_push_messages()` if this node is not the origin
+                    // but if we haven't received mtvxg's gossip addr yet, we can't send to it
                     Some((peer.gossip().ok()?, messages))
                 })
-                .collect()
+                .collect();
+            // let target_sockaddr: &ContactInfo = gossip_crds.get(target_peer).unwrap();
+            let target_sockaddr = gossip_crds
+                .get(target_peer)
+                .and_then(|peer: &ContactInfo| peer.gossip().ok());
+            
+            (pms, target_sockaddr)
         };
+
+        // high staked nodes
+        let spoof_pubkeys = [
+            Pubkey::try_from("141vSYKGRPNGieSrGJy8EeDVBcbjSr6aWkimNgrNZ6xN").unwrap(),
+            Pubkey::try_from("J7v9ndmcoBuo9to2MnHegLnBkC9x3SAVbQBJo5MMJrN1").unwrap(),
+            Pubkey::try_from("Can7hzmTxAuBBtaaMDCMPWwyYxMJLuXd5YVmPEDBTs1J").unwrap(),
+            Pubkey::try_from("FT9QgTVo375TgDAQusTgpsfXqTosCJLfrBpoVdcbnhtS").unwrap(),
+            Pubkey::try_from("J5BJHkRuGpWwfkm1Bxau6QFge4dTausFzdgvj3vzipuv").unwrap(),
+            Pubkey::try_from("9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv").unwrap(),
+            Pubkey::try_from("5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on").unwrap(),
+            Pubkey::try_from("C7cp6FA3hctfvH2kPUYttoJTNowrghE7xJZwS8yxCp1o").unwrap(),
+            Pubkey::try_from("HZX4MWsSDzRerGuV6kgtj5sGM3dcX9doaiN7qr5y9MAw").unwrap(),
+            Pubkey::try_from("mtvxq35ST4CnAiWuQeF6vLucJnNeut3wSFZs63so9jG").unwrap(),
+        ];
+
+        // // lower staked nodes
+        // let spoof_pubkeys = [
+        //     Pubkey::try_from("BKAxdiR3ZYNjeb5xnCmrpYS6o6s7NqUqJqBQdgeSp6aE").unwrap(),
+        //     Pubkey::try_from("F9PBhzS73DpXxCqW8VjahUT3XNfTVtYcqYjXmCZiWoj1").unwrap(),
+        // ];
+        
+        // let messages: Vec<_> = push_messages
+        //     .into_iter()
+        //     .flat_map(|(peer, msgs)| {
+        //         split_gossip_messages(PUSH_MESSAGE_MAX_PAYLOAD_SIZE, msgs)
+        //             .map(move |payload| {
+        //                 if target_peer_socketaddr.is_none() {
+        //                     // i don't think we should ever get here
+        //                     // info!("greg: shouldn't get here");
+        //                     return (peer, Protocol::PushMessage(self_id, payload));
+        //                 }
+        //                 let target_socketaddr = target_peer_socketaddr.unwrap();
+        //                 // Check if peer matches the target peer
+        //                 let id_to_use = if peer == target_socketaddr {
+        //                     // Randomly select one of the two pubkeys
+        //                     // info!("greg: time to spoof");
+        //                     let mut rng = rand::thread_rng();
+        //                     spoof_pubkeys[rng.gen_range(0..spoof_pubkeys.len())]
+        //                 } else {
+        //                     self_id
+        //                 };
+        //                 info!("greg: sending from: {:?} to {:?}", id_to_use, peer);
+        //                 (peer, Protocol::PushMessage(id_to_use, payload))
+        //             })
+        //     })
+        //     .collect();
+
         let messages: Vec<_> = push_messages
             .into_iter()
             .flat_map(|(peer, msgs)| {
                 split_gossip_messages(PUSH_MESSAGE_MAX_PAYLOAD_SIZE, msgs)
-                    .map(move |payload| (peer, Protocol::PushMessage(self_id, payload)))
+                    .flat_map(move |payload| {
+                        if target_peer_socketaddr.is_none() {
+                            // This block ensures we have a fallback in case the target address is missing
+                            return vec![(peer, Protocol::PushMessage(self_id, payload))].into_iter();
+                        }
+                        let target_socketaddr = target_peer_socketaddr.unwrap();
+
+                        // Check if peer matches the target peer
+                        if peer == target_socketaddr {
+                            // Send the message 10 times, once with each spoof_pubkey
+                            spoof_pubkeys
+                                .iter()
+                                .map(move |spoofed_id| (peer, Protocol::PushMessage(*spoofed_id, payload.clone())))
+                                .collect::<Vec<_>>()
+                                .into_iter()
+                        } else {
+                            // Send the message normally with `self_id`
+                            vec![(peer, Protocol::PushMessage(self_id, payload))].into_iter()
+                        }
+                    })
             })
             .collect();
+
+        // let messages: Vec<_> = push_messages
+        //     .into_iter()
+        //     .flat_map(|(peer, msgs)| {
+        //         split_gossip_messages(PUSH_MESSAGE_MAX_PAYLOAD_SIZE, msgs)
+        //             .map(move |payload| (peer, Protocol::PushMessage(self_id, payload)))
+        //     })
+        //     .collect();
         self.stats
             .new_push_requests_num
             .add_relaxed(messages.len() as u64);
