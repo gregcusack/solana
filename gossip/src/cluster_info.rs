@@ -1340,7 +1340,8 @@ impl ClusterInfo {
         // high staked tds canary
         // let target_peer = Pubkey::try_from("mtvxgXNDuGUdFrVWLRQREveyViydC2h8vY2qTbapCRK").unwrap();
         // zero staked dev14 devbox
-        let target_peer = Pubkey::try_from("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap();
+        // let target_peer = Pubkey::try_from("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap();
+        let target_peer = Pubkey::try_from("9PyueBw7XndtjCuVc9cUEEcFgDDy2y457xrmztYktna6").unwrap();
         let (push_messages, target_peer_socketaddr): (Vec<_>, Option<SocketAddr>) = {
             let gossip_crds =
                 self.time_gossip_read_lock("push_req_lookup", &self.stats.new_push_requests2);
