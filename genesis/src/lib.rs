@@ -15,6 +15,11 @@ pub struct Base64Account {
     pub executable: bool,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ValidatorAccountsFile {
+    pub validator_accounts: Vec<Base64ValidatorAccount>,
+}
+
 /// A validator account where the data is encoded as a Base64 string.
 /// Includes the vote account and stake account.
 #[derive(Serialize, Deserialize, Debug)]

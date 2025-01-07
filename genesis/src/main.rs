@@ -18,6 +18,7 @@ use {
     solana_entry::poh::compute_hashes_per_tick,
     solana_genesis::{
         genesis_accounts::add_genesis_accounts, Base64Account, Base64ValidatorAccount,
+        ValidatorAccountsFile,
     },
     solana_ledger::{blockstore::create_new_ledger, blockstore_options::LedgerColumnOptions},
     solana_rpc_client::rpc_client::RpcClient,
@@ -123,8 +124,9 @@ pub fn load_validator_accounts(
 ) -> io::Result<()> {
     let accounts_file = File::open(file)?;
     let validator_genesis_accounts: Vec<Base64ValidatorAccount> =
-        serde_yaml::from_reader(accounts_file)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{err:?}")))?;
+        serde_yaml::from_reader::<_, ValidatorAccountsFile>(accounts_file)
+            .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{err:?}")))?
+            .validator_accounts;
 
     for account_details in validator_genesis_accounts {
         let pubkeys = [
@@ -549,7 +551,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .value_name("FILENAME")
                 .takes_value(true)
                 .multiple(true)
-                .help("The location of identity, vote, and stake pubkeys and balances for validator accounts"),
+                .help("The location of identity, vote, and stake pubkeys and balances for validator accounts to bake into genesis")
         )
         .arg(
             Arg::with_name("cluster_type")
@@ -1284,7 +1286,7 @@ mod tests {
         // write accounts to file
         let path = Path::new("test_append_validator_accounts_to_genesis.yml");
         let mut file = File::create(path).unwrap();
-        file.write_all(b"---\n").unwrap();
+        file.write_all(b"validator_accounts:\n").unwrap();
         file.write_all(serialized.as_bytes()).unwrap();
 
         load_validator_accounts(
