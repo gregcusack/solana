@@ -483,6 +483,10 @@ pub fn bind_to_localhost() -> io::Result<UdpSocket> {
     )
 }
 
+pub fn bind_to_localhost_with_config(config: SocketConfig) -> io::Result<UdpSocket> {
+    bind_to_with_config(IpAddr::V4(Ipv4Addr::LOCALHOST), /*port:*/ 0, config)
+}
+
 #[cfg(feature = "dev-context-only-utils")]
 pub async fn bind_to_localhost_async() -> io::Result<TokioUdpSocket> {
     bind_to_async(
@@ -499,6 +503,10 @@ pub fn bind_to_unspecified() -> io::Result<UdpSocket> {
         /*port:*/ 0,
         /*reuseport:*/ false,
     )
+}
+
+pub fn bind_to_unspecified_with_config(config: SocketConfig) -> io::Result<UdpSocket> {
+    bind_to_with_config(IpAddr::V4(Ipv4Addr::UNSPECIFIED), /*port:*/ 0, config)
 }
 
 #[cfg(feature = "dev-context-only-utils")]
