@@ -17,7 +17,7 @@ use {
     },
     solana_entry::poh::compute_hashes_per_tick,
     solana_genesis::{
-        genesis_accounts::add_genesis_accounts, Base64Account, Base64ValidatorAccount,
+        genesis_accounts::add_genesis_accounts, Base64Account, StakedValidatorAccountInfo,
         ValidatorAccountsFile,
     },
     solana_ledger::{blockstore::create_new_ledger, blockstore_options::LedgerColumnOptions},
@@ -123,7 +123,7 @@ pub fn load_validator_accounts(
     genesis_config: &mut GenesisConfig,
 ) -> io::Result<()> {
     let accounts_file = File::open(file)?;
-    let validator_genesis_accounts: Vec<Base64ValidatorAccount> =
+    let validator_genesis_accounts: Vec<StakedValidatorAccountInfo> =
         serde_yaml::from_reader::<_, ValidatorAccountsFile>(accounts_file)
             .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{err:?}")))?
             .validator_accounts;
@@ -551,7 +551,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .value_name("FILENAME")
                 .takes_value(true)
                 .multiple(true)
-                .help("The location of identity, vote, and stake pubkeys and balances for validator accounts to bake into genesis")
+                .help("The location of a file containing a list of identity, vote, and stake pubkeys and balances for validator accounts to bake into genesis")
         )
         .arg(
             Arg::with_name("cluster_type")
@@ -1258,21 +1258,21 @@ mod tests {
         let mut genesis_config = GenesisConfig::default();
 
         let validator_accounts = vec![
-            Base64ValidatorAccount {
+            StakedValidatorAccountInfo {
                 identity_account: solana_sdk::pubkey::new_rand().to_string(),
                 vote_account: solana_sdk::pubkey::new_rand().to_string(),
                 stake_account: solana_sdk::pubkey::new_rand().to_string(),
                 balance_lamports: 100000000000,
                 stake_lamports: 10000000000,
             },
-            Base64ValidatorAccount {
+            StakedValidatorAccountInfo {
                 identity_account: solana_sdk::pubkey::new_rand().to_string(),
                 vote_account: solana_sdk::pubkey::new_rand().to_string(),
                 stake_account: solana_sdk::pubkey::new_rand().to_string(),
                 balance_lamports: 200000000000,
                 stake_lamports: 20000000000,
             },
-            Base64ValidatorAccount {
+            StakedValidatorAccountInfo {
                 identity_account: solana_sdk::pubkey::new_rand().to_string(),
                 vote_account: solana_sdk::pubkey::new_rand().to_string(),
                 stake_account: solana_sdk::pubkey::new_rand().to_string(),

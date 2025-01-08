@@ -1,6 +1,6 @@
 # Genesis
 
-## There are a few ways to bake validator accounts and staked into genesis:
+## There are a few ways to bake validator accounts and delegated stake into genesis:
 ### 1) Through bootstrap validator cli args:
 ```
 --bootstrap-validator <IDENTITY_PUBKEY> <VOTE_PUBKEY> <STAKE_PUBKEY>
@@ -21,6 +21,7 @@ cargo run --bin solana-genesis --
 All validator accounts will receive the same number of stake and account lamports
 
 ### 2) Through the primordial accounts file flag:
+The primordial accounts file can be used to add accounts of any type to genesis. A user can define all account data and metadata. `data` field must be BASE64 encoded.
 ```
 --primordial-accounts-file <PATH_TO_PRIMORDIAL_ACCOUNTS_YAML>
 ```
@@ -44,32 +45,32 @@ The primordial accounts file has the following format:
   data: <BAS64_ENCODED_DATA_N>
   executable: true
 ```
-The `data` portion of the yaml file holds BASE64 encoded data about the account. `data` can include both vote and stake account information.
+The `data` portion of the yaml file holds BASE64 encoded data about the account, which can be vote or stake account information.
 
 ### 3) Through the validator accounts file flag:
-The validator accounts file is an alternative to the primordial accounts file. The main goal with the validator accounts file is to:
-- Bake validator stakes into genesis with different stake and acount distributions
-- Remove the overhead of forcing the user to serialize and deserialize validator stake and vote account state if they want varying stake distributions - as required by (2)
+The main goal with the validator accounts file is to:
+- Bake validator stakes into genesis with different stake and account distributions
+- Remove the overhead of forcing the user to serialize and deserialize validator stake and vote account state, as required by a primordial accounts file.
 ```
 --validator-accounts-file <PATH_TO_VALIDATOR_ACCOUNTS_YAML>
 ```
 The validator accounts file has the following format:
 ```
 validator_accounts:
-- balance_lamports: <balance-lamports-0>
-  stake_lamports: <stake-lamports-0>
-  identity_account: <identity-pubkey-0>
-  vote_account: <vote-pubkey-0>
-  stake_account: <stake-pubkey-0>
-- balance_lamports: <balance-lamports-1>
-  stake_lamports: <stake-lamports-1>
-  identity_account: <identity-pubkey-1>
-  vote_account: <vote-pubkey-1>
-  stake_account: <stake-pubkey-1>
+- balance_lamports: <BALANCE_LAMPORTS_0>
+  stake_lamports: <STAKE_LAMPORTS_0>
+  identity_account: <IDENTITY_PUBKEY_0>
+  vote_account: <VOTE_PUBKEY_0>
+  stake_account: <STAKE_PUBKEY_0>
+- balance_lamports: <BALANCE_LAMPORTS_1>
+  stake_lamports: <STAKE_LAMPORTS_1>
+  identity_account: <IDENTITY_PUBKEY_1>
+  vote_account: <VOTE_PUBKEY_1>
+  stake_account: <STAKE_PUBKEY_1>
 ...
-- balance_lamports: <balance-lamports-N>
-  stake_lamports: <stake-lamports-N>
-  identity_account: <identity-pubkey-N>
-  vote_account: <vote-pubkey-N>
-  stake_account: <stake-pubkey-N>
+- balance_lamports: <BALANCE_LAMPORTS_N>
+  stake_lamports: <STAKE_LAMPORTS_N>
+  identity_account: <IDENTITY_PUBKEY_N>
+  vote_account: <VOTE_PUBKEY_N>
+  stake_account: <STAKE_PUBKEY_N>
 ```

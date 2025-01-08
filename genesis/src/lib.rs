@@ -17,13 +17,13 @@ pub struct Base64Account {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ValidatorAccountsFile {
-    pub validator_accounts: Vec<Base64ValidatorAccount>,
+    pub validator_accounts: Vec<StakedValidatorAccountInfo>,
 }
 
-/// A validator account where the data is encoded as a Base64 string.
-/// Includes the vote account and stake account.
+/// Info needed to create a staked validator account,
+/// including relevant balances and vote- and stake-account addresses
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Base64ValidatorAccount {
+pub struct StakedValidatorAccountInfo {
     pub balance_lamports: u64,
     pub stake_lamports: u64,
     pub identity_account: String,
