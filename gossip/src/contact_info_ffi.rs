@@ -292,13 +292,12 @@ extern "C" fn get_gossip(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocke
     }
 
     let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
-    match contact_info.gossip() {
-        Ok(socket_addr) => {
-            let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
-            unsafe { *socket = ffi_socket_addr };
-            true
-        }
-        Err(_) => false,
+    if let Some(socket_addr) = contact_info.gossip() {
+        let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
+        unsafe { *socket = ffi_socket_addr };
+        true
+    } else {
+        false
     }
 }
 
@@ -308,13 +307,12 @@ extern "C" fn get_rpc(contact_info_ptr: ContactInfoPtr, socket: *mut FfiSocketAd
     }
 
     let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
-    match contact_info.rpc() {
-        Ok(socket_addr) => {
-            let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
-            unsafe { *socket = ffi_socket_addr };
-            true
-        }
-        Err(_) => false,
+    if let Some(socket_addr) = contact_info.rpc() {
+        let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
+        unsafe { *socket = ffi_socket_addr };
+        true
+    } else {
+        false
     }
 }
 
@@ -324,13 +322,12 @@ extern "C" fn get_rpc_pubsub(contact_info_ptr: ContactInfoPtr, socket: *mut FfiS
     }
 
     let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
-    match contact_info.rpc_pubsub() {
-        Ok(socket_addr) => {
-            let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
-            unsafe { *socket = ffi_socket_addr };
-            true
-        }
-        Err(_) => false,
+    if let Some(socket_addr) = contact_info.rpc_pubsub() {
+        let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
+        unsafe { *socket = ffi_socket_addr };
+        true
+    } else {
+        false
     }
 }
 
@@ -346,13 +343,12 @@ extern "C" fn get_serve_repair(
     let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
     let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
 
-    match contact_info.serve_repair(protocol) {
-        Ok(socket_addr) => {
-            let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
-            unsafe { *socket = ffi_socket_addr };
-            true
-        }
-        Err(_) => false,
+    if let Some(socket_addr) = contact_info.serve_repair(protocol) {
+        let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
+        unsafe { *socket = ffi_socket_addr };
+        true
+    } else {
+        false
     }
 }
 
@@ -368,13 +364,12 @@ extern "C" fn get_tpu(
     let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
     let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
 
-    match contact_info.tpu(protocol) {
-        Ok(socket_addr) => {
-            let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
-            unsafe { *socket = ffi_socket_addr };
-            true
-        }
-        Err(_) => false,
+    if let Some(socket_addr) = contact_info.tpu(protocol) {
+        let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
+        unsafe { *socket = ffi_socket_addr };
+        true
+    } else {
+        false
     }
 }
 
@@ -390,13 +385,12 @@ extern "C" fn get_tpu_forwards(
     let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
     let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
 
-    match contact_info.tpu_forwards(protocol) {
-        Ok(socket_addr) => {
-            let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
-            unsafe { *socket = ffi_socket_addr };
-            true
-        }
-        Err(_) => false,
+    if let Some(socket_addr) = contact_info.tpu_forwards(protocol) {
+        let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
+        unsafe { *socket = ffi_socket_addr };
+        true
+    } else {
+        false
     }
 }
 
@@ -412,13 +406,12 @@ extern "C" fn get_tpu_vote(
     let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
     let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
 
-    match contact_info.tpu_vote(protocol) {
-        Ok(socket_addr) => {
-            let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
-            unsafe { *socket = ffi_socket_addr };
-            true
-        }
-        Err(_) => false,
+    if let Some(socket_addr) = contact_info.tpu_vote(protocol) {
+        let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
+        unsafe { *socket = ffi_socket_addr };
+        true
+    } else {
+        false
     }
 }
 
@@ -434,13 +427,12 @@ extern "C" fn get_tvu(
     let contact_info = unsafe { &*(contact_info_ptr as *const ContactInfo) };
     let protocol = Protocol::from(protocol); // Convert FfiProtocol to Protocol
 
-    match contact_info.tvu(protocol) {
-        Ok(socket_addr) => {
-            let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
-            unsafe { *socket = ffi_socket_addr };
-            true
-        }
-        Err(_) => false,
+    if let Some(socket_addr) = contact_info.tvu(protocol) {
+        let ffi_socket_addr = ffi_socket_addr_from_socket_addr(&socket_addr);
+        unsafe { *socket = ffi_socket_addr };
+        true
+    } else {
+        false
     }
 }
 

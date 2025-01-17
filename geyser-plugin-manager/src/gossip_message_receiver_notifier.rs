@@ -9,7 +9,7 @@ use {
     },
     solana_measure::measure::Measure,
     solana_metrics::*,
-    solana_sdk::pubkey::Pubkey,
+    solana_pubkey::Pubkey,
     std::sync::{Arc, RwLock},
 };
 
