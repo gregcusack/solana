@@ -4,7 +4,7 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::FfiPubkey,
     log::*,
     solana_gossip::{
-        contact_info::ContactInfo, contact_info_ffi::create_contact_info_interface,
+        contact_info::ContactInfo, contact_info_ffi::{FfiContactInfoBytes, create_contact_info_interface},
         gossip_message_notifier_interface::GossipMessageNotifierInterface,
     },
     solana_measure::measure::Measure,
@@ -21,6 +21,10 @@ pub(crate) struct GossipMessageNotifierImpl {
 impl GossipMessageNotifierInterface for GossipMessageNotifierImpl {
     fn notify_receive_node_update(&self, contact_info: &ContactInfo) {
         self.notify_plugins_of_node_update(contact_info);
+    }
+
+    fn notify_receive_node_update_new(&self, bytes: &Vec<u8>) {
+        self.notify_plugins_of_node_update_new(bytes);
     }
 
     fn notify_remove_node(&self, pubkey: &Pubkey) {
@@ -64,6 +68,49 @@ impl GossipMessageNotifierImpl {
                     trace!(
                         "Inserted ContactInfo w/ origin: {} to plugin {}",
                         contact_info.pubkey(),
+                        plugin.name()
+                    )
+                }
+            }
+            measure_plugin.stop();
+            inc_new_counter_debug!(
+                "geyser-plugin-notify_node_update-us",
+                measure_plugin.as_us() as usize,
+                100000,
+                100000
+            );
+        }
+        measure_all.stop();
+        inc_new_counter_debug!(
+            "geyser-plugin-notify_plugins_of_node_update-us",
+            measure_all.as_us() as usize,
+            100000,
+            100000
+        );
+    }
+
+    fn notify_plugins_of_node_update_new(&self, contact_info_bytes: &Vec<u8>) {
+        let mut measure_all = Measure::start("geyser-plugin-notify_plugins_of_node_update");
+        let plugin_manager = self.plugin_manager.read().unwrap();
+        if plugin_manager.plugins.is_empty() {
+            return;
+        }
+
+        let ffi_contact_info_bytes = FfiContactInfoBytes::new(contact_info_bytes);
+
+        for plugin in plugin_manager.plugins.iter() {
+            let mut measure_plugin = Measure::start("geyser-plugin-notify_node_update");
+            match plugin.notify_nodes_update_new(&ffi_contact_info_bytes) {
+                Err(err) => {
+                    error!(
+                        "Failed to insert Serialized ContactInfos, error: {} to plugin {}",
+                        err,
+                        plugin.name()
+                    )
+                }
+                Ok(_) => {
+                    trace!(
+                        "Inserted Serialized ContactInfos to plugin {}",
                         plugin.name()
                     )
                 }

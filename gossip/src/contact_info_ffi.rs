@@ -7,6 +7,21 @@ use {
 };
 
 #[repr(C)]
+pub struct FfiContactInfoBytes {
+    pub data_ptr: *const u8,
+    pub data_len: usize,
+}
+
+impl FfiContactInfoBytes {
+    pub fn new(bytes: &[u8]) -> Self {
+        Self {
+            data_ptr: bytes.as_ptr(),
+            data_len: bytes.len(),
+        }
+    }
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub enum FfiProtocol {
     UDP,

@@ -124,6 +124,9 @@ pub(crate) const CRDS_UNIQUE_PUBKEY_CAPACITY: usize = 8192;
 const MIN_STAKE_FOR_GOSSIP: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 /// Minimum number of staked nodes for enforcing stakes in gossip.
 const MIN_NUM_STAKED_NODES: usize = 500;
+/// serialize and send all contact info in crds table to geyser plugin every 5 seconds
+pub const GEYSER_CONTACT_INFO_REPORT_INTERVAL: u64 = 5000;
+
 
 // Must have at least one socket to monitor the TVU port
 // The unsafes are safe because we're using fixed, known non-zero values
@@ -162,6 +165,8 @@ pub struct ClusterInfo {
     instance: RwLock<NodeInstance>,
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
+    /// GeyserPlugin gossip message notifier
+    gossip_message_notifier: Option<GossipMessageNotifier>,
 }
 
 struct PullData {
@@ -232,18 +237,24 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
+            gossip_message_notifier: None,
         };
         me.refresh_my_gossip_contact_info();
         me
     }
 
-    pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
-        self.gossip
-            .crds
-            .write()
-            .unwrap()
-            .set_gossip_message_notifier(notifier);
+    pub fn set_gossip_message_notifier_new(&mut self, notifier: Option<GossipMessageNotifier>) {
+        self.gossip_message_notifier = notifier;
     }
+
+    //greg: remove
+    // pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
+    //     self.gossip
+    //         .crds
+    //         .write()
+    //         .unwrap()
+    //         .set_gossip_message_notifier(notifier);
+    // }
 
     pub fn set_contact_debug_interval(&mut self, new: u64) {
         self.contact_debug_interval = new;
@@ -1549,6 +1560,19 @@ impl ClusterInfo {
         }
     }
 
+    fn notify_contact_info_update(&self) {
+        if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+            let crds = self.gossip.crds.read().unwrap();
+            let nodes: Vec<ContactInfo> = crds.get_nodes_contact_info().cloned().collect();
+            let (bytes, _serialize_elapsed) = {
+                let now = Instant::now();
+                let bytes = bincode::serialize(&nodes).unwrap();
+                (bytes, now.elapsed())
+            };
+            gossip_message_notifier.notify_receive_node_update_new(&bytes);
+        }
+    }
+
     /// randomly pick a node and ask them for updates asynchronously
     pub fn gossip(
         self: Arc<Self>,
@@ -1568,6 +1592,7 @@ impl ClusterInfo {
                 let mut last_push = 0;
                 let mut last_contact_info_trace = timestamp();
                 let mut last_contact_info_save = timestamp();
+                let mut last_notify_contact_info_update = timestamp();
                 let mut entrypoints_processed = false;
                 let recycler = PacketBatchRecycler::default();
                 let crds_data = vec![
@@ -1643,6 +1668,11 @@ impl ClusterInfo {
                         sleep(Duration::from_millis(time_left));
                     }
                     generate_pull_requests = !generate_pull_requests;
+                    // every 5 seconds let's report the crds table of contact info - serialized
+                    if start - last_notify_contact_info_update > GEYSER_CONTACT_INFO_REPORT_INTERVAL {
+                        self.notify_contact_info_update();
+                        last_notify_contact_info_update = start; // Update the timestamp
+                    }
                 }
             })
             .unwrap()

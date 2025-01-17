@@ -796,7 +796,9 @@ impl Validator {
         cluster_info.set_contact_debug_interval(config.contact_debug_interval);
         cluster_info.set_entrypoints(cluster_entrypoints);
         cluster_info.restore_contact_info(ledger_path, config.contact_save_interval);
-        cluster_info.set_gossip_message_notifier(gossip_message_notifier);
+        cluster_info.set_gossip_message_notifier_new(gossip_message_notifier);
+        //greg: remove
+        // cluster_info.set_gossip_message_notifier(gossip_message_notifier);
         let cluster_info = Arc::new(cluster_info);
 
         assert!(is_snapshot_config_valid(

@@ -4,7 +4,7 @@
 /// creates the implementation of the plugin.
 use {
     log::*,
-    solana_gossip::contact_info_ffi::FfiContactInfoInterface,
+    solana_gossip::contact_info_ffi::{FfiContactInfoBytes, FfiContactInfoInterface},
     solana_sdk::{
         clock::{Slot, UnixTimestamp},
         signature::Signature,
@@ -474,6 +474,13 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// Called when a ContactInfo is received from a node
     #[allow(unused_variables)]
     fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
+        Ok(())
+    }
+
+    /// Called periodically to send entire set of contact info
+    /// contact info is serialized
+    #[allow(unused_variables)]
+    fn notify_nodes_update_new(&self, contact_info_bytes: &FfiContactInfoBytes) -> Result<()> {
         Ok(())
     }
 

@@ -33,7 +33,7 @@ use {
         crds_gossip_pull::CrdsTimeouts,
         crds_shards::CrdsShards,
         crds_value::{CrdsValue, CrdsValueLabel},
-        gossip_message_notifier_interface::GossipMessageNotifier,
+        // gossip_message_notifier_interface::GossipMessageNotifier,
     },
     assert_matches::debug_assert_matches,
     bincode::serialize,
@@ -89,8 +89,8 @@ pub struct Crds {
     // Mapping from nodes' pubkeys to their respective shred-version.
     shred_versions: HashMap<Pubkey, u16>,
     stats: Mutex<CrdsStats>,
-    /// GeyserPlugin gossip message notifier
-    gossip_message_notifier: Option<GossipMessageNotifier>,
+    // greg: remove GeyserPlugin gossip message notifier
+    // gossip_message_notifier: Option<GossipMessageNotifier>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -192,7 +192,7 @@ impl Default for Crds {
             purged: VecDeque::default(),
             shred_versions: HashMap::default(),
             stats: Mutex::<CrdsStats>::default(),
-            gossip_message_notifier: None,
+            // gossip_message_notifier: None,
         }
     }
 }
@@ -245,26 +245,26 @@ impl Crds {
         }
     }
 
-    pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
-        self.gossip_message_notifier = notifier;
-    }
+    // pub fn set_gossip_message_notifier(&mut self, notifier: Option<GossipMessageNotifier>) {
+    //     self.gossip_message_notifier = notifier;
+    // }
 
-    fn notify_node_update(&self, label: &CrdsValueLabel) {
-        if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
-            let versioned_crds_value = self.table.get(label);
-            if let Some(value) = versioned_crds_value {
-                if let CrdsData::ContactInfo(contact_info) = &value.value.data() {
-                    gossip_message_notifier.notify_receive_node_update(contact_info);
-                }
-            }
-        }
-    }
+    // fn notify_node_update(&self, label: &CrdsValueLabel) {
+    //     if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+    //         let versioned_crds_value = self.table.get(label);
+    //         if let Some(value) = versioned_crds_value {
+    //             if let CrdsData::ContactInfo(contact_info) = &value.value.data() {
+    //                 gossip_message_notifier.notify_receive_node_update(contact_info);
+    //             }
+    //         }
+    //     }
+    // }
 
-    fn notify_remove_node(&self, pubkey: &Pubkey) {
-        if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
-            gossip_message_notifier.notify_remove_node(pubkey);
-        }
-    }
+    // fn notify_remove_node(&self, pubkey: &Pubkey) {
+    //     if let Some(gossip_message_notifier) = &self.gossip_message_notifier {
+    //         gossip_message_notifier.notify_remove_node(pubkey);
+    //     }
+    // }
 
     pub fn insert(
         &mut self,
@@ -273,7 +273,7 @@ impl Crds {
         route: GossipRoute,
     ) -> Result<(), CrdsError> {
         let label = value.label();
-        let gossip_label = label.clone();
+        // let gossip_label = label.clone();
         let pubkey = value.pubkey();
         let value = VersionedCrdsValue::new(value, self.cursor, now, route);
         let mut stats = self.stats.lock().unwrap();
@@ -302,7 +302,7 @@ impl Crds {
                 self.records.entry(pubkey).or_default().insert(entry_index);
                 self.cursor.consume(value.ordinal);
                 entry.insert(value);
-                self.notify_node_update(&gossip_label);
+                // self.notify_node_update(&gossip_label);
                 Ok(())
             }
             Entry::Occupied(mut entry) if overrides(&value.value, entry.get()) => {
@@ -339,7 +339,7 @@ impl Crds {
                 self.cursor.consume(value.ordinal);
                 self.purged.push_back((entry.get().value_hash, now));
                 entry.insert(value);
-                self.notify_node_update(&gossip_label);
+                // self.notify_node_update(&gossip_label);
                 Ok(())
             }
             Entry::Occupied(mut entry) => {
@@ -593,7 +593,7 @@ impl Crds {
         match value.value.data() {
             CrdsData::ContactInfo(_) => {
                 self.nodes.swap_remove(&index);
-                self.notify_remove_node(&value.value.pubkey());
+                // self.notify_remove_node(&value.value.pubkey());
             }
             CrdsData::Vote(_, _) => {
                 self.votes.remove(&value.ordinal);
