@@ -127,7 +127,6 @@ const MIN_NUM_STAKED_NODES: usize = 500;
 /// serialize and send all contact info in crds table to geyser plugin every 5 seconds
 pub const GEYSER_CONTACT_INFO_REPORT_INTERVAL: u64 = 5000;
 
-
 // Must have at least one socket to monitor the TVU port
 // The unsafes are safe because we're using fixed, known non-zero values
 pub const MINIMUM_NUM_TVU_SOCKETS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(1) };
@@ -1669,7 +1668,8 @@ impl ClusterInfo {
                     }
                     generate_pull_requests = !generate_pull_requests;
                     // every 5 seconds let's report the crds table of contact info - serialized
-                    if start - last_notify_contact_info_update > GEYSER_CONTACT_INFO_REPORT_INTERVAL {
+                    if start - last_notify_contact_info_update > GEYSER_CONTACT_INFO_REPORT_INTERVAL
+                    {
                         self.notify_contact_info_update();
                         last_notify_contact_info_update = start; // Update the timestamp
                     }
@@ -3713,6 +3713,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Submitting old vote")]
     fn test_push_votes_with_tower() {
         let get_vote_slots = |cluster_info: &ClusterInfo| -> Vec<Slot> {
             let (labels, _) = cluster_info.get_votes_with_labels(&mut Cursor::default());
@@ -3749,12 +3750,7 @@ mod tests {
         tower.clear();
         tower.extend(0..=slot);
         let vote = new_vote_transaction(vec![slot]);
-        assert!(panic::catch_unwind(|| cluster_info.push_vote(&tower, vote))
-            .err()
-            .and_then(|a| a
-                .downcast_ref::<String>()
-                .map(|s| { s.starts_with("Submitting old vote") }))
-            .unwrap_or_default());
+        cluster_info.push_vote(&tower, vote);
     }
 
     #[test]

@@ -5,7 +5,7 @@ pub trait GossipMessageNotifierInterface: std::fmt::Debug {
     fn notify_receive_node_update(&self, contact_info: &ContactInfo);
 
     /// Notified of serialized contact info
-    fn notify_receive_node_update_new(&self, bytes: &Vec<u8>);
+    fn notify_receive_node_update_new(&self, bytes: &[u8]);
 
     /// Notified when a node is removed/purged from crds table
     fn notify_remove_node(&self, pubkey: &Pubkey);

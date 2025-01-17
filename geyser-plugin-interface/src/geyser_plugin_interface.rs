@@ -530,6 +530,8 @@ pub struct FfiGeyserPlugin {
     pub node_update_notifications_enabled: unsafe extern "C" fn() -> c_int,
     pub notify_node_update:
         unsafe extern "C" fn(interface: *const FfiContactInfoInterface) -> c_int,
+    pub notify_nodes_update_new:
+        unsafe extern "C" fn(interface: *const FfiContactInfoBytes) -> c_int,
 }
 
 unsafe impl Send for GeyserPluginAdapter {}
@@ -592,6 +594,19 @@ impl GeyserPlugin for GeyserPluginAdapter {
 
     fn notify_node_update(&self, interface: &FfiContactInfoInterface) -> Result<()> {
         let result = unsafe { ((*self.plugin).notify_node_update)(interface as *const _) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(GeyserPluginError::Custom(Box::new(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Plugin error with code: {}", result),
+            ))))
+        }
+    }
+
+    fn notify_nodes_update_new(&self, contact_info_bytes: &FfiContactInfoBytes) -> Result<()> {
+        let result =
+            unsafe { ((*self.plugin).notify_nodes_update_new)(contact_info_bytes as *const _) };
         if result == 0 {
             Ok(())
         } else {

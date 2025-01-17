@@ -4,7 +4,8 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::FfiPubkey,
     log::*,
     solana_gossip::{
-        contact_info::ContactInfo, contact_info_ffi::{FfiContactInfoBytes, create_contact_info_interface},
+        contact_info::ContactInfo,
+        contact_info_ffi::{create_contact_info_interface, FfiContactInfoBytes},
         gossip_message_notifier_interface::GossipMessageNotifierInterface,
     },
     solana_measure::measure::Measure,
@@ -23,7 +24,7 @@ impl GossipMessageNotifierInterface for GossipMessageNotifierImpl {
         self.notify_plugins_of_node_update(contact_info);
     }
 
-    fn notify_receive_node_update_new(&self, bytes: &Vec<u8>) {
+    fn notify_receive_node_update_new(&self, bytes: &[u8]) {
         self.notify_plugins_of_node_update_new(bytes);
     }
 
@@ -89,7 +90,7 @@ impl GossipMessageNotifierImpl {
         );
     }
 
-    fn notify_plugins_of_node_update_new(&self, contact_info_bytes: &Vec<u8>) {
+    fn notify_plugins_of_node_update_new(&self, contact_info_bytes: &[u8]) {
         let mut measure_all = Measure::start("geyser-plugin-notify_plugins_of_node_update");
         let plugin_manager = self.plugin_manager.read().unwrap();
         if plugin_manager.plugins.is_empty() {

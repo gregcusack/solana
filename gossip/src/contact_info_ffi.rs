@@ -2,7 +2,10 @@ use {
     crate::contact_info::ContactInfo,
     solana_client::connection_cache::Protocol,
     solana_sdk::pubkey::Pubkey,
-    std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    std::{
+        net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+        slice,
+    },
     thiserror::Error,
 };
 
@@ -18,6 +21,13 @@ impl FfiContactInfoBytes {
             data_ptr: bytes.as_ptr(),
             data_len: bytes.len(),
         }
+    }
+
+    pub fn deserialize(&self) -> Vec<ContactInfo> {
+        let contact_info_bytes: &[u8] =
+            unsafe { slice::from_raw_parts(self.data_ptr, self.data_len) };
+        let contact_info: Vec<ContactInfo> = bincode::deserialize(contact_info_bytes).unwrap();
+        contact_info
     }
 }
 
