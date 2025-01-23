@@ -175,6 +175,7 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) crds_values_verified_count: Counter,
 }
 
 impl GossipStats {
@@ -622,6 +623,11 @@ pub(crate) fn submit_gossip_stats(
         (
             "trim_crds_table_purged_values_count",
             stats.trim_crds_table_purged_values_count.clear(),
+            i64
+        ),
+        (
+            "crds_values_verified_count",
+            stats.crds_values_verified_count.clear(),
             i64
         ),
     );

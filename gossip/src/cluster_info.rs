@@ -2310,10 +2310,52 @@ impl ClusterInfo {
             let protocol: Protocol =
                 stats.record_received_packet(packet.deserialize_slice::<Protocol, _>(..))?;
             protocol.sanitize().ok()?;
-            protocol.par_verify().then(|| {
+            // Verify the packet and increment the count of verified CrdsValue entries
+            if protocol.par_verify() {
+                let count = match &protocol {
+                    Protocol::PullRequest(_, caller) => {
+                        if caller.verify() {
+                            1 // PullRequest has only one CrdsValue
+                        } else {
+                            0
+                        }
+                    }
+                    Protocol::PullResponse(_, data) => data.iter().filter(|v| v.verify()).count() as u64,
+                    Protocol::PushMessage(_, data) => data.iter().filter(|v| v.verify()).count() as u64,
+                    Protocol::PruneMessage(_, data) => {
+                        if data.verify() {
+                            1 // PruneMessage has only one CrdsValue
+                        } else {
+                            0
+                        }
+                    }
+                    Protocol::PingMessage(ping) => {
+                        if ping.verify() {
+                            1 // PingMessage has only one value
+                        } else {
+                            0
+                        }
+                    }
+                    Protocol::PongMessage(pong) => {
+                        if pong.verify() {
+                            1 // PongMessage has only one value
+                        } else {
+                            0
+                        }
+                    }
+                };
+                // *verified_crds_count += count;
+                stats.crds_values_verified_count.add_relaxed(count);
+
+                // Record packet verification and return the result
                 stats.packets_received_verified_count.add_relaxed(1);
-                (packet.meta().socket_addr(), protocol)
-            })
+                return Some((packet.meta().socket_addr(), protocol));
+            }
+            None
+            // protocol.par_verify().then(|| {
+            //     stats.packets_received_verified_count.add_relaxed(1);
+            //     (packet.meta().socket_addr(), protocol)
+            // })
         }
         let packets: Vec<_> = {
             let _st = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
