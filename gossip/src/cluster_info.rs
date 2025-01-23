@@ -190,7 +190,7 @@ fn gather_signables_for_crdsvalue(crds_value: &CrdsValue, out: &mut Vec<GossipSi
         return;
     };
     // The message that was signed:
-    let message = crds_value.signable_data().to_vec();
+    let message = crds_value.signable_data().into_owned();
     out.push(GossipSignable {
         pubkey,
         signature,
@@ -272,43 +272,52 @@ fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> Vec<GossipSignable>
     out
 }
 
-/// Split the signables into multiple sub-batches, one per thread, and
-/// verify each sub-batch with `ed25519_dalek::verify_batch`.
 fn parallel_batch_verify(
     signables: &[GossipSignable],
     num_threads: usize,
     stats: &GossipStats,
 ) -> Result<(), SignatureError> {
-    // If empty, nothing to verify
-    if signables.is_empty() {
+    let signables_len = signables.len();
+    if signables_len == 0 {
         return Ok(());
     }
+    // Decide chunk size for parallel sub-batches
+    let chunk_size = signables_len.div_ceil(num_threads);
+    trace!("greg: signables len: {signables_len}, chunk_size: {chunk_size}, num_threads: {num_threads}");
 
-    // Divide total work among all threads
-    let total = signables.len();
-    let chunk_size = total.div_ceil(num_threads);
+    // --------------------------------------------
+    //  1) Build the “parallel arrays” one time
+    // --------------------------------------------
+    let mut all_msgs = Vec::with_capacity(signables_len);
+    let mut all_sigs = Vec::with_capacity(signables_len);
+    let mut all_pks = Vec::with_capacity(signables_len);
 
-    trace!("greg: signables len: {total}, chunk_size: {chunk_size}, num_threads: {num_threads}");
+    for s in signables {
+        // We'll keep references to each s.message
+        all_msgs.push(s.message.as_slice());
+        all_sigs.push(s.signature);
+        all_pks.push(s.pubkey);
+    }
+
+    // --------------------------------------------
+    //  2) Chunk by index, so we don't rebuild arrays
+    // --------------------------------------------
     let _st = ScopedTimer::from(&stats.verify_gossip_packets_time);
-    // Use `.par_chunks` from rayon to process each chunk in parallel
-    signables.par_chunks(chunk_size).try_for_each(|chunk| {
-        // 3) For each sub-batch, gather parallel arrays of message slices, signatures, and pubkeys
-        let mut msgs = Vec::with_capacity(chunk.len());
-        let mut sigs = Vec::with_capacity(chunk.len());
-        let mut pks = Vec::with_capacity(chunk.len());
+    all_msgs
+        .par_chunks(chunk_size)
+        .enumerate()
+        .try_for_each(|(chunk_index, msgs_sub)| {
+            // figure out the slice range
+            let start = chunk_index * chunk_size;
+            let end = (start + chunk_size).min(signables_len);
 
-        for s in chunk {
-            // `message` is a Vec<u8>, but `verify_batch` needs `&[u8]`
-            msgs.push(s.message.as_slice());
+            // signatures/public keys sub-slices match the same range
+            let sigs_sub = &all_sigs[start..end];
+            let pks_sub = &all_pks[start..end];
 
-            // `verify_batch` wants `&[Signature]` and `&[PublicKey]`,
-            // so we store them by value in a Vec. (Clone if necessary.)
-            sigs.push(s.signature);
-            pks.push(s.pubkey);
-        }
-        // Now do batch verification on just these chunk items
-        ed25519_dalek::verify_batch(&msgs, &sigs, &pks)
-    })
+            // batch-verify this chunk
+            ed25519_dalek::verify_batch(msgs_sub, sigs_sub, pks_sub)
+        })
 }
 
 pub struct ClusterInfo {
