@@ -46,8 +46,8 @@ use {
         weighted_shuffle::WeightedShuffle,
     },
     crossbeam_channel::{Receiver, RecvTimeoutError, Sender},
-    ed25519_dalek::{Signature as DalekSignature, PublicKey as DalekPublicKey, SignatureError},
-    itertools::{Itertools, multiunzip},
+    ed25519_dalek::{PublicKey as DalekPublicKey, Signature as DalekSignature, SignatureError},
+    itertools::Itertools,
     rand::{seq::SliceRandom, thread_rng, CryptoRng, Rng},
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
     solana_feature_set::FeatureSet,
@@ -84,7 +84,6 @@ use {
     solana_vote::vote_parser,
     solana_vote_program::vote_state::MAX_LOCKOUT_HISTORY,
     std::{
-        borrow::Cow,
         collections::{HashMap, HashSet, VecDeque},
         fmt::Debug,
         fs::{self, File},
@@ -160,15 +159,15 @@ pub struct BatchedSignables<'msg> {
     /// Actual owned message buffers for each signable item.
     pub messages: Vec<Vec<u8>>,
     /// References (slices) pointing into `messages`.
-    pub msgs:    Vec<&'msg [u8]>,
+    pub msgs: Vec<&'msg [u8]>,
 
     /// The public keys for each signable item.
-    pub pks:     Vec<DalekPublicKey>,
+    pub pks: Vec<DalekPublicKey>,
     /// The signatures for each signable item.
-    pub sigs:    Vec<DalekSignature>,
+    pub sigs: Vec<DalekSignature>,
 }
 
-impl<'msg> BatchedSignables<'msg> {
+impl BatchedSignables<'_> {
     /// Returns how many signable items are in the batch.
     pub fn len(&self) -> usize {
         self.msgs.len()
@@ -200,7 +199,12 @@ fn gather_signables_for_crdsvalue(crds_value: &CrdsValue, out: &mut Vec<GossipSi
 }
 
 /// Extract pubkey, signature, and signable data from a single `CrdsValue`.
-fn gather(pubkey_bytes: &[u8], signature_bytes: &[u8], message: Vec<u8>, out: &mut Vec<GossipSignable>) {
+fn gather(
+    pubkey_bytes: &[u8],
+    signature_bytes: &[u8],
+    message: Vec<u8>,
+    out: &mut Vec<GossipSignable>,
+) {
     // Convert to Dalek forms. If either fails, skip adding it.
     let Ok(pubkey) = DalekPublicKey::from_bytes(pubkey_bytes) else {
         return;
@@ -238,15 +242,31 @@ fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> Vec<GossipSignable>
             }
             Protocol::PruneMessage(_from, prune_data) => {
                 let msg_bytes = prune_data.signable_data().into_owned();
-                gather(prune_data.pubkey().as_ref(), prune_data.get_signature().as_ref(), msg_bytes, &mut out);
+                gather(
+                    prune_data.pubkey().as_ref(),
+                    prune_data.get_signature().as_ref(),
+                    msg_bytes,
+                    &mut out,
+                );
             }
             Protocol::PingMessage(ping) => {
                 let msg_bytes = ping.signable_data().into_owned();
-                gather(ping.pubkey().as_ref(), ping.get_signature().as_ref(), msg_bytes, &mut out);
+                gather(
+                    ping.pubkey().as_ref(),
+                    ping.get_signature().as_ref(),
+                    msg_bytes,
+                    &mut out,
+                );
             }
-            Protocol::PongMessage(pong) => {     let msg_bytes = pong.signable_data().into_owned();
-                gather(pong.pubkey().as_ref(), pong.get_signature().as_ref(), msg_bytes, &mut out);
-         }
+            Protocol::PongMessage(pong) => {
+                let msg_bytes = pong.signable_data().into_owned();
+                gather(
+                    pong.pubkey().as_ref(),
+                    pong.get_signature().as_ref(),
+                    msg_bytes,
+                    &mut out,
+                );
+            }
         }
     }
     out
@@ -257,6 +277,7 @@ fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> Vec<GossipSignable>
 fn parallel_batch_verify(
     signables: &[GossipSignable],
     num_threads: usize,
+    stats: &GossipStats,
 ) -> Result<(), SignatureError> {
     // If empty, nothing to verify
     if signables.is_empty() {
@@ -265,69 +286,29 @@ fn parallel_batch_verify(
 
     // Divide total work among all threads
     let total = signables.len();
-    // e.g. if total = 5000 and num_threads = 8,
-    // chunk_size ~ 625 => up to 8 sub-batches
-    let chunk_size = (total + num_threads - 1) / num_threads; // ceil(total/num_threads)
+    let chunk_size = total.div_ceil(num_threads);
 
-    info!("greg: signables len: {total}, chunk_size: {chunk_size}, num_threads: {num_threads}");
+    trace!("greg: signables len: {total}, chunk_size: {chunk_size}, num_threads: {num_threads}");
+    let _st = ScopedTimer::from(&stats.verify_gossip_packets_time);
     // Use `.par_chunks` from rayon to process each chunk in parallel
-    signables
-        .par_chunks(chunk_size)
-        .try_for_each(|chunk| {
-            // 3) For each sub-batch, gather parallel arrays of message slices, signatures, and pubkeys
-            let mut msgs = Vec::with_capacity(chunk.len());
-            let mut sigs = Vec::with_capacity(chunk.len());
-            let mut pks  = Vec::with_capacity(chunk.len());
+    signables.par_chunks(chunk_size).try_for_each(|chunk| {
+        // 3) For each sub-batch, gather parallel arrays of message slices, signatures, and pubkeys
+        let mut msgs = Vec::with_capacity(chunk.len());
+        let mut sigs = Vec::with_capacity(chunk.len());
+        let mut pks = Vec::with_capacity(chunk.len());
 
-            for s in chunk {
-                // `message` is a Vec<u8>, but `verify_batch` needs `&[u8]`
-                msgs.push(s.message.as_slice());
+        for s in chunk {
+            // `message` is a Vec<u8>, but `verify_batch` needs `&[u8]`
+            msgs.push(s.message.as_slice());
 
-                // `verify_batch` wants `&[Signature]` and `&[PublicKey]`,
-                // so we store them by value in a Vec. (Clone if necessary.)
-                sigs.push(s.signature);
-                pks.push(s.pubkey);
-            }
-            // Now do batch verification on just these chunk items
-            ed25519_dalek::verify_batch(&msgs, &sigs, &pks)
-        })
-}
-
-/// Takes ownership of `msg_bytes`, stores it in `batch.messages`,
-/// and pushes references into `batch.msgs`, `batch.pks`, `batch.sigs`.
-fn push_signable_item<'msg>(
-    batch: &'msg mut BatchedSignables<'msg>,
-    pubkey: &[u8],
-    signature: &[u8],
-    msg_bytes: Vec<u8>,
-) {
-    // 1) Convert to Dalek pubkey/signature
-    let dalek_pubkey = match DalekPublicKey::from_bytes(pubkey) {
-        Ok(pk) => pk,
-        Err(e) => {
-            // Could log the error or do something else
-            log::debug!("Invalid pubkey bytes: {e}");
-            return;
+            // `verify_batch` wants `&[Signature]` and `&[PublicKey]`,
+            // so we store them by value in a Vec. (Clone if necessary.)
+            sigs.push(s.signature);
+            pks.push(s.pubkey);
         }
-    };
-    let dalek_sig = match DalekSignature::try_from(signature) {
-        Ok(s) => s,
-        Err(e) => {
-            log::debug!("Invalid signature bytes: {e}");
-            return;
-        }
-    };
-
-    // 2) Push the message bytes into `batch.messages`.
-    batch.messages.push(msg_bytes);
-
-    // 3) Create a reference to that newly-pushed Vec<u8>.
-    let last_msg_slice = batch.messages.last().unwrap().as_slice();
-
-    // 4) Push references to the newly inserted data
-    batch.msgs.push(last_msg_slice);
-    batch.pks.push(dalek_pubkey);
-    batch.sigs.push(dalek_sig);
+        // Now do batch verification on just these chunk items
+        ed25519_dalek::verify_batch(&msgs, &sigs, &pks)
+    })
 }
 
 pub struct ClusterInfo {
@@ -2504,27 +2485,21 @@ impl ClusterInfo {
         // 2) Perform a single batch verification
         // 3) Keep only the valid Protocol messages
 
-
         let mut parsed_protocols = Vec::new();
-
-        // Flatten out all PacketBatches
         for batch in &packets {
-            for packet in batch.iter() {
-                // Attempt to deserialize
-                let protocol_res = packet.deserialize_slice::<Protocol, _>(..);
-                if protocol_res.is_err() {
-                    continue;
-                }
-                let protocol = protocol_res.unwrap();
+            let valid_protocols = batch.iter().filter_map(|packet| {
+                let protocol_opt = self
+                    .stats
+                    .record_received_packet(packet.deserialize_slice::<Protocol, _>(..));
+                protocol_opt.and_then(|protocol| {
+                    // Perform structural checks
+                    protocol.sanitize().ok()?;
+                    Some((packet.meta().socket_addr(), protocol))
+                })
+            });
 
-                // Structural checks (no sig-check yet)
-                if protocol.sanitize().is_err() {
-                    continue;
-                }
-
-                let from_addr = packet.meta().socket_addr();
-                parsed_protocols.push((from_addr, protocol));
-            }
+            // Extend parsed_protocols with the valid results
+            parsed_protocols.extend(valid_protocols);
         }
 
         // If we have zero Protocols, just return
@@ -2543,7 +2518,7 @@ impl ClusterInfo {
             // 1) Figure out how many threads we have
             let num_threads = thread_pool.current_num_threads();
             // 2) Run `parallel_batch_verify` on the thread pool
-            thread_pool.install(|| parallel_batch_verify(&signables, num_threads))
+            thread_pool.install(|| parallel_batch_verify(&signables, num_threads, &self.stats))
         };
 
         match verify_result {
@@ -2552,15 +2527,14 @@ impl ClusterInfo {
                 self.stats
                     .packets_received_verified_count
                     .add_relaxed(signables_len as u64);
-                return Ok(sender.send(parsed_protocols)?);
+                Ok(sender.send(parsed_protocols)?)
             }
             Err(err) => {
                 // If ANY signature is invalid, discard them all
-                error!("Batch verification failed: {:?}", err);
-                return Ok(());
+                error!("greg: batch verification failed: {:?}", err);
+                Ok(())
             }
         }
-
 
         // fn verify_packet(packet: &Packet, stats: &GossipStats) -> Option<(SocketAddr, Protocol)> {
         //     let protocol: Protocol =
