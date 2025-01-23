@@ -46,7 +46,7 @@ use {
         weighted_shuffle::WeightedShuffle,
     },
     crossbeam_channel::{Receiver, RecvTimeoutError, Sender},
-    ed25519_dalek::{Signature as DalekSignature, PublicKey as DalekPublicKey, Verifier},
+    ed25519_dalek::{Signature as DalekSignature, PublicKey as DalekPublicKey, SignatureError},
     itertools::{Itertools, multiunzip},
     rand::{seq::SliceRandom, thread_rng, CryptoRng, Rng},
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
@@ -153,20 +153,6 @@ struct GossipSignable {
     message: Vec<u8>,
 }
 
-// /// Holds the data needed to do a single signature check.
-// struct GossipSignable {
-//     pub dalek_pubkey: DalekPublicKey,
-//     pub dalek_sig: DalekSignature,
-//     /// The message that is signed.
-//     /// This is typically `serialize(&self.data)` from your Signable trait.
-//     pub message_bytes: Vec<u8>,
-
-//     /// We keep track of which packet/protocol index this signable belongs to.
-//     /// So later, if the batch-verify passes, we know which Protocol to accept.
-//     pub protocol_index: usize,
-// }
-
-
 /// Holds all data needed to call `verify_batch(...)`.
 /// We store `Vec<Vec<u8>>` for owned message data,
 /// and a parallel `Vec<&[u8]>` of references into `messages`.
@@ -192,173 +178,6 @@ impl<'msg> BatchedSignables<'msg> {
         self.msgs.is_empty()
     }
 }
-
-// /// Extracts all signature checks from a Protocol (e.g. CRDS values, ping/pong).
-// fn gather_signables_from_protocol(
-//     protocol: &Protocol,
-//     protocol_index: usize,
-// ) -> Vec<GossipSignable> {
-//     // We'll accumulate all signables from this single Protocol
-//     let mut signables = Vec::new();
-
-//     // A small helper to push one CRDS value (or Ping/Pong) into the vector.
-//     let mut push_signable = |pubkey: &Pubkey, signature: &Signature, message_bytes: Vec<u8>| {
-//         if let (Ok(dalek_pubkey), Ok(dalek_sig)) = (
-//             DalekPublicKey::from_bytes(pubkey.as_ref()),
-//             DalekSignature::try_from(signature.as_ref()),
-//         ) {
-//             signables.push(GossipSignable {
-//                 dalek_pubkey,
-//                 dalek_sig,
-//                 message_bytes,
-//                 protocol_index,
-//             });
-//         }
-//     };
-
-//     // Then we match the Protocol type and gather all CRDS or ping/pong signables.
-//     match protocol {
-//         Protocol::PullRequest(_filter, crds_value) => {
-//             if let Some(msg_bytes) = Some(crds_value.signable_data().into_owned()) {
-//                 push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//             }
-//         }
-//         Protocol::PullResponse(_, crds_values) | Protocol::PushMessage(_, crds_values) => {
-//             for crds_value in crds_values {
-//                 let msg_bytes = crds_value.signable_data().into_owned();
-//                 push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//             }
-//         }
-//         Protocol::PruneMessage(_from, crds_value) => {
-//             let msg_bytes = crds_value.signable_data().into_owned();
-//             push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//         }
-//         Protocol::PingMessage(ping) => {
-//             let msg_bytes = ping.signable_data().into_owned();
-//             push_signable(&ping.pubkey(), &ping.get_signature(), msg_bytes);
-//         }
-//         Protocol::PongMessage(pong) => {
-//             let msg_bytes = pong.signable_data().into_owned();
-//             push_signable(&pong.pubkey(), &pong.get_signature(), msg_bytes);
-//         }
-//     }
-
-//     signables
-// }
-
-// Example signable gatherer for one `Protocol`.
-// fn gather_from_protocol(
-//     protocol: &Protocol,
-//     messages: &mut Vec<Vec<u8>>,
-//     msgs: &mut Vec<&'msg [u8]>,
-//     pks:  &mut Vec<DalekPublicKey>,
-//     sigs: &mut Vec<DalekSignature>,
-// ) {
-//     // We'll define a small closure to handle the push logic
-//     let mut push_signable = |pubkey: &Pubkey, signature: &Signature, msg_bytes: Vec<u8>| {
-//         // 1) Try converting to Dalek key and signature
-//         let dalek_pubkey = match DalekPublicKey::from_bytes(pubkey.as_ref()) {
-//             Ok(pk) => pk,
-//             Err(e) => {
-//                 debug!("Invalid pubkey bytes: {e}");
-//                 return; // skip
-//             }
-//         };
-//         let dalek_sig = match DalekSignature::try_from(signature.as_ref()) {
-//             Ok(s) => s,
-//             Err(e) => {
-//                 debug!("Invalid signature bytes: {e}");
-//                 return; // skip
-//             }
-//         };
-
-//         // 2) Store the message bytes in `messages`
-//         messages.push(msg_bytes);
-//         // Then get a stable reference to the newly pushed Vec<u8>.
-//         // Because we just pushed, it's at the end of `messages`.
-//         let slice = messages.last().unwrap().as_slice();
-
-//         // 3) Append references to `msgs`, `pks`, `sigs`
-//         msgs.push(slice);
-//         pks.push(dalek_pubkey);
-//         sigs.push(dalek_sig);
-//     };
-
-//     match protocol {
-//         Protocol::PullRequest(_filter, crds_value) => {
-//             let msg_bytes = crds_value.signable_data().into_owned();
-//             push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//         }
-//         Protocol::PullResponse(_, crds_values) | Protocol::PushMessage(_, crds_values) => {
-//             for crds_value in crds_values {
-//                 let msg_bytes = crds_value.signable_data().into_owned();
-//                 push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//             }
-//         }
-//         Protocol::PruneMessage(_, crds_value) => {
-//             let msg_bytes = crds_value.signable_data().into_owned();
-//             push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//         }
-//         Protocol::PingMessage(ping) => {
-//             let msg_bytes = ping.signable_data().into_owned();
-//             push_signable(&ping.pubkey(), &ping.get_signature(), msg_bytes);
-//         }
-//         Protocol::PongMessage(pong) => {
-//             let msg_bytes = pong.signable_data().into_owned();
-//             push_signable(&pong.pubkey(), &pong.get_signature(), msg_bytes);
-//         }
-//     }
-// }
-
-/// Collects signable items from a slice of `(SocketAddr, Protocol)`.
-// pub fn gather_signables(parsed_protocols: &[(SocketAddr, Protocol)]) -> BatchedSignables {
-//     let mut messages = Vec::new();
-//     let mut msgs     = Vec::new();
-//     let mut pks      = Vec::new();
-//     let mut sigs     = Vec::new();
-
-//     for (_addr, protocol) in parsed_protocols {
-//         gather_from_protocol(protocol, &mut messages, &mut msgs, &mut pks, &mut sigs);
-//     }
-
-//     BatchedSignables {
-//         messages,
-//         msgs,
-//         pks,
-//         sigs,
-//     }
-// }
-
-// fn gather_from_protocol<'msg>(
-//     protocol: &Protocol,
-//     batch: &'msg mut BatchedSignables<'msg>,
-// ) {
-//     match protocol {
-//         Protocol::PullRequest(_filter, crds_value) => {
-//             let msg_bytes = crds_value.signable_data().into_owned();
-//             push_signable(batch, &crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//         }
-//         Protocol::PullResponse(_, crds_values) | Protocol::PushMessage(_, crds_values) => {
-//             for crds_value in crds_values {
-//                 let msg_bytes = crds_value.signable_data().into_owned();
-//                 push_signable(batch, &crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//             }
-//         }
-//         Protocol::PruneMessage(_, crds_value) => {
-//             let msg_bytes = crds_value.signable_data().into_owned();
-//             push_signable(batch, &crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//         }
-//         Protocol::PingMessage(ping) => {
-//             let msg_bytes = ping.signable_data().into_owned();
-//             push_signable(batch, &ping.pubkey(), &ping.get_signature(), msg_bytes);
-//         }
-//         Protocol::PongMessage(pong) => {
-//             let msg_bytes = pong.signable_data().into_owned();
-//             push_signable(batch, &pong.pubkey(), &pong.get_signature(), msg_bytes);
-//         }
-//     }
-// }
-
 
 /// Extract pubkey, signature, and signable data from a single `CrdsValue`.
 fn gather_signables_for_crdsvalue(crds_value: &CrdsValue, out: &mut Vec<GossipSignable>) {
@@ -433,23 +252,46 @@ fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> Vec<GossipSignable>
     out
 }
 
-// /// Collect signable items from all the `(SocketAddr, Protocol)` pairs.
-// fn gather_signables<'msg>(
-//     parsed_protocols: &'msg [(std::net::SocketAddr, Protocol)],
-// ) -> BatchedSignables<'msg> {
-//     let mut batch = BatchedSignables {
-//         messages: Vec::new(),
-//         msgs:     Vec::new(),
-//         pks:      Vec::new(),
-//         sigs:     Vec::new(),
-//     };
+/// Split the signables into multiple sub-batches, one per thread, and
+/// verify each sub-batch with `ed25519_dalek::verify_batch`.
+fn parallel_batch_verify(
+    signables: &[GossipSignable],
+    num_threads: usize,
+) -> Result<(), SignatureError> {
+    // If empty, nothing to verify
+    if signables.is_empty() {
+        return Ok(());
+    }
 
-//     for (_addr, protocol) in parsed_protocols {
-//         gather_from_protocol(protocol, &mut batch);
-//     }
+    // Divide total work among all threads
+    let total = signables.len();
+    // e.g. if total = 5000 and num_threads = 8,
+    // chunk_size ~ 625 => up to 8 sub-batches
+    let chunk_size = (total + num_threads - 1) / num_threads; // ceil(total/num_threads)
 
-//     batch
-// }
+    info!("greg: signables len: {total}, chunk_size: {chunk_size}, num_threads: {num_threads}");
+    // Use `.par_chunks` from rayon to process each chunk in parallel
+    signables
+        .par_chunks(chunk_size)
+        .try_for_each(|chunk| {
+            // 3) For each sub-batch, gather parallel arrays of message slices, signatures, and pubkeys
+            let mut msgs = Vec::with_capacity(chunk.len());
+            let mut sigs = Vec::with_capacity(chunk.len());
+            let mut pks  = Vec::with_capacity(chunk.len());
+
+            for s in chunk {
+                // `message` is a Vec<u8>, but `verify_batch` needs `&[u8]`
+                msgs.push(s.message.as_slice());
+
+                // `verify_batch` wants `&[Signature]` and `&[PublicKey]`,
+                // so we store them by value in a Vec. (Clone if necessary.)
+                sigs.push(s.signature);
+                pks.push(s.pubkey);
+            }
+            // Now do batch verification on just these chunk items
+            ed25519_dalek::verify_batch(&msgs, &sigs, &pks)
+        })
+}
 
 /// Takes ownership of `msg_bytes`, stores it in `batch.messages`,
 /// and pushes references into `batch.msgs`, `batch.pks`, `batch.sigs`.
@@ -487,65 +329,6 @@ fn push_signable_item<'msg>(
     batch.pks.push(dalek_pubkey);
     batch.sigs.push(dalek_sig);
 }
-
-/// Gathers all CRDS/Ping/Pong values from one `Protocol`, returning
-/// a vector of `GossipSignable` items for batch verification.
-// pub fn gather_signables_from_protocol(
-//     protocol: &Protocol,
-//     protocol_index: usize,
-// ) -> Vec<GossipSignable> {
-//     let mut signables = Vec::new();
-
-//     // Helper closure to parse the pubkey/signature, and push if valid.
-//     let mut push_signable = |pubkey: &Pubkey, signature: &Signature, msg_bytes: Vec<u8>| {
-//         match (
-//             DalekPublicKey::from_bytes(pubkey.as_ref()),
-//             DalekSignature::try_from(signature.as_ref()),
-//         ) {
-//             (Ok(dalek_pubkey), Ok(dalek_sig)) => {
-//                 signables.push(GossipSignable {
-//                     dalek_pubkey,
-//                     dalek_sig,
-//                     message_bytes: msg_bytes,
-//                     protocol_index,
-//                 });
-//             }
-//             (Err(e), _) | (_, Err(e)) => {
-//                 // If you prefer to discard quietly, do nothing;
-//                 // or log the parsing error:
-//                 debug!("Failed to parse pubkey/signature in gather_signables_from_protocol: {e}");
-//             }
-//         }
-//     };
-
-//     // Match the `Protocol` type and gather signables from CRDS or ping/pong
-//     match protocol {
-//         Protocol::PullRequest(_filter, crds_value) => {
-//             let msg_bytes = crds_value.signable_data().into_owned();
-//             push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//         }
-//         Protocol::PullResponse(_, crds_values) | Protocol::PushMessage(_, crds_values) => {
-//             for crds_value in crds_values {
-//                 let msg_bytes = crds_value.signable_data().into_owned();
-//                 push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//             }
-//         }
-//         Protocol::PruneMessage(_from, crds_value) => {
-//             let msg_bytes = crds_value.signable_data().into_owned();
-//             push_signable(&crds_value.pubkey(), &crds_value.get_signature(), msg_bytes);
-//         }
-//         Protocol::PingMessage(ping) => {
-//             let msg_bytes = ping.signable_data().into_owned();
-//             push_signable(&ping.pubkey(), &ping.get_signature(), msg_bytes);
-//         }
-//         Protocol::PongMessage(pong) => {
-//             let msg_bytes = pong.signable_data().into_owned();
-//             push_signable(&pong.pubkey(), &pong.get_signature(), msg_bytes);
-//         }
-//     }
-
-//     signables
-// }
 
 pub struct ClusterInfo {
     /// The network
@@ -2741,15 +2524,6 @@ impl ClusterInfo {
 
                 let from_addr = packet.meta().socket_addr();
                 parsed_protocols.push((from_addr, protocol));
-
-                // Save it in a vector so we can keep track
-                // let protocol_index = indexed_protocols.len();
-                // indexed_protocols.push((packet.meta().socket_addr(), protocol));
-
-                // // Gather signable data from this protocol
-                // let signable_items =
-                //     gather_signables_from_protocol(&indexed_protocols[protocol_index].1, protocol_index);
-                // signables.extend(signable_items);
             }
         }
 
@@ -2764,34 +2538,13 @@ impl ClusterInfo {
         }
         let signables_len = signables.len();
 
-        let mut msgs_owned = Vec::with_capacity(signables_len);
-        let mut sigs_owned = Vec::with_capacity(signables_len);
-        let mut pks_owned  = Vec::with_capacity(signables_len);
-
-        // Move out of `signables` (if you don't need them afterward) or clone as needed:
-        for s in signables {
-            msgs_owned.push(s.message);
-            sigs_owned.push(s.signature);
-            pks_owned.push(s.pubkey);
-        }
-        
-        let msgs_ref: Vec<&[u8]> = msgs_owned.iter().map(|m| m.as_slice()).collect();
-
-        // // 2) Perform batch verification
-        // // We'll gather references for ed25519_dalek::verify_batch
-        // let (msgs, pks, sigs): (Vec<&[u8]>, Vec<&DalekPublicKey>, Vec<&DalekSignature>) = signables
-        //     .iter()
-        //     .map(|gs| (gs.message.as_slice(), &gs.signature, &gs.pubkey))
-        //     .multiunzip(); // need .multiunzip() from itertools or do it manually
-
-        // let BatchedSignables { msgs, pks, sigs, .. } = signables;
-
-
         let verify_result = {
-            let _st = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
-            thread_pool.install(|| ed25519_dalek::verify_batch(&msgs_ref, &sigs_owned, &pks_owned))
+            let _timer = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
+            // 1) Figure out how many threads we have
+            let num_threads = thread_pool.current_num_threads();
+            // 2) Run `parallel_batch_verify` on the thread pool
+            thread_pool.install(|| parallel_batch_verify(&signables, num_threads))
         };
-
 
         match verify_result {
             Ok(_) => {
@@ -2807,24 +2560,6 @@ impl ClusterInfo {
                 return Ok(());
             }
         }
-
-        // Now we produce the final vector to send on the channel
-        // let verified: Vec<(SocketAddr, Protocol)> = valid_protocol_indexes
-        //     .into_iter()
-        //     .map(|i| {
-        //         let (addr, protocol) = &indexed_protocols[i];
-        //         (*addr, protocol.clone())
-        //     })
-        //     .collect();
-        // let verified: Vec<(SocketAddr, Protocol)> = valid_protocol_indexes
-        //     .into_iter()
-        //     .map(|i| indexed_protocols[i]) // move out
-        //     .collect();
-
-        // // Send the result
-        // if !verified.is_empty() {
-        //     sender.send(verified)?;
-        // }
 
 
         // fn verify_packet(packet: &Packet, stats: &GossipStats) -> Option<(SocketAddr, Protocol)> {
