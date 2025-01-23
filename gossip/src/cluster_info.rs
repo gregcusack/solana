@@ -302,22 +302,29 @@ fn parallel_batch_verify(
     // --------------------------------------------
     //  2) Chunk by index, so we don't rebuild arrays
     // --------------------------------------------
-    let _st = ScopedTimer::from(&stats.verify_gossip_packets_time);
-    all_msgs
-        .par_chunks(chunk_size)
-        .enumerate()
-        .try_for_each(|(chunk_index, msgs_sub)| {
-            // figure out the slice range
-            let start = chunk_index * chunk_size;
-            let end = (start + chunk_size).min(signables_len);
+    let result = {
+        let _st = ScopedTimer::from(&stats.verify_gossip_packets_time);
+        all_msgs
+            .par_chunks(chunk_size)
+            .enumerate()
+            .try_for_each(|(chunk_index, msgs_sub)| {
+                // figure out the slice range
+                let start = chunk_index * chunk_size;
+                let end = (start + chunk_size).min(signables_len);
 
-            // signatures/public keys sub-slices match the same range
-            let sigs_sub = &all_sigs[start..end];
-            let pks_sub = &all_pks[start..end];
+                // signatures/public keys sub-slices match the same range
+                let sigs_sub = &all_sigs[start..end];
+                let pks_sub = &all_pks[start..end];
 
-            // batch-verify this chunk
-            ed25519_dalek::verify_batch(msgs_sub, sigs_sub, pks_sub)
-        })
+                // batch-verify this chunk
+                ed25519_dalek::verify_batch(msgs_sub, sigs_sub, pks_sub)
+            })
+    };
+    if result.is_ok() {
+        stats.crds_values_verified_count.add_relaxed(signables_len as u64);
+    }
+    result
+
 }
 
 pub struct ClusterInfo {
@@ -451,6 +458,7 @@ impl ClusterInfo {
             self.stats
                 .packets_sent_gossip_requests_count
                 .add_relaxed(pings.len() as u64);
+            self.stats.packets_sent_ping_messages_count.add_relaxed(pings.len() as u64);
             let packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
                 recycler,
                 "refresh_push_active_set",
@@ -1551,6 +1559,7 @@ impl ClusterInfo {
             let pings = pings
                 .into_iter()
                 .map(|(addr, ping)| (addr, Protocol::PingMessage(ping)));
+            self.stats.packets_sent_ping_messages_count.add_relaxed(pings.len() as u64);
             out.extend(pull_requests);
             out.extend(pings);
         }
@@ -2412,6 +2421,7 @@ impl ClusterInfo {
             self.stats
                 .packets_sent_gossip_requests_count
                 .add_relaxed(pings.len() as u64);
+            self.stats.packets_sent_ping_messages_count.add_relaxed(pings.len() as u64);
             let packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
                 recycler,
                 "ping_contact_infos",
