@@ -198,37 +198,18 @@ fn gather_signables_for_crdsvalue(crds_value: &CrdsValue, out: &mut Vec<GossipSi
     });
 }
 
-/// Extract pubkey, signature, and signable data from a single `CrdsValue`.
-fn gather(
-    pubkey_bytes: &[u8],
-    signature_bytes: &[u8],
-    message: Vec<u8>,
-    out: &mut Vec<GossipSignable>,
-) {
-    // Convert to Dalek forms. If either fails, skip adding it.
-    let Ok(pubkey) = DalekPublicKey::from_bytes(pubkey_bytes) else {
-        return;
-    };
-    let Ok(signature) = DalekSignature::try_from(signature_bytes) else {
-        return;
-    };
-    // The message that was signed:
-    out.push(GossipSignable {
-        pubkey,
-        signature,
-        message,
-    });
-}
-
 /// Gathers all `CrdsValue` signables from the vector of `(SocketAddr, Protocol)`.
 ///
 /// If a Protocol variant does not contain any CrdsValues, it simply contributes none.
-fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> Vec<GossipSignable> {
+fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> (Vec<GossipSignable>, usize) {
     let mut out = Vec::new();
+    let mut single_verified_count = 0;
     for (_addr, protocol) in protocols {
         match protocol {
             Protocol::PullRequest(_filter, crds_value) => {
-                gather_signables_for_crdsvalue(crds_value, &mut out);
+                if crds_value.verify() {
+                    single_verified_count += 1;
+                }
             }
             Protocol::PullResponse(_from, values) => {
                 for crds_value in values {
@@ -241,35 +222,23 @@ fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> Vec<GossipSignable>
                 }
             }
             Protocol::PruneMessage(_from, prune_data) => {
-                let msg_bytes = prune_data.signable_data().into_owned();
-                gather(
-                    prune_data.pubkey().as_ref(),
-                    prune_data.get_signature().as_ref(),
-                    msg_bytes,
-                    &mut out,
-                );
+                if prune_data.verify() {
+                    single_verified_count += 1;
+                }
             }
             Protocol::PingMessage(ping) => {
-                let msg_bytes = ping.signable_data().into_owned();
-                gather(
-                    ping.pubkey().as_ref(),
-                    ping.get_signature().as_ref(),
-                    msg_bytes,
-                    &mut out,
-                );
+                if ping.verify() {
+                    single_verified_count += 1;
+                }
             }
             Protocol::PongMessage(pong) => {
-                let msg_bytes = pong.signable_data().into_owned();
-                gather(
-                    pong.pubkey().as_ref(),
-                    pong.get_signature().as_ref(),
-                    msg_bytes,
-                    &mut out,
-                );
+                if pong.verify() {
+                    single_verified_count += 1;
+                }
             }
         }
     }
-    out
+    (out, single_verified_count)
 }
 
 fn parallel_batch_verify(
@@ -321,10 +290,11 @@ fn parallel_batch_verify(
             })
     };
     if result.is_ok() {
-        stats.crds_values_verified_count.add_relaxed(signables_len as u64);
+        stats
+            .crds_values_verified_count
+            .add_relaxed(signables_len as u64);
     }
     result
-
 }
 
 pub struct ClusterInfo {
@@ -458,7 +428,9 @@ impl ClusterInfo {
             self.stats
                 .packets_sent_gossip_requests_count
                 .add_relaxed(pings.len() as u64);
-            self.stats.packets_sent_ping_messages_count.add_relaxed(pings.len() as u64);
+            self.stats
+                .packets_sent_ping_messages_count
+                .add_relaxed(pings.len() as u64);
             let packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
                 recycler,
                 "refresh_push_active_set",
@@ -1559,7 +1531,9 @@ impl ClusterInfo {
             let pings = pings
                 .into_iter()
                 .map(|(addr, ping)| (addr, Protocol::PingMessage(ping)));
-            self.stats.packets_sent_ping_messages_count.add_relaxed(pings.len() as u64);
+            self.stats
+                .packets_sent_ping_messages_count
+                .add_relaxed(pings.len() as u64);
             out.extend(pull_requests);
             out.extend(pings);
         }
@@ -2421,7 +2395,9 @@ impl ClusterInfo {
             self.stats
                 .packets_sent_gossip_requests_count
                 .add_relaxed(pings.len() as u64);
-            self.stats.packets_sent_ping_messages_count.add_relaxed(pings.len() as u64);
+            self.stats
+                .packets_sent_ping_messages_count
+                .add_relaxed(pings.len() as u64);
             let packet_batch = PacketBatch::new_unpinned_with_recycler_data_and_dests(
                 recycler,
                 "ping_contact_infos",
@@ -2526,11 +2502,14 @@ impl ClusterInfo {
         if parsed_protocols.is_empty() {
             return Ok(());
         }
-        let signables = gather_signables(&parsed_protocols);
-        if signables.is_empty() {
+        let (signables, single_verified_count) = gather_signables(&parsed_protocols);
+        if signables.is_empty() && single_verified_count == 0 {
             // No signables => nothing to verify => all good
             return Ok(());
         }
+        self.stats
+            .packets_received_verified_count
+            .add_relaxed(single_verified_count as u64);
         let signables_len = signables.len();
 
         let verify_result = {
