@@ -198,49 +198,6 @@ fn gather_signables_for_crdsvalue(crds_value: &CrdsValue, out: &mut Vec<GossipSi
     });
 }
 
-/// Gathers all `CrdsValue` signables from the vector of `(SocketAddr, Protocol)`.
-///
-/// If a Protocol variant does not contain any CrdsValues, it simply contributes none.
-// fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> (Vec<GossipSignable>, usize) {
-//     let mut out = Vec::new();
-//     let mut single_verified_count = 0;
-//     for (_addr, protocol) in protocols {
-//         match protocol {
-//             Protocol::PullRequest(_filter, crds_value) => {
-//                 if crds_value.verify() {
-//                     single_verified_count += 1;
-//                 }
-//             }
-//             Protocol::PullResponse(_from, values) => {
-//                 for crds_value in values {
-//                     gather_signables_for_crdsvalue(crds_value, &mut out);
-//                 }
-//             }
-//             Protocol::PushMessage(_from, values) => {
-//                 for crds_value in values {
-//                     gather_signables_for_crdsvalue(crds_value, &mut out);
-//                 }
-//             }
-//             Protocol::PruneMessage(_from, prune_data) => {
-//                 if prune_data.verify() {
-//                     single_verified_count += 1;
-//                 }
-//             }
-//             Protocol::PingMessage(ping) => {
-//                 if ping.verify() {
-//                     single_verified_count += 1;
-//                 }
-//             }
-//             Protocol::PongMessage(pong) => {
-//                 if pong.verify() {
-//                     single_verified_count += 1;
-//                 }
-//             }
-//         }
-//     }
-//     (out, single_verified_count)
-// }
-
 fn gather_signables(protocols: &[(SocketAddr, Protocol)]) -> (Vec<GossipSignable>, usize) {
     use rayon::prelude::*;
 

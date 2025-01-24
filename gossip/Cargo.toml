@@ -101,6 +101,9 @@ name = "crds_shards"
 [[bench]]
 name = "weighted_shuffle"
 
+[[bench]]
+name = "batch_verify"
+
 [[bin]]
 name = "solana-gossip"
 path = "src/main.rs"

@@ -138,7 +138,7 @@ impl CrdsValue {
     }
 
     #[inline]
-    pub(crate) fn signature(&self) -> &Signature {
+    pub fn signature(&self) -> &Signature {
         &self.signature
     }
 
@@ -159,7 +159,7 @@ impl CrdsValue {
         self.data.wallclock()
     }
 
-    pub(crate) fn pubkey(&self) -> Pubkey {
+    pub fn pubkey(&self) -> Pubkey {
         self.data.pubkey()
     }
 
