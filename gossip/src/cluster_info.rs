@@ -327,7 +327,7 @@ fn parallel_batch_verify(
     //  2) Chunk by index, so we don't rebuild arrays
     // --------------------------------------------
     let result = {
-        let _st = ScopedTimer::from(&stats.verify_gossip_packets_time);
+        // let _st = ScopedTimer::from(&stats.verify_gossip_packets_time);
         all_msgs
             .par_chunks(chunk_size)
             .enumerate()
@@ -2535,7 +2535,8 @@ impl ClusterInfo {
         // 1) Parse + sanitize + gather signables
         // 2) Perform a single batch verification
         // 3) Keep only the valid Protocol messages
-
+        
+        let timer = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
         let mut parsed_protocols = Vec::new();
         for batch in &packets {
             let valid_protocols = batch.iter().filter_map(|packet| {
@@ -2569,12 +2570,13 @@ impl ClusterInfo {
         let signables_len = signables.len();
 
         let verify_result = {
-            let _timer = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
+            // let _timer = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
             // 1) Figure out how many threads we have
             let num_threads = thread_pool.current_num_threads();
             // 2) Run `parallel_batch_verify` on the thread pool
             thread_pool.install(|| parallel_batch_verify(&signables, num_threads, &self.stats))
         };
+        std::mem::drop(timer);
 
         match verify_result {
             Ok(_) => {
