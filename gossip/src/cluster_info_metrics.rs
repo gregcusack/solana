@@ -177,6 +177,7 @@ pub struct GossipStats {
     pub(crate) window_request_loopback: Counter,
     pub(crate) crds_values_verified_count: Counter,
     pub(crate) packets_sent_ping_messages_count: Counter,
+    pub(crate) run_socket_consume_time: Counter,
 }
 
 impl GossipStats {
@@ -283,6 +284,11 @@ pub(crate) fn submit_gossip_stats(
         (
             "verify_gossip_packets_time",
             stats.verify_gossip_packets_time.clear(),
+            i64
+        ),
+        (
+            "run_socket_consume_time",
+            stats.run_socket_consume_time.clear(),
             i64
         ),
         (
