@@ -2493,90 +2493,90 @@ impl ClusterInfo {
         // 2) Perform a single batch verification
         // 3) Keep only the valid Protocol messages
         
-        let timer = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
-        let mut parsed_protocols = Vec::new();
-        for batch in &packets {
-            let valid_protocols = batch.iter().filter_map(|packet| {
-                let protocol_opt = self
-                    .stats
-                    .record_received_packet(packet.deserialize_slice::<Protocol, _>(..));
-                protocol_opt.and_then(|protocol| {
-                    // Perform structural checks
-                    protocol.sanitize().ok()?;
-                    Some((packet.meta().socket_addr(), protocol))
-                })
-            });
+        // let timer = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
+        // let mut parsed_protocols = Vec::new();
+        // for batch in &packets {
+        //     let valid_protocols = batch.iter().filter_map(|packet| {
+        //         let protocol_opt = self
+        //             .stats
+        //             .record_received_packet(packet.deserialize_slice::<Protocol, _>(..));
+        //         protocol_opt.and_then(|protocol| {
+        //             // Perform structural checks
+        //             protocol.sanitize().ok()?;
+        //             Some((packet.meta().socket_addr(), protocol))
+        //         })
+        //     });
 
-            // Extend parsed_protocols with the valid results
-            parsed_protocols.extend(valid_protocols);
-        }
-
-        // If we have zero Protocols, just return
-        if parsed_protocols.is_empty() {
-            return Ok(());
-        }
-        // let (signables, single_verified_count) = gather_signables(&parsed_protocols);
-        let (signables, single_verified_count) = thread_pool.install(|| gather_signables(&parsed_protocols));
-        if signables.is_empty() && single_verified_count == 0 {
-            // No signables => nothing to verify => all good
-            return Ok(());
-        }
-        self.stats
-            .packets_received_verified_count
-            .add_relaxed(single_verified_count as u64);
-        let signables_len = signables.len();
-
-        let verify_result = {
-            // let _timer = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
-            // 1) Figure out how many threads we have
-            let num_threads = thread_pool.current_num_threads();
-            // 2) Run `parallel_batch_verify` on the thread pool
-            thread_pool.install(|| parallel_batch_verify(&signables, num_threads, &self.stats))
-        };
-        std::mem::drop(timer);
-
-        match verify_result {
-            Ok(_) => {
-                // All signatures pass => accept them
-                self.stats
-                    .packets_received_verified_count
-                    .add_relaxed(signables_len as u64);
-                Ok(sender.send(parsed_protocols)?)
-            }
-            Err(err) => {
-                // If ANY signature is invalid, discard them all
-                error!("greg: batch verification failed: {:?}", err);
-                Ok(())
-            }
-        }
-
-        // fn verify_packet(packet: &Packet, stats: &GossipStats) -> Option<(SocketAddr, Protocol)> {
-        //     let protocol: Protocol =
-        //         stats.record_received_packet(packet.deserialize_slice::<Protocol, _>(..))?;
-        //     protocol.sanitize().ok()?;
-        //     protocol.par_verify().then(|| {
-        //         stats.packets_received_verified_count.add_relaxed(1);
-        //         (packet.meta().socket_addr(), protocol)
-        //     })
+        //     // Extend parsed_protocols with the valid results
+        //     parsed_protocols.extend(valid_protocols);
         // }
-        // let packets: Vec<_> = {
-        //     let _st = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
-        //     thread_pool.install(|| {
-        //         if packets.len() == 1 {
-        //             packets[0]
-        //                 .par_iter()
-        //                 .filter_map(|packet| verify_packet(packet, &self.stats))
-        //                 .collect()
-        //         } else {
-        //             packets
-        //                 .par_iter()
-        //                 .flatten()
-        //                 .filter_map(|packet| verify_packet(packet, &self.stats))
-        //                 .collect()
-        //         }
-        //     })
+
+        // // If we have zero Protocols, just return
+        // if parsed_protocols.is_empty() {
+        //     return Ok(());
+        // }
+        // // let (signables, single_verified_count) = gather_signables(&parsed_protocols);
+        // let (signables, single_verified_count) = thread_pool.install(|| gather_signables(&parsed_protocols));
+        // if signables.is_empty() && single_verified_count == 0 {
+        //     // No signables => nothing to verify => all good
+        //     return Ok(());
+        // }
+        // self.stats
+        //     .packets_received_verified_count
+        //     .add_relaxed(single_verified_count as u64);
+        // let signables_len = signables.len();
+
+        // let verify_result = {
+        //     // let _timer = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
+        //     // 1) Figure out how many threads we have
+        //     let num_threads = thread_pool.current_num_threads();
+        //     // 2) Run `parallel_batch_verify` on the thread pool
+        //     thread_pool.install(|| parallel_batch_verify(&signables, num_threads, &self.stats))
         // };
-        // Ok(sender.send(packets)?)
+        // std::mem::drop(timer);
+
+        // match verify_result {
+        //     Ok(_) => {
+        //         // All signatures pass => accept them
+        //         self.stats
+        //             .packets_received_verified_count
+        //             .add_relaxed(signables_len as u64);
+        //         Ok(sender.send(parsed_protocols)?)
+        //     }
+        //     Err(err) => {
+        //         // If ANY signature is invalid, discard them all
+        //         error!("greg: batch verification failed: {:?}", err);
+        //         Ok(())
+        //     }
+        // }
+
+        fn verify_packet(packet: &Packet, stats: &GossipStats) -> Option<(SocketAddr, Protocol)> {
+            let protocol: Protocol =
+                stats.record_received_packet(packet.deserialize_slice::<Protocol, _>(..))?;
+            protocol.sanitize().ok()?;
+            protocol.par_verify().then(|| {
+                stats.packets_received_verified_count.add_relaxed(1);
+                (packet.meta().socket_addr(), protocol)
+            })
+        }
+        let packets: Vec<_> = {
+            let _st = ScopedTimer::from(&self.stats.verify_gossip_packets_time);
+            thread_pool.install(|| {
+                if packets.len() == 1 {
+                    packets[0]
+                        .par_iter()
+                        .filter_map(|packet| verify_packet(packet, &self.stats))
+                        .collect()
+                } else {
+                    packets
+                        .par_iter()
+                        .flatten()
+                        .filter_map(|packet| verify_packet(packet, &self.stats))
+                        .collect()
+                }
+            })
+        };
+        Ok(sender.send(packets)?)
     }
 
     /// Process messages from the network

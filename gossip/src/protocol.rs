@@ -6,6 +6,7 @@ use {
         ping_pong::{self, Pong},
     },
     bincode::serialize,
+    ed25519_dalek::{PublicKey as DalekPublicKey, Signature as DalekSignature, SignatureError},
     // rayon::prelude::*,
     serde::Serialize,
     solana_perf::packet::PACKET_DATA_SIZE,
@@ -57,6 +58,42 @@ pub(crate) enum Protocol {
     // Update count_packets_received if new variants are added here.
 }
 
+/// For multi-CRDS variants, batch-verify all CRDS values at once.
+/// If *any* fail, the entire batch fails (return false).
+fn batch_verify_crdsvalues(values: &[CrdsValue]) -> bool {
+    if values.is_empty() {
+        return true; // nothing to verify
+    }
+
+    // Gather all messages, public keys, and signatures.
+    let mut msgs = Vec::with_capacity(values.len());
+    let mut pks = Vec::with_capacity(values.len());
+    let mut sigs = Vec::with_capacity(values.len());
+
+    for val in values {
+        let pk = val.pubkey();
+        let pubkey_bytes = pk.as_ref();
+        // Convert pubkey, signature bytes
+        let Ok(pk) = DalekPublicKey::from_bytes(&pubkey_bytes) else {
+            return false;
+        };
+        let Ok(sig) = DalekSignature::try_from(val.signature().as_ref()) else {
+            return false;
+        };
+
+        let msg = val.signable_data().into_owned();
+
+        pks.push(pk);
+        sigs.push(sig);
+        msgs.push(msg);
+    }
+    let msg_slices: Vec<&[u8]> = msgs.iter().map(|msg| msg.as_slice()).collect();
+
+
+    // Attempt batch verification on the entire array
+    ed25519_dalek::verify_batch(&msg_slices, &sigs, &pks).is_ok()
+}
+
 pub(crate) type Ping = ping_pong::Ping<GOSSIP_PING_TOKEN_SIZE>;
 pub(crate) type PingCache = ping_pong::PingCache<GOSSIP_PING_TOKEN_SIZE>;
 
@@ -86,17 +123,25 @@ impl Protocol {
     }
 
     // Returns true if all signatures verify.
-    // #[must_use]
-    // pub(crate) fn par_verify(&self) -> bool {
-    //     match self {
-    //         Self::PullRequest(_, caller) => caller.verify(),
-    //         Self::PullResponse(_, data) => data.par_iter().all(CrdsValue::verify),
-    //         Self::PushMessage(_, data) => data.par_iter().all(CrdsValue::verify),
-    //         Self::PruneMessage(_, data) => data.verify(),
-    //         Self::PingMessage(ping) => ping.verify(),
-    //         Self::PongMessage(pong) => pong.verify(),
-    //     }
-    // }
+    #[must_use]
+    pub(crate) fn par_verify(&self) -> bool {
+        match self {
+            Self::PullRequest(_, caller) => caller.verify(),
+            Self::PullResponse(_, data) => {
+                // data.par_iter().all(CrdsValue::verify)
+                info!("greg: len pull resp: {}", data.len());
+                batch_verify_crdsvalues(data)
+            },
+            Self::PushMessage(_, data) => {
+                // data.par_iter().all(CrdsValue::verify)
+                info!("greg: len push: {}", data.len());
+                batch_verify_crdsvalues(data)
+            }
+            Self::PruneMessage(_, data) => data.verify(),
+            Self::PingMessage(ping) => ping.verify(),
+            Self::PongMessage(pong) => pong.verify(),
+        }
+    }
 }
 
 impl PruneData {
