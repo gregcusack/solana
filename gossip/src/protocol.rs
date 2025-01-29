@@ -3,6 +3,7 @@ use {
         crds_data::MAX_WALLCLOCK,
         crds_gossip_pull::CrdsFilter,
         crds_value::CrdsValue,
+        crds_data::CrdsData,
         ping_pong::{self, Pong},
     },
     bincode::serialize,
@@ -90,8 +91,14 @@ impl Protocol {
     pub(crate) fn par_verify(&self) -> bool {
         match self {
             Self::PullRequest(_, caller) => caller.verify(),
-            Self::PullResponse(_, data) => data.par_iter().all(CrdsValue::verify),
-            Self::PushMessage(_, data) => data.par_iter().all(CrdsValue::verify),
+            Self::PullResponse(_, data) => {
+                info!("greg: pr: {}", data.len());
+                data.par_iter().all(CrdsValue::verify)
+            },
+            Self::PushMessage(_, data) => {
+                info!("greg: push: {}", data.len());
+                data.par_iter().all(CrdsValue::verify)
+            }
             Self::PruneMessage(_, data) => data.verify(),
             Self::PingMessage(ping) => ping.verify(),
             Self::PongMessage(pong) => pong.verify(),
@@ -208,13 +215,13 @@ impl Signable for PruneData {
 /// max_chunk_size.
 /// Note: some messages cannot be contained within that size so in the worst case this returns
 /// N nested Vecs with 1 item each.
-pub(crate) fn split_gossip_messages<I, T>(
+pub(crate) fn split_gossip_messages(
     max_chunk_size: usize,
-    data_feed: I,
-) -> impl Iterator<Item = Vec<T>>
-where
-    T: Serialize + Debug,
-    I: IntoIterator<Item = T>,
+    data_feed: Vec<CrdsValue>,
+) -> impl Iterator<Item = Vec<CrdsValue>>
+// where
+    // T: Serialize + Debug,
+    // I: IntoIterator<Item = T>,
 {
     let mut data_feed = data_feed.into_iter().fuse();
     let mut buffer = vec![];
@@ -229,8 +236,36 @@ where
                 };
             }
             Some(data) => {
+                // let data_size = match data.data() {
+                //     CrdsData::ContactInfo(_) => {
+                //         let size = match bincode::serialized_size(&data) {
+                //             Ok(size) => size as usize,
+                //             Err(err) => {
+                //                 error!("serialized_size failed: {}", err);
+                //                 continue;
+                //             }
+                //         };
+                //         info!("greg: ci size: {size}");
+                //         info!("greg: data: {data:?}");
+                //         size
+                //     },
+                //     _ => {
+                //         let size = match bincode::serialized_size(&data) {
+                //             Ok(size) => size as usize,
+                //             Err(err) => {
+                //                 error!("serialized_size failed: {}", err);
+                //                 continue;
+                //             }
+                //         };
+                //         info!("greg: not ci size: {size}");
+                //         size
+                //     }
+                // };
                 let data_size = match bincode::serialized_size(&data) {
-                    Ok(size) => size as usize,
+                    Ok(size) => {
+                        info!("greg: data, {:?}, size: {size}", data.data());
+                        size as usize
+                    }
                     Err(err) => {
                         error!("serialized_size failed: {}", err);
                         continue;
