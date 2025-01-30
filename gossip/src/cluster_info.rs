@@ -36,7 +36,8 @@ use {
         protocol::{
             split_gossip_messages, Ping, PingCache, Protocol, PruneData,
             DUPLICATE_SHRED_MAX_PAYLOAD_SIZE, MAX_INCREMENTAL_SNAPSHOT_HASHES,
-            MAX_PRUNE_DATA_NODES, PULL_RESPONSE_MIN_SERIALIZED_SIZE, PUSH_MESSAGE_MAX_PAYLOAD_SIZE,
+            MAX_PRUNE_DATA_NODES, PULL_RESPONSE_MAX_PAYLOAD_SIZE,
+            PULL_RESPONSE_MIN_SERIALIZED_SIZE, PUSH_MESSAGE_MAX_PAYLOAD_SIZE,
         },
         restart_crds_values::{
             RestartHeaviestFork, RestartLastVotedForkSlots, RestartLastVotedForkSlotsError,
@@ -1774,18 +1775,15 @@ impl ClusterInfo {
             .flat_map(|(addr, responses)| repeat(addr).zip(responses))
             .map(|(addr, response)| {
                 let age = now.saturating_sub(response.wallclock());
-                let score = DEFAULT_EPOCH_DURATION_MS
+                let mut score = DEFAULT_EPOCH_DURATION_MS
                     .saturating_sub(age)
                     .div(CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS)
                     .max(1);
-                let score = if stakes.contains_key(&response.pubkey()) {
-                    2 * score
-                } else {
-                    score
+                if stakes.contains_key(&response.pubkey()) {
+                    score *= 2;
                 };
-                let score = match response.data() {
-                    CrdsData::ContactInfo(_) => 2 * score,
-                    _ => score,
+                if let CrdsData::ContactInfo(_) = response.data() {
+                    score *= 2;
                 };
                 ((addr, response), score)
             })
@@ -1793,39 +1791,58 @@ impl ClusterInfo {
         if responses.is_empty() {
             return packet_batch;
         }
+
         let mut rng = rand::thread_rng();
-        let shuffle = WeightedShuffle::new("handle-pull-requests", scores).shuffle(&mut rng);
-        let mut total_bytes = 0;
-        let mut sent = 0;
+        let shuffle = WeightedShuffle::new("handle-pull-requests", &scores).shuffle(&mut rng);
+
+        // Group CrdsValues by peer address
+        let mut grouped_by_addr: HashMap<SocketAddr, Vec<CrdsValue>> = HashMap::new();
         for (addr, response) in shuffle.map(|i| &responses[i]) {
-            let response = vec![response.clone()];
-            let response = Protocol::PullResponse(self_id, response);
-            match Packet::from_data(Some(addr), response) {
-                Err(err) => error!("failed to write pull-response packet: {:?}", err),
-                Ok(packet) => {
-                    if self.outbound_budget.take(packet.meta().size) {
-                        total_bytes += packet.meta().size;
-                        packet_batch.push(packet);
-                        sent += 1;
-                    } else {
-                        self.stats.gossip_pull_request_no_budget.add_relaxed(1);
-                        break;
+            grouped_by_addr
+                .entry(**addr)
+                .or_default()
+                .push(response.clone());
+        }
+
+        let mut total_bytes = 0;
+        let mut sent_pull_responses = 0;
+        let total_crds_values = responses.len();
+        let mut sent_crds_values = 0;
+        // For each peer address, split its CrdsValue(s) into chunks that fit into one MTU-sized packet
+        for (addr, crds_values) in grouped_by_addr {
+            for chunk in split_gossip_messages(PULL_RESPONSE_MAX_PAYLOAD_SIZE, crds_values) {
+                let chunk_len = chunk.len();
+                let response = Protocol::PullResponse(self_id, chunk);
+                match Packet::from_data(Some(&addr), response) {
+                    Err(err) => {
+                        error!("failed to write pull-response packet: {:?}", err);
+                    }
+                    Ok(packet) => {
+                        if self.outbound_budget.take(packet.meta().size) {
+                            total_bytes += packet.meta().size;
+                            packet_batch.push(packet);
+                            sent_pull_responses += 1;
+                            sent_crds_values += chunk_len;
+                        } else {
+                            self.stats.gossip_pull_request_no_budget.add_relaxed(1);
+                            break;
+                        }
                     }
                 }
             }
         }
         time.stop();
-        let dropped_responses = responses.len() - sent;
+        let dropped_responses = total_crds_values.saturating_sub(sent_crds_values);
         self.stats
             .gossip_pull_request_sent_requests
-            .add_relaxed(sent as u64);
+            .add_relaxed(sent_pull_responses as u64);
         self.stats
             .gossip_pull_request_dropped_requests
             .add_relaxed(dropped_responses as u64);
         debug!(
             "handle_pull_requests: {} sent: {} total: {} total_bytes: {}",
             time,
-            sent,
+            sent_pull_responses,
             responses.len(),
             total_bytes
         );

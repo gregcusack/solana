@@ -27,6 +27,10 @@ pub(crate) const MAX_CRDS_OBJECT_SIZE: usize = 928;
 /// is equal to PACKET_DATA_SIZE minus serialized size of an empty push
 /// message: Protocol::PushMessage(Pubkey::default(), Vec::default())
 pub(crate) const PUSH_MESSAGE_MAX_PAYLOAD_SIZE: usize = PACKET_DATA_SIZE - 44;
+/// Max size of serialized crds-values in a Protocol::PullResponse packet. This
+/// is equal to PACKET_DATA_SIZE minus serialized size of an empty pull
+/// message: Protocol::PullResponse(Pubkey::default(), Vec::default())
+pub(crate) const PULL_RESPONSE_MAX_PAYLOAD_SIZE: usize = PUSH_MESSAGE_MAX_PAYLOAD_SIZE;
 pub(crate) const DUPLICATE_SHRED_MAX_PAYLOAD_SIZE: usize = PACKET_DATA_SIZE - 115;
 /// Maximum number of incremental hashes in SnapshotHashes a node publishes
 /// such that the serialized size of the push/pull message stays below
