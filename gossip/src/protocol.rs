@@ -419,6 +419,15 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_pull_response_max_payload_size() {
+        let header = Protocol::PullResponse(Pubkey::default(), Vec::default());
+        assert_eq!(
+            PULL_RESPONSE_MAX_PAYLOAD_SIZE,
+            PACKET_DATA_SIZE - header.bincode_serialized_size()
+        );
+    }
+
+    #[test]
     fn test_duplicate_shred_max_payload_size() {
         let mut rng = rand::thread_rng();
         let leader = Arc::new(Keypair::new());
@@ -520,6 +529,44 @@ pub(crate) mod tests {
                     .map(CrdsValue::bincode_serialized_size)
                     .sum::<usize>();
             let message = Protocol::PushMessage(self_pubkey, values);
+            assert_eq!(message.bincode_serialized_size(), size);
+            // Assert that the message fits into a packet.
+            assert!(Packet::from_data(Some(&socket), message).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_split_gossip_messages_pull_response() {
+        const NUM_CRDS_VALUES: usize = 2048;
+        let mut rng = rand::thread_rng();
+        let values: Vec<_> = repeat_with(|| CrdsValue::new_rand(&mut rng, None))
+            .take(NUM_CRDS_VALUES)
+            .collect();
+        let splits: Vec<_> =
+            split_gossip_messages(PULL_RESPONSE_MAX_PAYLOAD_SIZE, values.clone()).collect();
+        let self_pubkey = solana_pubkey::new_rand();
+        assert!(splits.len() * 2 < NUM_CRDS_VALUES);
+        // Assert that all messages are included in the splits.
+        assert_eq!(NUM_CRDS_VALUES, splits.iter().map(Vec::len).sum::<usize>());
+        splits
+            .iter()
+            .flat_map(|s| s.iter())
+            .zip(values)
+            .for_each(|(a, b)| assert_eq!(*a, b));
+        let socket = SocketAddr::V4(SocketAddrV4::new(
+            Ipv4Addr::new(rng.gen(), rng.gen(), rng.gen(), rng.gen()),
+            rng.gen(),
+        ));
+        // check message fits into PullResponse
+        let header_size = PACKET_DATA_SIZE - PULL_RESPONSE_MAX_PAYLOAD_SIZE;
+        for values in splits {
+            // Assert that sum of parts equals the whole.
+            let size = header_size
+                + values
+                    .iter()
+                    .map(CrdsValue::bincode_serialized_size)
+                    .sum::<usize>();
+            let message = Protocol::PullResponse(self_pubkey, values);
             assert_eq!(message.bincode_serialized_size(), size);
             // Assert that the message fits into a packet.
             assert!(Packet::from_data(Some(&socket), message).is_ok());
