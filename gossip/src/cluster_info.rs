@@ -1796,12 +1796,12 @@ impl ClusterInfo {
         let shuffle = WeightedShuffle::new("handle-pull-requests", &scores).shuffle(&mut rng);
 
         // Group CrdsValues by peer address
-        let mut grouped_by_addr: HashMap<SocketAddr, Vec<CrdsValue>> = HashMap::new();
+        let mut grouped_by_addr: HashMap<SocketAddr, Vec<&CrdsValue>> = HashMap::new();
         for (addr, response) in shuffle.map(|i| &responses[i]) {
             grouped_by_addr
                 .entry(**addr)
                 .or_default()
-                .push(response.clone());
+                .push(response);
         }
 
         let mut total_bytes = 0;
@@ -1810,7 +1810,8 @@ impl ClusterInfo {
         let mut sent_crds_values = 0;
         // For each peer address, split its CrdsValue(s) into chunks that fit into one MTU-sized packet
         for (addr, crds_values) in grouped_by_addr {
-            for chunk in split_gossip_messages(PULL_RESPONSE_MAX_PAYLOAD_SIZE, crds_values) {
+            for chunk_refs in split_gossip_messages(PULL_RESPONSE_MAX_PAYLOAD_SIZE, crds_values) {
+                let chunk: Vec<CrdsValue> = chunk_refs.into_iter().cloned().collect();
                 let chunk_len = chunk.len();
                 let response = Protocol::PullResponse(self_id, chunk);
                 match Packet::from_data(Some(&addr), response) {
