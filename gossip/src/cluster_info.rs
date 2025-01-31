@@ -1769,52 +1769,53 @@ impl ClusterInfo {
                 &self.stats,
             )
         };
-        let (responses, scores): (Vec<_>, Vec<_>) = addrs
-            .iter()
-            .zip(pull_responses)
-            .flat_map(|(addr, responses)| repeat(addr).zip(responses))
-            .map(|(addr, response)| {
-                let age = now.saturating_sub(response.wallclock());
-                let mut score = DEFAULT_EPOCH_DURATION_MS
-                    .saturating_sub(age)
-                    .div(CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS)
-                    .max(1);
-                if stakes.contains_key(&response.pubkey()) {
-                    score *= 2;
-                };
-                if let CrdsData::ContactInfo(_) = response.data() {
-                    score *= 2;
-                };
-                ((addr, response), score)
-            })
-            .unzip();
-        if responses.is_empty() {
+        let mut total_crds_values = 0;
+        // send pull_responses[i] to addrs[i]
+        let mut batches: Vec<(usize, u64)> = Vec::with_capacity(pull_responses.len());
+        for (batch_index, crds_values) in pull_responses.iter().enumerate() {
+            if crds_values.is_empty() {
+                continue;
+            }
+            // batch-level score. max value of batch
+            let batch_score = crds_values
+                .iter()
+                .map(|value| {
+                    let age = now.saturating_sub(value.wallclock());
+                    let mut score = DEFAULT_EPOCH_DURATION_MS
+                        .saturating_sub(age)
+                        .div(CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS)
+                        .max(1);
+                    if stakes.contains_key(&value.pubkey()) {
+                        score *= 2;
+                    }
+                    if let CrdsData::ContactInfo(_) = value.data() {
+                        score *= 2;
+                    }
+                    score
+                })
+                .max()
+                .unwrap_or_default();
+
+            total_crds_values += crds_values.len();
+            batches.push((batch_index, batch_score));
+        }
+        if batches.is_empty() {
             return packet_batch;
         }
-
+        let scores: Vec<u64> = batches.iter().map(|(_, score)| *score).collect();
         let mut rng = rand::thread_rng();
         let shuffle = WeightedShuffle::new("handle-pull-requests", &scores).shuffle(&mut rng);
-
-        // Group CrdsValues by peer address
-        let mut grouped_by_addr: HashMap<SocketAddr, Vec<&CrdsValue>> = HashMap::new();
-        for (addr, response) in shuffle.map(|i| &responses[i]) {
-            grouped_by_addr
-                .entry(**addr)
-                .or_default()
-                .push(response);
-        }
-
         let mut total_bytes = 0;
         let mut sent_pull_responses = 0;
-        let total_crds_values = responses.len();
         let mut sent_crds_values = 0;
-        // For each peer address, split its CrdsValue(s) into chunks that fit into one MTU-sized packet
-        for (addr, crds_values) in grouped_by_addr {
+        for (batch_index, _) in shuffle.map(|i: usize| &batches[i]) {
+            let crds_values = &pull_responses[*batch_index];
+            let addr = &addrs[*batch_index];
             for chunk_refs in split_gossip_messages(PULL_RESPONSE_MAX_PAYLOAD_SIZE, crds_values) {
                 let chunk: Vec<CrdsValue> = chunk_refs.into_iter().cloned().collect();
                 let chunk_len = chunk.len();
                 let response = Protocol::PullResponse(self_id, chunk);
-                match Packet::from_data(Some(&addr), response) {
+                match Packet::from_data(Some(addr), response) {
                     Err(err) => {
                         error!("failed to write pull-response packet: {:?}", err);
                     }
@@ -1840,11 +1841,15 @@ impl ClusterInfo {
         self.stats
             .gossip_pull_request_dropped_requests
             .add_relaxed(dropped_responses as u64);
+        self.stats
+            .gossip_pull_request_sent_bytes
+            .add_relaxed(total_bytes as u64);
         debug!(
-            "handle_pull_requests: {} sent: {} total: {} total_bytes: {}",
+            "handle_pull_requests: {} sent pull responses: {} total crds values: {} sent_crds_values: {} total_bytes: {}",
             time,
             sent_pull_responses,
-            responses.len(),
+            total_crds_values,
+            sent_crds_values,
             total_bytes
         );
         packet_batch
