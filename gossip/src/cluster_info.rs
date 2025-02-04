@@ -1768,13 +1768,13 @@ impl ClusterInfo {
             )
         };
         struct Chunk<'a> {
-            batch_index: usize,
+            addr: &'a SocketAddr,
             values: Vec<&'a CrdsValue>,
             score: u64,
         }
         let mut num_crds_values = 0;
         let mut chunks = Vec::with_capacity(pull_responses.len());
-        for (batch_index, crds_values) in pull_responses.iter().enumerate() {
+        for (addr, crds_values) in addrs.iter().zip(&pull_responses) {
             if crds_values.is_empty() {
                 continue;
             }
@@ -1792,14 +1792,14 @@ impl ClusterInfo {
                             .max(1)
                             .saturating_mul(1 + u64::from(stakes.contains_key(&value.pubkey())))
                             .saturating_mul(
-                                1 + u64::from(matches!(value.data(), CrdsData::ContactInfo(_)))
+                                1 + u64::from(matches!(value.data(), CrdsData::ContactInfo(_))),
                             )
                     })
                     .max()
                     .unwrap_or_default();
 
                 chunks.push(Chunk {
-                    batch_index,
+                    addr,
                     values: chunk_values,
                     score: chunk_score,
                 });
@@ -1815,13 +1815,8 @@ impl ClusterInfo {
         let mut sent_pull_responses = 0;
         let mut sent_crds_values = 0;
         for chunk in shuffle.map(|i: usize| &chunks[i]) {
-            let Chunk {
-                batch_index: addr_index,
-                values,
-                ..
-            } = chunk;
-            let addr = &addrs[*addr_index];
-            let chunk_values: Vec<CrdsValue> = values.iter().map(|v| (*v).clone()).collect();
+            let Chunk { addr, values, .. } = chunk;
+            let chunk_values: Vec<CrdsValue> = values.iter().map(|&v| v.clone()).collect();
             let response = Protocol::PullResponse(self_id, chunk_values);
             match Packet::from_data(Some(addr), response) {
                 Err(err) => {
