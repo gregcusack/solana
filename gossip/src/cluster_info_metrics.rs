@@ -651,6 +651,8 @@ pub(crate) fn submit_gossip_stats(
         ),
         ("RestartHeaviestFork-push", crds_stats.push.counts[13], i64),
         ("RestartHeaviestFork-pull", crds_stats.pull.counts[13], i64),
+        ("BatchHeader-push", crds_stats.push.counts[14], i64),
+        ("BatchHeader-pull", crds_stats.pull.counts[14], i64),
         (
             "all-push",
             crds_stats.push.counts.iter().sum::<usize>(),
@@ -700,6 +702,8 @@ pub(crate) fn submit_gossip_stats(
         ),
         ("RestartHeaviestFork-push", crds_stats.push.fails[13], i64),
         ("RestartHeaviestFork-pull", crds_stats.pull.fails[13], i64),
+        ("BatchHeader-push", crds_stats.push.fails[14], i64),
+        ("BatchHeader-pull", crds_stats.pull.fails[14], i64),
         ("all-push", crds_stats.push.fails.iter().sum::<usize>(), i64),
         ("all-pull", crds_stats.pull.fails.iter().sum::<usize>(), i64),
     );

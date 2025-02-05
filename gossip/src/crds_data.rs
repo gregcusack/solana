@@ -14,6 +14,7 @@ use {
         clock::Slot,
         hash::Hash,
         pubkey::{self, Pubkey},
+        signature::Signature,
         timing::timestamp,
         transaction::Transaction,
     },
@@ -63,6 +64,7 @@ pub enum CrdsData {
     ContactInfo(ContactInfo),
     RestartLastVotedForkSlots(RestartLastVotedForkSlots),
     RestartHeaviestFork(RestartHeaviestFork),
+    BatchHeader(SpecialBatched),
 }
 
 impl Sanitize for CrdsData {
@@ -103,6 +105,7 @@ impl Sanitize for CrdsData {
             CrdsData::ContactInfo(node) => node.sanitize(),
             CrdsData::RestartLastVotedForkSlots(slots) => slots.sanitize(),
             CrdsData::RestartHeaviestFork(fork) => fork.sanitize(),
+            CrdsData::BatchHeader(batch) => batch.sanitize(),
         }
     }
 }
@@ -154,6 +157,7 @@ impl CrdsData {
             CrdsData::ContactInfo(node) => node.wallclock(),
             CrdsData::RestartLastVotedForkSlots(slots) => slots.wallclock,
             CrdsData::RestartHeaviestFork(fork) => fork.wallclock,
+            CrdsData::BatchHeader(batch) => batch.wallclock(),
         }
     }
 
@@ -173,6 +177,7 @@ impl CrdsData {
             CrdsData::ContactInfo(node) => *node.pubkey(),
             CrdsData::RestartLastVotedForkSlots(slots) => slots.from,
             CrdsData::RestartHeaviestFork(fork) => fork.from,
+            CrdsData::BatchHeader(batch) => *batch.pubkey(),
         }
     }
 
@@ -195,6 +200,7 @@ impl CrdsData {
             Self::ContactInfo(_) => false,
             Self::RestartLastVotedForkSlots(_) => false,
             Self::RestartHeaviestFork(_) => false,
+            Self::BatchHeader(_) => false,
         }
     }
 }
@@ -212,6 +218,50 @@ impl From<&ContactInfo> for CrdsData {
         Self::ContactInfo(node.clone())
     }
 }
+
+// This needs to be individually signed with a hash for legacy purposes
+// CrdsValue.signature is just signature of the individual CrdsValue (which contains SpecialBatched)
+// CrdsValue.hash is just the hash of the individual CrdsValue (which contains SpecialBatched)
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct SpecialBatched {
+    pubkey: Pubkey,
+    wallclock: u64,
+    num_items: u8,
+    batch_signature: Signature, // signature of signed batch
+    // batch_hash: Hash, // hash of entire batch? idk if need
+}
+
+impl Sanitize for SpecialBatched {
+    fn sanitize(&self) -> Result<(), SanitizeError> {
+        if self.wallclock >= MAX_WALLCLOCK {
+            return Err(SanitizeError::ValueOutOfBounds);
+        }
+        Ok(())
+    }
+}
+
+impl SpecialBatched {
+    #[inline]
+    pub(crate) fn pubkey(&self) -> &Pubkey {
+        &self.pubkey
+    }
+
+    #[inline]
+    pub(crate) fn wallclock(&self) -> u64 {
+        self.wallclock
+    }
+
+    #[inline]
+    pub fn len(&self) -> u8 {
+        self.num_items
+    }
+
+    #[inline]
+    pub fn batch_signature(&self) -> Signature {
+        self.batch_signature
+    }
+}
+
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

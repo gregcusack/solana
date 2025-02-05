@@ -1,12 +1,11 @@
 use {
     crate::{
-        crds_data::MAX_WALLCLOCK,
+        crds_data::{CrdsData, MAX_WALLCLOCK},
         crds_gossip_pull::CrdsFilter,
         crds_value::CrdsValue,
         ping_pong::{self, Pong},
     },
     bincode::serialize,
-    rayon::prelude::*,
     serde::Serialize,
     solana_perf::packet::PACKET_DATA_SIZE,
     solana_sanitize::{Sanitize, SanitizeError},
@@ -75,6 +74,69 @@ pub(crate) struct PruneData {
     pub(crate) wallclock: u64,
 }
 
+// must support multiple batches in a PushMessage and PullResponse
+// Otherwise attacker just sends batch with a single CrdsValue, which prevents
+// properly packing Vec<CrdsValue> within Push/PullResponse
+pub fn verify_crds_values(data: &[CrdsValue]) -> bool {
+    // don't love using a while loop. but need to skip ahead if we see a batch
+    let mut i = 0;
+    while i < data.len() {
+        match &data[i].data() {            
+            // What if attacker adds in invalid num_items? Whole batch should fail. 
+            // IF attacker says num_items >  actual items in batch, it could cause 
+            // an honest, non-batched CrdsValue to fail...
+            CrdsData::BatchHeader(special) => {
+                let batch_size = special.len() as usize;
+                let end_idx = i + 1 + batch_size; // end_idx is the index 1 beyond last value in batch
+                if end_idx > data.len() {
+                    return false;
+                }
+                
+                // The batch is data[i+1..end_idx]. end_idx is exlusive here
+                // The "specialbatch" crdsvalue is data[i]
+                if !verify_sub_batch(&data[i], &data[i+1..end_idx]) {
+                    return false;
+                }
+                // Move index past this batch
+                i = end_idx;
+            },
+            _ => {
+                if !data[i].verify() {
+                    return false;
+                }
+                i += 1;
+            }
+        }
+    }
+    true
+}
+
+/// Verifies a batch:
+/// - The first element is batch header CrdsValue
+/// - Returns `true` if the entire batch is valid, `false` otherwise.
+fn verify_sub_batch(header: &CrdsValue, batch: &[CrdsValue]) -> bool {
+    // Single "batch signature" check
+    match &header.data() {
+        CrdsData::BatchHeader(special) => {
+            // may not need this
+            if !batch.iter().all(|item| item.pubkey() == *special.pubkey()) {
+                return false;
+            }
+            // we serialize the CrdsValues here. Is that ok?
+            let batch_data = match bincode::serialize(batch) {
+                Ok(bytes) => bytes,
+                Err(_) => return false,
+            };
+
+            if !special.batch_signature().verify(special.pubkey().as_ref(), &batch_data) {
+                return false;
+            }
+            true
+        },
+        _ => false, // should NOT get here. we just said in verify_crds_values that header has to be Specialbatched...
+    }
+}
+
 impl Protocol {
     /// Returns the bincode serialized size (in bytes) of the Protocol.
     #[cfg(test)]
@@ -90,8 +152,8 @@ impl Protocol {
     pub(crate) fn par_verify(&self) -> bool {
         match self {
             Self::PullRequest(_, caller) => caller.verify(),
-            Self::PullResponse(_, data) => data.par_iter().all(CrdsValue::verify),
-            Self::PushMessage(_, data) => data.par_iter().all(CrdsValue::verify),
+            Self::PullResponse(_, data) => verify_crds_values(data),
+            Self::PushMessage(_, data) => verify_crds_values(data),
             Self::PruneMessage(_, data) => data.verify(),
             Self::PingMessage(ping) => ping.verify(),
             Self::PongMessage(pong) => pong.verify(),

@@ -17,6 +17,23 @@ use {
     std::borrow::{Borrow, Cow},
 };
 
+/// CrdsValueWrapper
+#[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub enum CrdsValueWrapper {
+    Single(CrdsValue),
+    Batch(Vec<CrdsValue>),
+}
+
+// impl Signable for CrdsValueWrapper {
+//     fn pubkey(&self) -> Pubkey {
+//         match self {
+//             CrdsValueWrapper::Single(value) => value.pubkey(),
+//             CrdsValueWrapper::Batch(value)
+//         }
+//     }
+// }
+
 /// CrdsValue that is replicated across the cluster
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -75,6 +92,7 @@ pub enum CrdsValueLabel {
     ContactInfo(Pubkey),
     RestartLastVotedForkSlots(Pubkey),
     RestartHeaviestFork(Pubkey),
+    BatchHeader(Pubkey), // i actually don't think we will need this. since this should never get passed to here. 
 }
 
 impl CrdsValueLabel {
@@ -94,6 +112,7 @@ impl CrdsValueLabel {
             CrdsValueLabel::ContactInfo(pubkey) => *pubkey,
             CrdsValueLabel::RestartLastVotedForkSlots(p) => *p,
             CrdsValueLabel::RestartHeaviestFork(p) => *p,
+            CrdsValueLabel::BatchHeader(p) => *p, // i actually don't think we will need this. since this should never get passed to here. 
         }
     }
 }
@@ -182,6 +201,7 @@ impl CrdsValue {
                 CrdsValueLabel::RestartLastVotedForkSlots(pubkey)
             }
             CrdsData::RestartHeaviestFork(_) => CrdsValueLabel::RestartHeaviestFork(pubkey),
+            CrdsData::BatchHeader(_) => CrdsValueLabel::BatchHeader(pubkey),
         }
     }
 

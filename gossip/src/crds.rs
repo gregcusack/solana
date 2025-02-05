@@ -99,7 +99,7 @@ pub enum GossipRoute<'a> {
     PushMessage(/*from:*/ &'a Pubkey),
 }
 
-type CrdsCountsArray = [usize; 14];
+type CrdsCountsArray = [usize; 15]; // increased this to 15.
 
 pub(crate) struct CrdsDataStats {
     pub(crate) counts: CrdsCountsArray,
@@ -743,6 +743,7 @@ impl CrdsDataStats {
             CrdsData::ContactInfo(_) => 11,
             CrdsData::RestartLastVotedForkSlots(_) => 12,
             CrdsData::RestartHeaviestFork(_) => 13,
+            CrdsData::BatchHeader(_) => 14,
             // Update CrdsCountsArray if new items are added here.
         }
     }

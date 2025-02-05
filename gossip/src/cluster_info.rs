@@ -186,6 +186,7 @@ fn should_retain_crds_value(
         CrdsData::Version(_) => true,
         CrdsData::AccountsHashes(_) => true,
         CrdsData::NodeInstance(_) if !drop_unstaked_node_instance => true,
+        CrdsData::BatchHeader(_) => true, // need to check but actually we may want to drop this since we don't want to add this to our crds table right?
         CrdsData::LowestSlot(_, _)
         | CrdsData::LegacyVersion(_)
         | CrdsData::DuplicateShred(_, _)
