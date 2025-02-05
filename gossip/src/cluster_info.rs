@@ -1786,14 +1786,20 @@ impl ClusterInfo {
                     .map(|value| {
                         let age = now.saturating_sub(value.wallclock());
                         // score CrdsValue: 2x score if staked; 2x score if ContactInfo
-                        DEFAULT_EPOCH_DURATION_MS
+                        let score = DEFAULT_EPOCH_DURATION_MS
                             .saturating_sub(age)
                             .div(CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS)
-                            .max(1)
-                            .saturating_mul(1 + u64::from(stakes.contains_key(&value.pubkey())))
-                            .saturating_mul(
-                                1 + u64::from(matches!(value.data(), CrdsData::ContactInfo(_))),
-                            )
+                            .max(1);
+                        let score = if stakes.contains_key(&value.pubkey()) {
+                            2 * score
+                        } else {
+                            score
+                        };
+                        let score = match value.data() {
+                            CrdsData::ContactInfo(_) => 2 * score,
+                            _ => score,
+                        };
+                        score
                     })
                     .max()
                     .unwrap_or_default();
@@ -1810,7 +1816,8 @@ impl ClusterInfo {
         }
         let scores: Vec<u64> = chunks.iter().map(|c| c.score).collect();
         let mut rng = rand::thread_rng();
-        let shuffle = WeightedShuffle::new("handle-pull-requests", &scores).shuffle(&mut rng);
+        let shuffle =
+            WeightedShuffle::<u64>::new("handle-pull-requests", &scores).shuffle(&mut rng);
         let mut total_bytes = 0;
         let mut sent_pull_responses = 0;
         let mut sent_crds_values = 0;
