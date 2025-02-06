@@ -1287,7 +1287,7 @@ impl ClusterInfo {
     }
     fn new_push_requests(&self, stakes: &HashMap<Pubkey, u64>) -> Vec<(SocketAddr, Protocol)> {
         let self_id = self.id();
-        let (entries, push_messages, num_pushes) = {
+        let (entries, push_messages, num_pushes, vote_count, contact_info_count, epoch_slots_count, other_count) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
             self.gossip
@@ -1303,6 +1303,18 @@ impl ClusterInfo {
         self.stats
             .push_fanout_num_nodes
             .add_relaxed(num_pushes as u64);
+        self.stats
+            .num_origin_push_vote
+            .add_relaxed(vote_count as u64);
+        self.stats
+            .num_origin_push_contact_info
+            .add_relaxed(contact_info_count as u64);
+        self.stats
+            .num_origin_push_epoch_slots
+            .add_relaxed(epoch_slots_count as u64);
+        self.stats
+            .num_origin_push_other
+            .add_relaxed(other_count as u64);
         let push_messages: Vec<_> = {
             let gossip_crds =
                 self.time_gossip_read_lock("push_req_lookup", &self.stats.new_push_requests2);
@@ -3443,7 +3455,7 @@ mod tests {
         );
         //check that all types of gossip messages are signed correctly
         cluster_info.flush_push_queue();
-        let (entries, push_messages, _) = cluster_info.gossip.new_push_messages(
+        let (entries, push_messages, _, _, _, _, _) = cluster_info.gossip.new_push_messages(
             &cluster_info.id(),
             timestamp(),
             &stakes,

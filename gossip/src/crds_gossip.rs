@@ -80,6 +80,10 @@ impl CrdsGossip {
         // map of pubkeys to indices in Vec<CrdsValue> pushed to that peer
         HashMap<Pubkey, Vec</*index:*/ usize>>,
         usize, // number of push messages
+        usize, // votes
+        usize, // contact info
+        usize, // epoch slots
+        usize, // other
     ) {
         self.push
             .new_push_messages(pubkey, &self.crds, now, stakes, should_retain_crds_value)

@@ -15,6 +15,7 @@ use {
     crate::{
         cluster_info::CRDS_UNIQUE_PUBKEY_CAPACITY,
         crds::{Crds, CrdsError, Cursor, GossipRoute},
+        crds_data::CrdsData,
         crds_gossip,
         crds_value::CrdsValue,
         protocol::{Ping, PingCache},
@@ -176,6 +177,10 @@ impl CrdsGossipPush {
         // map of pubkeys to indices in Vec<CrdsValue> pushed to that peer
         HashMap<Pubkey, Vec</*index:*/ usize>>,
         usize, // number of push messages
+        usize, // vote
+        usize, // contact info
+        usize, // epoch slot
+        usize, // Other
     ) {
         const MAX_NUM_PUSHES: usize = 1 << 12;
         let mut num_pushes = 0;
@@ -191,8 +196,20 @@ impl CrdsGossipPush {
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()))
             .filter(|value| should_retain_crds_value(value));
+        let mut vote_count: usize = 0;
+        let mut contact_info_count: usize = 0;
+        let mut epoch_slots_count: usize = 0;
+        let mut other_count: usize = 0;
         'outer: for value in entries {
             let origin = value.pubkey();
+            if origin == *pubkey {
+                match value.data() {
+                    CrdsData::Vote(_, _) => vote_count += 1,
+                    CrdsData::ContactInfo(_) => contact_info_count += 1,
+                    CrdsData::EpochSlots(_, _) => epoch_slots_count += 1,
+                    _ => other_count += 1,
+                }
+            }
             let mut nodes = active_set
                 .get_nodes(
                     pubkey,
@@ -218,7 +235,7 @@ impl CrdsGossipPush {
         drop(crds_cursor);
         drop(active_set);
         self.num_pushes.fetch_add(num_pushes, Ordering::Relaxed);
-        (values, push_messages, num_pushes)
+        (values, push_messages, num_pushes, vote_count, contact_info_count, epoch_slots_count, other_count)
     }
 
     /// Add the `from` to the peer's filter of nodes.
@@ -314,7 +331,7 @@ mod tests {
             now: u64,
             stakes: &HashMap<Pubkey, u64>,
         ) -> HashMap<Pubkey, Vec<CrdsValue>> {
-            let (entries, messages, _) = self.new_push_messages(
+            let (entries, messages, _, _, _, _, _) = self.new_push_messages(
                 pubkey,
                 crds,
                 now,

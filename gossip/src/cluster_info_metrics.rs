@@ -173,6 +173,10 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) num_origin_push_vote: Counter,
+    pub(crate) num_origin_push_contact_info: Counter,
+    pub(crate) num_origin_push_epoch_slots: Counter,
+    pub(crate) num_origin_push_other: Counter,
 }
 
 impl GossipStats {
@@ -610,6 +614,26 @@ pub(crate) fn submit_gossip_stats(
         (
             "trim_crds_table_purged_values_count",
             stats.trim_crds_table_purged_values_count.clear(),
+            i64
+        ),
+        (
+            "num_origin_push_vote",
+            stats.num_origin_push_vote.clear(),
+            i64
+        ),
+        (
+            "num_origin_push_contact_info",
+            stats.num_origin_push_contact_info.clear(),
+            i64
+        ),
+        (
+            "num_origin_push_epoch_slots",
+            stats.num_origin_push_epoch_slots.clear(),
+            i64
+        ),
+        (
+            "num_origin_push_other",
+            stats.num_origin_push_other.clear(),
             i64
         ),
     );
