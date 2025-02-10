@@ -2241,6 +2241,15 @@ impl ClusterInfo {
             .chain(receiver.try_iter())
         {
             num_packets += packet_batch.len();
+            let batch_size = num_packets as u64;
+            // Update metrics
+            self.stats.packet_batch_size_count.add_relaxed(1);
+            self.stats.packet_batch_size_total.add_relaxed(batch_size);
+            self.stats
+                .packet_batch_size_max
+                .fetch_max_relaxed(batch_size);
+            info!("greg: batch size: {}", batch_size);
+
             packets.push_back(packet_batch);
             while num_packets > MAX_GOSSIP_TRAFFIC {
                 // Discard older packets in favor of more recent ones.

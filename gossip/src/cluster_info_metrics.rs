@@ -26,6 +26,9 @@ impl Counter {
     fn clear(&self) -> u64 {
         self.0.swap(0, Ordering::Relaxed)
     }
+    pub(crate) fn fetch_max_relaxed(&self, value: u64) {
+        self.0.fetch_max(value, Ordering::Relaxed);
+    }
 }
 
 pub(crate) struct TimedGuard<'a, T> {
@@ -174,6 +177,9 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) packet_batch_size_count: Counter, // Total number of batches received
+    pub(crate) packet_batch_size_total: Counter, // Sum of all batch sizes
+    pub(crate) packet_batch_size_max: Counter,   // Maximum batch size seen
 }
 
 impl GossipStats {
@@ -616,6 +622,21 @@ pub(crate) fn submit_gossip_stats(
         (
             "trim_crds_table_purged_values_count",
             stats.trim_crds_table_purged_values_count.clear(),
+            i64
+        ),
+        (
+            "packet_batch_size_count",
+            stats.packet_batch_size_count.clear(),
+            i64
+        ),
+        (
+            "packet_batch_size_total",
+            stats.packet_batch_size_total.clear(),
+            i64
+        ),
+        (
+            "packet_batch_size_max",
+            stats.packet_batch_size_max.clear(),
             i64
         ),
     );
