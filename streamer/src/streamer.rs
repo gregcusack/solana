@@ -7,6 +7,7 @@ use {
         sendmmsg::{batch_send, SendPktsError},
         socket::SocketAddrSpace,
     },
+    solana_perf::packet::PacketBatchRef,
     crossbeam_channel::{Receiver, RecvTimeoutError, SendError, Sender},
     histogram::Histogram,
     itertools::Itertools,
@@ -40,6 +41,9 @@ pub struct StakedNodes {
 pub type PacketBatchReceiver = Receiver<PacketBatch>;
 pub type PacketBatchSender = Sender<PacketBatch>;
 
+pub type PacketBatchReceiverZc = Receiver<PacketBatchRef>;
+pub type PacketBatchSenderZc = Sender<PacketBatchRef>;
+
 #[derive(Error, Debug)]
 pub enum StreamerError {
     #[error("I/O error")]
@@ -50,6 +54,9 @@ pub enum StreamerError {
 
     #[error("send packets error")]
     Send(#[from] SendError<PacketBatch>),
+
+    #[error("send packet batch ref error")]
+    SendPacketBatchRef(#[from] SendError<PacketBatchRef>),
 
     #[error(transparent)]
     SendPktsError(#[from] SendPktsError),
@@ -159,6 +166,101 @@ fn recv_loop(
             }
         }
     }
+}
+
+fn recv_loop_zc(
+    socket: &UdpSocket,
+    exit: &AtomicBool,
+    packet_batch_sender: &PacketBatchSenderZc,
+    recycler: &PacketBatchRecycler,
+    stats: &StreamerReceiveStats,
+    coalesce: Duration,
+    use_pinned_memory: bool,
+    in_vote_only_mode: Option<Arc<AtomicBool>>,
+    is_staked_service: bool,
+) -> Result<()> {
+    loop {
+        let mut packet_batch = if use_pinned_memory {
+            PacketBatch::new_with_recycler(recycler, PACKETS_PER_BATCH, stats.name)
+        } else {
+            PacketBatch::with_capacity(PACKETS_PER_BATCH)
+        };
+        loop {
+            // Check for exit signal, even if socket is busy
+            // (for instance the leader transaction socket)
+            if exit.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+
+            if let Some(ref in_vote_only_mode) = in_vote_only_mode {
+                if in_vote_only_mode.load(Ordering::Relaxed) {
+                    sleep(Duration::from_millis(1));
+                    continue;
+                }
+            }
+
+            if let Ok(len) = packet::recv_from(&mut packet_batch, socket, coalesce) {
+                if len > 0 {
+                    let StreamerReceiveStats {
+                        packets_count,
+                        packet_batches_count,
+                        full_packet_batches_count,
+                        max_channel_len,
+                        ..
+                    } = stats;
+
+                    packets_count.fetch_add(len, Ordering::Relaxed);
+                    packet_batches_count.fetch_add(1, Ordering::Relaxed);
+                    max_channel_len.fetch_max(packet_batch_sender.len(), Ordering::Relaxed);
+                    if len == PACKETS_PER_BATCH {
+                        full_packet_batches_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                    packet_batch
+                        .iter_mut()
+                        .for_each(|p| p.meta_mut().set_from_staked_node(is_staked_service));
+                    let batch_ref = PacketBatchRef {
+                        batch: Arc::new(packet_batch),
+                        recycler: recycler.clone().into(),
+                    };
+                    packet_batch_sender.send(batch_ref)?;
+                }
+                break;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn receiver_zc(
+    thread_name: String,
+    socket: Arc<UdpSocket>,
+    exit: Arc<AtomicBool>,
+    packet_batch_sender: PacketBatchSenderZc,
+    recycler: PacketBatchRecycler,
+    stats: Arc<StreamerReceiveStats>,
+    coalesce: Duration,
+    use_pinned_memory: bool,
+    in_vote_only_mode: Option<Arc<AtomicBool>>,
+    is_staked_service: bool,
+) -> JoinHandle<()> {
+    let res = socket.set_read_timeout(Some(Duration::new(1, 0)));
+    assert!(res.is_ok(), "streamer::receiver set_read_timeout error");
+    Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            let _ = recv_loop_zc(
+                &socket,
+                &exit,
+                &packet_batch_sender,
+                &recycler,
+                &stats,
+                coalesce,
+                use_pinned_memory,
+                in_vote_only_mode,
+                is_staked_service,
+            );
+        })
+        .unwrap()
 }
 
 #[allow(clippy::too_many_arguments)]

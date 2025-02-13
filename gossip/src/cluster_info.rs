@@ -75,7 +75,7 @@ use {
         packet,
         quic::DEFAULT_QUIC_ENDPOINTS,
         socket::SocketAddrSpace,
-        streamer::{PacketBatchReceiver, PacketBatchSender},
+        streamer::{PacketBatchReceiver, PacketBatchSender, PacketBatchReceiverZc, PacketBatchSenderZc},
     },
     solana_vote::vote_parser,
     solana_vote_program::vote_state::MAX_LOCKOUT_HISTORY,
@@ -2082,7 +2082,7 @@ impl ClusterInfo {
         &self,
         thread_pool: &ThreadPool,
         epoch_specs: Option<&mut EpochSpecs>,
-        receiver: &PacketBatchReceiver,
+        receiver: &PacketBatchReceiverZc,
         sender: &Sender<Vec<(/*from:*/ SocketAddr, Protocol)>>,
     ) -> Result<(), GossipError> {
         const RECV_TIMEOUT: Duration = Duration::from_secs(1);
@@ -2100,22 +2100,32 @@ impl ClusterInfo {
         let mut dropped_packets_counts = [0u64; 7];
         let mut num_packets = 0;
         let mut packets = VecDeque::with_capacity(2);
+        let consume_start = Instant::now();
         for packet_batch in receiver
             .recv_timeout(RECV_TIMEOUT)
             .map(std::iter::once)?
             .chain(receiver.try_iter())
         {
-            num_packets += packet_batch.len();
+            num_packets += packet_batch.batch.len();
+            self.stats.socket_consume_num_packets.add_relaxed(packet_batch.batch.len() as u64);
+            self.stats.socket_consume_num_batches.add_relaxed(1);
             packets.push_back(packet_batch);
             while num_packets > MAX_GOSSIP_TRAFFIC {
                 // Discard older packets in favor of more recent ones.
                 let Some(packet_batch) = packets.pop_front() else {
                     break;
                 };
-                num_packets -= packet_batch.len();
-                count_dropped_packets(&packet_batch, &mut dropped_packets_counts);
+                num_packets -= packet_batch.batch.len();
+                count_dropped_packets(&packet_batch.batch, &mut dropped_packets_counts);
             }
+            // if rand::thread_rng().gen_ratio(1, 100) {
+            //     let num_batches = packets.len();
+            //     let total_packets = packets.iter().map(|batch| batch.batch.len()).sum::<usize>();
+            //     info!("greg: # num batches: {num_batches}, # packets: {total_packets}");
+            // }
         }
+        let elapsed = consume_start.elapsed();
+        self.stats.socket_consume_time_to_consume_packets.add_relaxed(elapsed.as_micros() as u64);
         let num_packets_dropped = self.stats.record_dropped_packets(&dropped_packets_counts);
         self.stats
             .packets_received_count
@@ -2224,7 +2234,7 @@ impl ClusterInfo {
     pub(crate) fn start_socket_consume_thread(
         self: Arc<Self>,
         bank_forks: Option<Arc<RwLock<BankForks>>>,
-        receiver: PacketBatchReceiver,
+        receiver: PacketBatchReceiverZc,
         sender: Sender<Vec<(/*from:*/ SocketAddr, Protocol)>>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {

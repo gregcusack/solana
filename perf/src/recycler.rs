@@ -150,6 +150,10 @@ impl<T: Default + Reset + Sized> Recycler<T> {
         t.set_recycler(Arc::downgrade(&self.recycler));
         t
     }
+
+    pub fn recycle(&self, item: T) {
+        self.recycler.recycle(item);
+    }
 }
 
 impl<T: Default + Reset> RecyclerX<T> {

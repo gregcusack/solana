@@ -166,6 +166,9 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    pub(crate) socket_consume_num_packets: Counter,
+    pub(crate) socket_consume_time_to_consume_packets: Counter, // time to just read packets from the channel
+    pub(crate) socket_consume_num_batches: Counter,
 }
 
 impl GossipStats {
@@ -601,6 +604,21 @@ pub(crate) fn submit_gossip_stats(
         (
             "trim_crds_table_purged_values_count",
             stats.trim_crds_table_purged_values_count.clear(),
+            i64
+        ),
+        (
+            "socket_consume_num_packets",
+            stats.socket_consume_num_packets.clear(),
+            i64
+        ),
+        (
+            "socket_consume_time_to_consume_packets",
+            stats.socket_consume_time_to_consume_packets.clear(),
+            i64
+        ),
+        (
+            "socket_consume_num_batches",
+            stats.socket_consume_num_batches.clear(),
             i64
         ),
     );

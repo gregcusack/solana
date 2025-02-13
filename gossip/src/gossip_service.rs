@@ -44,7 +44,11 @@ impl GossipService {
         stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
         exit: Arc<AtomicBool>,
     ) -> Self {
-        let (request_sender, request_receiver) = unbounded();
+        let (request_sender_zc, request_receiver_zc) = unbounded();
+        // let (request_sender, request_receiver): (
+        //     Sender<PacketBatchRef>,
+        //     Receiver<PacketBatchRef>
+        // ) = unbounded();
         let gossip_socket = Arc::new(gossip_socket);
         trace!(
             "GossipService: id: {}, listening on: {:?}",
@@ -52,13 +56,25 @@ impl GossipService {
             gossip_socket.local_addr().unwrap()
         );
         let socket_addr_space = *cluster_info.socket_addr_space();
-        let t_receiver = streamer::receiver(
-            "solRcvrGossip".to_string(),
+        // let t_receiver = streamer::receiver(
+        //     "solRcvrGossip".to_string(),
+        //     gossip_socket.clone(),
+        //     exit.clone(),
+        //     request_sender,
+        //     Recycler::default(),
+        //     Arc::new(StreamerReceiveStats::new("gossip_receiver")),
+        //     Duration::from_millis(1), // coalesce
+        //     false,
+        //     None,
+        //     false,
+        // );
+        let t_receiver = streamer::receiver_zc(
+            "solRcvrGossipZc".to_string(),
             gossip_socket.clone(),
             exit.clone(),
-            request_sender,
+            request_sender_zc,
             Recycler::default(),
-            Arc::new(StreamerReceiveStats::new("gossip_receiver")),
+            Arc::new(StreamerReceiveStats::new("gossip_receiver_zc")),
             Duration::from_millis(1), // coalesce
             false,
             None,
@@ -67,7 +83,7 @@ impl GossipService {
         let (consume_sender, listen_receiver) = unbounded();
         let t_socket_consume = cluster_info.clone().start_socket_consume_thread(
             bank_forks.clone(),
-            request_receiver,
+            request_receiver_zc,
             consume_sender,
             exit.clone(),
         );

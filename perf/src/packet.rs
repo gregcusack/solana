@@ -9,8 +9,9 @@ use {
         borrow::Borrow,
         io::Read,
         net::SocketAddr,
-        ops::{Index, IndexMut},
+        ops::{Index, IndexMut, Deref},
         slice::{Iter, IterMut, SliceIndex},
+        sync::Arc,
     },
 };
 
@@ -18,6 +19,49 @@ pub const NUM_PACKETS: usize = 1024 * 8;
 
 pub const PACKETS_PER_BATCH: usize = 64;
 pub const NUM_RCVMMSGS: usize = 64;
+
+pub struct PacketBatchRef {
+    pub batch: Arc<PacketBatch>,
+    pub recycler: Arc<PacketBatchRecycler>,
+}
+
+impl Drop for PacketBatchRef {
+    fn drop(&mut self) {
+        // Return to recycler when last reference is dropped
+        if Arc::strong_count(&self.batch) == 1 {
+            if let Ok(batch) = Arc::try_unwrap(Arc::clone(&self.batch)) {
+                // Use the public recycle method
+                self.recycler.recycle(batch.packets);
+            }
+        }
+    }
+}
+
+impl Deref for PacketBatchRef {
+    type Target = PacketBatch;
+
+    fn deref(&self) -> &Self::Target {
+        &self.batch
+    }
+}
+
+impl<'a> IntoParallelRefIterator<'a> for &'a PacketBatch {
+    type Iter = rayon::slice::Iter<'a, Packet>;
+    type Item = &'a Packet;
+
+    fn par_iter(&self) -> Self::Iter {
+        self.packets.par_iter()
+    }
+}
+
+impl<'a> IntoParallelIterator for &'a PacketBatchRef {
+    type Iter = rayon::slice::Iter<'a, Packet>;
+    type Item = &'a Packet;
+
+    fn into_par_iter(self) -> Self::Iter {
+        self.batch.packets.par_iter()
+    }
+}
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
