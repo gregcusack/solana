@@ -88,6 +88,7 @@ pub struct Crds {
     // Mapping from nodes' pubkeys to their respective shred-version.
     shred_versions: HashMap<Pubkey, u16>,
     stats: Mutex<CrdsStats>,
+    rx_ni_counts: Mutex<HashMap<Pubkey, u64>>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -111,7 +112,6 @@ pub(crate) struct CrdsDataStats {
     pub(crate) counts: CrdsCountsArray,
     pub(crate) fails: CrdsCountsArray,
     pub(crate) votes: LruCache<Slot, /*count:*/ usize>,
-    pub(crate) rx_ni_counts: HashMap<Pubkey, u64>,
 }
 
 #[derive(Default)]
@@ -190,6 +190,7 @@ impl Default for Crds {
             purged: VecDeque::default(),
             shred_versions: HashMap::default(),
             stats: Mutex::<CrdsStats>::default(),
+            rx_ni_counts: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -246,6 +247,19 @@ impl Crds {
         let label = value.label();
         let pubkey = value.pubkey();
         let value = VersionedCrdsValue::new(value, self.cursor, now, route);
+        if let GossipRoute::PushMessage(from) = route {
+            if let CrdsData::NodeInstance(_) = value.value.data {
+                if let Ok(mut counts) = self.rx_ni_counts.lock() {
+                    *counts.entry(*from).or_insert(0) += 1;
+                    if rand::thread_rng().gen_ratio(1, 100000) {
+                        error!("greg: print rx ni counts");
+                        for (pubkey, count) in counts.iter() {
+                            error!("greg: rxni: {}: {}", pubkey, count);
+                        }
+                    }
+                }
+            }
+        };
         let mut stats = self.stats.lock().unwrap();
         match self.table.entry(label) {
             Entry::Vacant(entry) => {
@@ -690,7 +704,6 @@ impl Default for CrdsDataStats {
             counts: CrdsCountsArray::default(),
             fails: CrdsCountsArray::default(),
             votes: LruCache::new(VOTE_SLOTS_METRICS_CAP),
-            rx_ni_counts: HashMap::new(),
         }
     }
 }
@@ -708,17 +721,6 @@ impl CrdsDataStats {
         let GossipRoute::PushMessage(from) = route else {
             return;
         };
-
-        if let CrdsData::NodeInstance(_) = entry.value.data {
-            *self.rx_ni_counts.entry(*from).or_insert(0) += 1;
-        }
-
-        if rand::thread_rng().gen_ratio(1, 100000) {
-            error!("greg: print rx ni counts");
-            for (pubkey, count) in &self.rx_ni_counts {
-                error!("greg: {}: {}", pubkey, count);
-            }
-         }
 
         if should_report_message_signature(&entry.value.signature) {
             datapoint_info!(
