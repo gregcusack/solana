@@ -888,7 +888,7 @@ fn should_report_message_signature_ni(signature: &Signature) -> bool {
     let Some(Ok(bytes)) = signature.as_ref().get(..8).map(<[u8; 8]>::try_from) else {
         return false;
     };
-    u64::from_le_bytes(bytes).trailing_zeros() >= 5
+    u64::from_le_bytes(bytes).trailing_zeros() >= 10
 }
 
 #[cfg(test)]
