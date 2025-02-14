@@ -111,6 +111,7 @@ pub(crate) struct CrdsDataStats {
     pub(crate) counts: CrdsCountsArray,
     pub(crate) fails: CrdsCountsArray,
     pub(crate) votes: LruCache<Slot, /*count:*/ usize>,
+    pub(crate) rx_ni_counts: HashMap<Pubkey, u64>,
 }
 
 #[derive(Default)]
@@ -689,6 +690,7 @@ impl Default for CrdsDataStats {
             counts: CrdsCountsArray::default(),
             fails: CrdsCountsArray::default(),
             votes: LruCache::new(VOTE_SLOTS_METRICS_CAP),
+            rx_ni_counts: HashMap::new(),
         }
     }
 }
@@ -702,15 +704,20 @@ impl CrdsDataStats {
                 self.votes.put(slot, num_nodes + 1);
             }
         }
-        if let CrdsData::NodeInstance(_) = &entry.value.data {
-            if rand::thread_rng().gen_ratio(1, 1000) {
-                error!("greg: rx ni: {:?}", entry.value.pubkey());
-            }
-        }
 
         let GossipRoute::PushMessage(from) = route else {
             return;
         };
+
+        if let CrdsData::NodeInstance(_) = entry.value.data {
+            *self.rx_ni_counts.entry(*from).or_insert(0) += 1;
+        }
+
+        if rand::thread_rng().gen_ratio(1, 100000) {
+            for (pubkey, count) in &self.rx_ni_counts {
+                info!("greg: {}: {}", pubkey, count);
+            }
+         }
 
         if should_report_message_signature(&entry.value.signature) {
             datapoint_info!(
