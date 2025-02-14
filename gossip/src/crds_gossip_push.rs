@@ -199,9 +199,7 @@ impl CrdsGossipPush {
             );
             if origin == *pubkey {
                 if let CrdsData::NodeInstance(_) = &value.data {
-                    if rand::thread_rng().gen_ratio(1, 1000) {
-                        error!("greg: tx our ni");
-                    }
+                    error!("greg: tx our ni: {:?}", pubkey);
                 }
             } else {
                 if let CrdsData::NodeInstance(_) = &value.data {

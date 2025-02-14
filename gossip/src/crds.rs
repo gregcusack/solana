@@ -247,19 +247,19 @@ impl Crds {
         let label = value.label();
         let pubkey = value.pubkey();
         let value = VersionedCrdsValue::new(value, self.cursor, now, route);
-        if let GossipRoute::PushMessage(from) = route {
-            if let CrdsData::NodeInstance(_) = value.value.data {
-                if let Ok(mut counts) = self.rx_ni_counts.lock() {
-                    *counts.entry(*from).or_insert(0) += 1;
-                    if rand::thread_rng().gen_ratio(1, 100000) {
-                        error!("greg: print rx ni counts");
-                        for (pubkey, count) in counts.iter() {
-                            error!("greg: rxni: {}: {}", pubkey, count);
-                        }
-                    }
-                }
-            }
-        };
+        // if let GossipRoute::PushMessage(from) = route {
+        //     if let CrdsData::NodeInstance(_) = value.value.data {
+        //         if let Ok(mut counts) = self.rx_ni_counts.lock() {
+        //             *counts.entry(*from).or_insert(0) += 1;
+        //             if rand::thread_rng().gen_ratio(1, 100000) {
+        //                 error!("greg: print rx ni counts");
+        //                 for (pubkey, count) in counts.iter() {
+        //                     error!("greg: rxni: {}: {}", pubkey, count);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // };
         let mut stats = self.stats.lock().unwrap();
         match self.table.entry(label) {
             Entry::Vacant(entry) => {
