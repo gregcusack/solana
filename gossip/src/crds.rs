@@ -714,8 +714,9 @@ impl CrdsDataStats {
         }
 
         if rand::thread_rng().gen_ratio(1, 100000) {
+            error!("greg: print rx ni counts");
             for (pubkey, count) in &self.rx_ni_counts {
-                info!("greg: {}: {}", pubkey, count);
+                error!("greg: {}: {}", pubkey, count);
             }
          }
 
