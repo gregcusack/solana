@@ -442,6 +442,16 @@ pub struct NodeInstance {
     pub token: u64,     // Randomly generated value at node instantiation.
 }
 
+impl std::fmt::Display for NodeInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "NodeInstance {{ from: {}, wallclock: {}, timestamp: {}, token: {} }}",
+            self.from, self.wallclock, self.timestamp, self.token
+        )
+    }
+}
+
 impl NodeInstance {
     pub fn new<R>(rng: &mut R, from: Pubkey, now: u64) -> Self
     where
