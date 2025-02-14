@@ -725,7 +725,7 @@ impl CrdsDataStats {
         if should_report_message_signature(&entry.value.signature) {
             match &entry.value.data {
                 CrdsData::NodeInstance(_) => {
-                    error!("greg: ni sig: {:?}", &entry.value.signature.to_string().get(..8));
+                    error!("greg: ni sig success: {:?}", &entry.value.signature.to_string().get(..8));
                 }
                 _ => (),
             };
@@ -752,6 +752,14 @@ impl CrdsDataStats {
 
     fn record_fail(&mut self, entry: &VersionedCrdsValue) {
         self.fails[Self::ordinal(entry)] += 1;
+        if should_report_message_signature(&entry.value.signature) {
+            match &entry.value.data {
+                CrdsData::NodeInstance(_) => {
+                    error!("greg: ni sig fail: {:?}", &entry.value.signature.to_string().get(..8));
+                }
+                _ => (),
+            };
+        }
     }
 
     fn ordinal(entry: &VersionedCrdsValue) -> usize {
