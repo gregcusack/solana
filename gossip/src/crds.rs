@@ -53,6 +53,7 @@ use {
         ops::{Bound, Index, IndexMut},
         sync::Mutex,
     },
+    rand::Rng,
 };
 
 const CRDS_SHARDS_BITS: u32 = 12;
@@ -699,6 +700,11 @@ impl CrdsDataStats {
             if let Some(slot) = vote.slot() {
                 let num_nodes = self.votes.get(&slot).copied().unwrap_or_default();
                 self.votes.put(slot, num_nodes + 1);
+            }
+        }
+        if let CrdsData::NodeInstance(_) = &entry.value.data {
+            if rand::thread_rng().gen_ratio(1, 1000) {
+                error!("greg: rx ni: {:?}", entry.value.pubkey());
             }
         }
 

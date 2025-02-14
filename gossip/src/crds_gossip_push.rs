@@ -16,7 +16,7 @@ use {
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
         crds::{Crds, CrdsError, Cursor, GossipRoute},
         crds_gossip,
-        crds_value::CrdsValue,
+        crds_value::{CrdsData, CrdsValue},
         ping_pong::PingCache,
         push_active_set::PushActiveSet,
         received_cache::ReceivedCache,
@@ -38,6 +38,7 @@ use {
             Mutex, RwLock,
         },
     },
+    rand::Rng,
 };
 
 const CRDS_GOSSIP_PUSH_FANOUT: usize = 9;
@@ -196,6 +197,19 @@ impl CrdsGossipPush {
                 |node| value.should_force_push(node),
                 stakes,
             );
+            if origin == *pubkey {
+                if let CrdsData::NodeInstance(_) = &value.data {
+                    if rand::thread_rng().gen_ratio(1, 1000) {
+                        error!("greg: tx our ni");
+                    }
+                }
+            } else {
+                if let CrdsData::NodeInstance(_) = &value.data {
+                    if rand::thread_rng().gen_ratio(1, 1000) {
+                        error!("greg: tx ni: {:?}", origin);
+                    }
+                }
+            }
             for node in nodes.take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;
