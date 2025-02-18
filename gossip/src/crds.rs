@@ -801,7 +801,7 @@ fn should_report_message_signature(signature: &Signature) -> bool {
 #[inline]
 pub fn should_report_message_signature_ni(pubkey: &Pubkey) -> bool {
     let pubkey_str = pubkey.to_string();
-    pubkey_str.starts_with('9') || pubkey_str.starts_with('7')
+    pubkey_str.starts_with("9P") || pubkey_str.starts_with("7s")
 }
 
 #[cfg(test)]
