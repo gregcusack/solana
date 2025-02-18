@@ -32,29 +32,17 @@ use {
         crds_gossip_pull::CrdsTimeouts,
         crds_shards::CrdsShards,
         crds_value::{CrdsData, CrdsValue, CrdsValueLabel, NodeInstance},
-    },
-    assert_matches::debug_assert_matches,
-    bincode::serialize,
-    indexmap::{
+    }, assert_matches::debug_assert_matches, bincode::serialize, indexmap::{
         map::{rayon::ParValues, Entry, IndexMap},
         set::IndexSet,
-    },
-    lru::LruCache,
-    rayon::{prelude::*, ThreadPool},
-    solana_sdk::{
+    }, lru::LruCache, rand::Rng, rayon::{prelude::*, ThreadPool}, solana_sdk::{
         clock::Slot,
         hash::{hash, Hash},
         pubkey::Pubkey,
-        signature::Signature,
-    },
-    std::{
-        cmp::Ordering,
-        collections::{hash_map, BTreeMap, HashMap, VecDeque},
-        ops::{Bound, Index, IndexMut},
-        sync::Mutex,
-        str::FromStr,
-    },
-    rand::Rng,
+        signature::Signature, signer::Signer,
+    }, std::{
+        cmp::Ordering, collections::{hash_map, BTreeMap, HashMap, VecDeque}, ops::{Bound, Index, IndexMut}, str::FromStr, sync::Mutex
+    }
 };
 
 const CRDS_SHARDS_BITS: u32 = 12;
@@ -103,7 +91,7 @@ pub enum CrdsError {
 pub enum GossipRoute<'a> {
     LocalMessage,
     PullRequest,
-    PullResponse,
+    PullResponse(/*from:*/ &'a Pubkey),
     PushMessage(/*from:*/ &'a Pubkey),
 }
 
@@ -162,7 +150,7 @@ impl VersionedCrdsValue {
         let num_push_recv = match route {
             GossipRoute::LocalMessage => None,
             GossipRoute::PullRequest => None,
-            GossipRoute::PullResponse => Some(0),
+            GossipRoute::PullResponse(_) => Some(0),
             GossipRoute::PushMessage(_) => Some(1),
         };
 
@@ -283,7 +271,7 @@ impl Crds {
                 self.cursor.consume(value.ordinal);
                 if let GossipRoute::PushMessage(from) = route {
                     if let CrdsData::NodeInstance(ni) = &value.value.data {
-                        if should_report_message_signature_ni(&value.value.signature) {
+                        if should_report_message_signature_ni(&value.value.pubkey()) {
                             if let Ok(mut counts) = self.rx_ni_counts.lock() {
                                 let entry = counts.entry(*from).or_insert((
                                     ni.clone(),
@@ -337,7 +325,7 @@ impl Crds {
                 self.purged.push_back((entry.get().value_hash, now));
                 if let GossipRoute::PushMessage(from) = route {
                     if let CrdsData::NodeInstance(ni) = &value.value.data {
-                        if should_report_message_signature_ni(&value.value.signature) {
+                        if should_report_message_signature_ni(&value.value.pubkey()) {
                             if let Ok(mut counts) = self.rx_ni_counts.lock() {
                                 let entry = counts.entry(*from).or_insert((
                                     ni.clone(),
@@ -365,7 +353,7 @@ impl Crds {
                 );
                 if let GossipRoute::PushMessage(from) = route {
                     if let CrdsData::NodeInstance(ni) = &value.value.data {
-                        if should_report_message_signature_ni(&value.value.signature) {
+                        if should_report_message_signature_ni(&value.value.pubkey()) {
                             if let Ok(mut counts) = self.rx_ni_counts.lock() {
                                 let entry = counts.entry(*from).or_insert((
                                     ni.clone(),
@@ -767,22 +755,21 @@ impl CrdsDataStats {
                 self.votes.put(slot, num_nodes + 1);
             }
         }
-
         match route {
-            GossipRoute::PushMessage(_) => {
+            GossipRoute::PushMessage(from) => {
                 // testnet staked
                 if entry.value.pubkey() == Pubkey::from_str("9PyueBw7XndtjCuVc9cUEEcFgDDy2y457xrmztYktna6").unwrap() {
-                    error!("greg: insert push: {:?}", entry.value.pubkey());
+                    error!("greg: insert push: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
                 // mnb unstaked
                 } else if entry.value.pubkey() == Pubkey::from_str("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap() {
-                    error!("greg: insert push: {:?}", entry.value.pubkey());
+                    error!("greg: insert push: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
                 }
             }
-            GossipRoute::PullResponse => {
+            GossipRoute::PullResponse(from) => {
                 if entry.value.pubkey() == Pubkey::from_str("9PyueBw7XndtjCuVc9cUEEcFgDDy2y457xrmztYktna6").unwrap() {
-                    error!("greg: insert pullres: {:?}", entry.value.pubkey());
+                    error!("greg: insert pullres: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
                 } else if entry.value.pubkey() == Pubkey::from_str("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap() {
-                    error!("greg: insert pullres: {:?}", entry.value.pubkey());
+                    error!("greg: insert pullres: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
                 }
             }
             _ => (),
@@ -820,15 +807,34 @@ impl CrdsDataStats {
         }
     }
 
-    fn record_fail(&mut self, entry: &VersionedCrdsValue) {
+    fn record_fail(&mut self, entry: &VersionedCrdsValue, route: GossipRoute) {
         self.fails[Self::ordinal(entry)] += 1;
-        if should_report_message_signature(&entry.value.signature) {
+        if should_report_message_signature_ni(&entry.value.pubkey()) {
             match &entry.value.data {
                 CrdsData::NodeInstance(_) => {
                     error!("greg: ni sig fail: {:?}", &entry.value.signature.to_string().get(..8));
                 }
                 _ => (),
             };
+        }
+        match route {
+            GossipRoute::PushMessage(from) => {
+                // testnet staked
+                if entry.value.pubkey() == Pubkey::from_str("9PyueBw7XndtjCuVc9cUEEcFgDDy2y457xrmztYktna6").unwrap() {
+                    error!("greg: fail insert push: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
+                // mnb unstaked
+                } else if entry.value.pubkey() == Pubkey::from_str("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap() {
+                    error!("greg: fail insert push: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
+                }
+            }
+            GossipRoute::PullResponse(from) => {
+                if entry.value.pubkey() == Pubkey::from_str("9PyueBw7XndtjCuVc9cUEEcFgDDy2y457xrmztYktna6").unwrap() {
+                    error!("greg: fail insert pullres: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
+                } else if entry.value.pubkey() == Pubkey::from_str("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap() {
+                    error!("greg: fail insert pullres: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
+                }
+            }
+            _ => (),
         }
     }
 
@@ -859,7 +865,7 @@ impl CrdsStats {
             GossipRoute::LocalMessage => (),
             GossipRoute::PullRequest => (),
             GossipRoute::PushMessage(_) => self.push.record_insert(entry, route),
-            GossipRoute::PullResponse => self.pull.record_insert(entry, route),
+            GossipRoute::PullResponse(_) => self.pull.record_insert(entry, route),
         }
     }
 
@@ -867,8 +873,8 @@ impl CrdsStats {
         match route {
             GossipRoute::LocalMessage => (),
             GossipRoute::PullRequest => (),
-            GossipRoute::PushMessage(_) => self.push.record_fail(entry),
-            GossipRoute::PullResponse => self.pull.record_fail(entry),
+            GossipRoute::PushMessage(_) => self.push.record_fail(entry, route),
+            GossipRoute::PullResponse(_) => self.pull.record_fail(entry, route),
         }
     }
 }
@@ -884,11 +890,9 @@ fn should_report_message_signature(signature: &Signature) -> bool {
 
 /// check if first SIGNATURE_SAMPLE_LEADING_ZEROS bits of signature are 0
 #[inline]
-fn should_report_message_signature_ni(signature: &Signature) -> bool {
-    let Some(Ok(bytes)) = signature.as_ref().get(..8).map(<[u8; 8]>::try_from) else {
-        return false;
-    };
-    u64::from_le_bytes(bytes).trailing_zeros() >= 10
+fn should_report_message_signature_ni(pubkey: &Pubkey) -> bool {
+    let pubkey_str = pubkey.to_string();
+    pubkey_str.starts_with('9') || pubkey_str.starts_with('7')
 }
 
 #[cfg(test)]

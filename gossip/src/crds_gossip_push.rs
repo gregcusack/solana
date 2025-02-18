@@ -197,19 +197,6 @@ impl CrdsGossipPush {
                 |node| value.should_force_push(node),
                 stakes,
             );
-            if origin == *pubkey {
-                // if let CrdsData::NodeInstance(_) = &value.data {
-                //     if rand::thread_rng().gen_ratio(1, 1000) {
-                //         error!("greg: tx our ni");
-                //     }
-                // }
-            } else {
-                // if let CrdsData::NodeInstance(_) = &value.data {
-                //     if rand::thread_rng().gen_ratio(1, 1000) {
-                //         error!("greg: tx ni: {:?}", origin);
-                //     }
-                // }
-            }
             for node in nodes.take(self.push_fanout) {
                 push_messages.entry(*node).or_default().push(value.clone());
                 num_pushes += 1;

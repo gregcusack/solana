@@ -365,12 +365,13 @@ impl CrdsGossipPull {
         let mut owners = HashSet::new();
         let mut crds = crds.write().unwrap();
         for response in responses_expired_timeout {
-            let _ = crds.insert(response, now, GossipRoute::PullResponse);
+            let owner = response.pubkey();
+            let _ = crds.insert(response, now, GossipRoute::PullResponse(&owner));
         }
         let mut num_inserts = 0;
         for response in responses {
             let owner = response.pubkey();
-            if let Ok(()) = crds.insert(response, now, GossipRoute::PullResponse) {
+            if let Ok(()) = crds.insert(response, now, GossipRoute::PullResponse(&owner)) {
                 num_inserts += 1;
                 owners.insert(owner);
             }
