@@ -809,14 +809,6 @@ impl CrdsDataStats {
 
     fn record_fail(&mut self, entry: &VersionedCrdsValue, route: GossipRoute) {
         self.fails[Self::ordinal(entry)] += 1;
-        if should_report_message_signature_ni(&entry.value.pubkey()) {
-            match &entry.value.data {
-                CrdsData::NodeInstance(_) => {
-                    error!("greg: ni sig fail: {:?}", &entry.value.signature.to_string().get(..8));
-                }
-                _ => (),
-            };
-        }
         match route {
             GossipRoute::PushMessage(from) => {
                 // testnet staked
@@ -892,7 +884,7 @@ fn should_report_message_signature(signature: &Signature) -> bool {
 #[inline]
 fn should_report_message_signature_ni(pubkey: &Pubkey) -> bool {
     let pubkey_str = pubkey.to_string();
-    pubkey_str.starts_with('9') || pubkey_str.starts_with('7')
+    pubkey_str.starts_with("9P") || pubkey_str.starts_with("7s")
 }
 
 #[cfg(test)]

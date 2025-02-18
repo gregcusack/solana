@@ -3351,7 +3351,7 @@ fn filter_on_shred_version(
                 None
             } else {
                 Some(msg)
-            }
+            } 
         }
         Protocol::PruneMessage(_, _) | Protocol::PingMessage(_) | Protocol::PongMessage(_) => {
             Some(msg)
