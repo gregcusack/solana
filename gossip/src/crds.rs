@@ -798,6 +798,12 @@ fn should_report_message_signature(signature: &Signature) -> bool {
     u64::from_le_bytes(bytes).trailing_zeros() >= SIGNATURE_SAMPLE_LEADING_ZEROS
 }
 
+#[inline]
+pub fn should_report_message_signature_ni(pubkey: &Pubkey) -> bool {
+    let pubkey_str = pubkey.to_string();
+    pubkey_str.starts_with('9') || pubkey_str.starts_with('7')
+}
+
 #[cfg(test)]
 mod tests {
     use {

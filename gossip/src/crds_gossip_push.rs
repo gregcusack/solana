@@ -14,7 +14,7 @@
 use {
     crate::{
         cluster_info::{Ping, CRDS_UNIQUE_PUBKEY_CAPACITY},
-        crds::{Crds, CrdsError, Cursor, GossipRoute},
+        crds::{Crds, CrdsError, Cursor, GossipRoute, should_report_message_signature_ni},
         crds_gossip,
         crds_value::{CrdsData, CrdsValue},
         ping_pong::PingCache,
@@ -198,14 +198,10 @@ impl CrdsGossipPush {
                 stakes,
             );
             if origin == *pubkey {
-                if let CrdsData::NodeInstance(_) = &value.data {
-                    error!("greg: tx our ni: {:?}", pubkey);
-                }
+                error!("greg: tx our msg: {:?}, data_type: {:?}", pubkey, value.data.variant_name());
             } else {
-                if let CrdsData::NodeInstance(_) = &value.data {
-                    if rand::thread_rng().gen_ratio(1, 1000) {
-                        error!("greg: tx ni: {:?}", origin);
-                    }
+                if should_report_message_signature_ni(&origin) {
+                    error!("greg: tx msg: {:?}, data_type: {:?}", origin, value.data.variant_name());
                 }
             }
             for node in nodes.take(self.push_fanout) {
