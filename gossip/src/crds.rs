@@ -236,14 +236,14 @@ impl Crds {
         let label = value.label();
         let pubkey = value.pubkey();
         let value = VersionedCrdsValue::new(value, self.cursor, now, route);
-        if rand::thread_rng().gen_ratio(1, 1000000) {
-            error!("greg: print rx ni");
-            if let Ok(counts) = self.rx_ni_counts.lock() {
-                for (pubkey, count) in counts.iter() {
-                    error!("greg: rxni: {}: {}, {}, {}, {}, {}", pubkey, count.0, count.1, count.2, count.3, count.4);
-                }
-            }
-        }
+        // if rand::thread_rng().gen_ratio(1, 1000000) {
+        //     error!("greg: print rx ni");
+        //     if let Ok(counts) = self.rx_ni_counts.lock() {
+        //         for (pubkey, count) in counts.iter() {
+        //             error!("greg: rxni: {}: {}, {}, {}, {}, {}", pubkey, count.0, count.1, count.2, count.3, count.4);
+        //         }
+        //     }
+        // }
         let mut stats = self.stats.lock().unwrap();
         match self.table.entry(label) {
             Entry::Vacant(entry) => {
@@ -269,24 +269,24 @@ impl Crds {
                 self.entries.insert(value.ordinal, entry_index);
                 self.records.entry(pubkey).or_default().insert(entry_index);
                 self.cursor.consume(value.ordinal);
-                if let GossipRoute::PushMessage(from) = route {
-                    if let CrdsData::NodeInstance(ni) = &value.value.data {
-                        if should_report_message_signature_ni(&value.value.pubkey()) {
-                            if let Ok(mut counts) = self.rx_ni_counts.lock() {
-                                let entry = counts.entry(*from).or_insert((
-                                    ni.clone(),
-                                    0,  // count
-                                    0,  // new
-                                    0,  // override
-                                    0,  // fail
-                                ));
-                                entry.0 = ni.clone(); // Always update NodeInstance
-                                entry.1 += 1; // Increment count
-                                entry.2 += 1; // Increment new
-                            }
-                        }
-                    }
-                };
+                // if let GossipRoute::PushMessage(from) = route {
+                //     if let CrdsData::NodeInstance(ni) = &value.value.data {
+                //         if should_report_message_signature_ni(&value.value.pubkey()) {
+                //             if let Ok(mut counts) = self.rx_ni_counts.lock() {
+                //                 let entry = counts.entry(*from).or_insert((
+                //                     ni.clone(),
+                //                     0,  // count
+                //                     0,  // new
+                //                     0,  // override
+                //                     0,  // fail
+                //                 ));
+                //                 entry.0 = ni.clone(); // Always update NodeInstance
+                //                 entry.1 += 1; // Increment count
+                //                 entry.2 += 1; // Increment new
+                //             }
+                //         }
+                //     }
+                // };
                 entry.insert(value);
                 Ok(())
             }
@@ -323,24 +323,24 @@ impl Crds {
                 debug_assert_eq!(entry.get().value.pubkey(), pubkey);
                 self.cursor.consume(value.ordinal);
                 self.purged.push_back((entry.get().value_hash, now));
-                if let GossipRoute::PushMessage(from) = route {
-                    if let CrdsData::NodeInstance(ni) = &value.value.data {
-                        if should_report_message_signature_ni(&value.value.pubkey()) {
-                            if let Ok(mut counts) = self.rx_ni_counts.lock() {
-                                let entry = counts.entry(*from).or_insert((
-                                    ni.clone(),
-                                    0,  // count
-                                    0,  // new
-                                    0,  // override
-                                    0,  // fail
-                                ));
-                                entry.0 = ni.clone(); // Always update NodeInstance
-                                entry.1 += 1; // Increment count
-                                entry.3 += 1; // Increment override
-                            }
-                        }
-                    }
-                };
+                // if let GossipRoute::PushMessage(from) = route {
+                //     if let CrdsData::NodeInstance(ni) = &value.value.data {
+                //         if should_report_message_signature_ni(&value.value.pubkey()) {
+                //             if let Ok(mut counts) = self.rx_ni_counts.lock() {
+                //                 let entry = counts.entry(*from).or_insert((
+                //                     ni.clone(),
+                //                     0,  // count
+                //                     0,  // new
+                //                     0,  // override
+                //                     0,  // fail
+                //                 ));
+                //                 entry.0 = ni.clone(); // Always update NodeInstance
+                //                 entry.1 += 1; // Increment count
+                //                 entry.3 += 1; // Increment override
+                //             }
+                //         }
+                //     }
+                // };
                 entry.insert(value);
                 Ok(())
             }
@@ -351,24 +351,24 @@ impl Crds {
                     value.value.label(),
                     value.value.wallclock(),
                 );
-                if let GossipRoute::PushMessage(from) = route {
-                    if let CrdsData::NodeInstance(ni) = &value.value.data {
-                        if should_report_message_signature_ni(&value.value.pubkey()) {
-                            if let Ok(mut counts) = self.rx_ni_counts.lock() {
-                                let entry = counts.entry(*from).or_insert((
-                                    ni.clone(),
-                                    0,  // count
-                                    0,  // new
-                                    0,  // override
-                                    0,  // fail
-                                ));
-                                entry.0 = ni.clone(); // Always update NodeInstance
-                                entry.1 += 1; // Increment count
-                                entry.4 += 1; // Increment fail
-                            }
-                        }
-                    }
-                };
+                // if let GossipRoute::PushMessage(from) = route {
+                //     if let CrdsData::NodeInstance(ni) = &value.value.data {
+                //         if should_report_message_signature_ni(&value.value.pubkey()) {
+                //             if let Ok(mut counts) = self.rx_ni_counts.lock() {
+                //                 let entry = counts.entry(*from).or_insert((
+                //                     ni.clone(),
+                //                     0,  // count
+                //                     0,  // new
+                //                     0,  // override
+                //                     0,  // fail
+                //                 ));
+                //                 entry.0 = ni.clone(); // Always update NodeInstance
+                //                 entry.1 += 1; // Increment count
+                //                 entry.4 += 1; // Increment fail
+                //             }
+                //         }
+                //     }
+                // };
                 // Identify if the message is outdated (as opposed to
                 // duplicate) by comparing value hashes.
                 if entry.get().value_hash != value.value_hash {
@@ -775,35 +775,57 @@ impl CrdsDataStats {
             _ => (),
         }
 
-        let GossipRoute::PushMessage(from) = route else {
-            return;
-        };
+        // let GossipRoute::PushMessage(from) = route else {
+        //     return;
+        // };
 
-        if should_report_message_signature(&entry.value.signature) {
-            match &entry.value.data {
-                CrdsData::NodeInstance(_) => {
-                    error!("greg: ni sig success: {:?}", &entry.value.signature.to_string().get(..8));
+        match route {
+            GossipRoute::PushMessage(from) => {
+                if should_report_message_signature(&entry.value.signature) {
+                    datapoint_info!(
+                        "gossip_crds_sample",
+                        (
+                            "origin",
+                            entry.value.pubkey().to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "signature",
+                            entry.value.signature.to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "from",
+                            from.to_string().get(..8),
+                            Option<String>
+                        )
+                    );
+                    error!("greg: message sig: {:}, type: {:?}", entry.value.signature.to_string().get(..8).unwrap(), entry.value.data.variant_name());
                 }
-                _ => (),
-            };
-            datapoint_info!(
-                "gossip_crds_sample",
-                (
-                    "origin",
-                    entry.value.pubkey().to_string().get(..8),
-                    Option<String>
-                ),
-                (
-                    "signature",
-                    entry.value.signature.to_string().get(..8),
-                    Option<String>
-                ),
-                (
-                    "from",
-                    from.to_string().get(..8),
-                    Option<String>
-                )
-            );
+            }
+            GossipRoute::PullResponse(from) => {
+                if should_report_message_signature(&entry.value.signature) {
+                    datapoint_info!(
+                        "gossip_crds_sample",
+                        (
+                            "pull_origin",
+                            entry.value.pubkey().to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "pull_signature",
+                            entry.value.signature.to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "pull_from",
+                            from.to_string().get(..8),
+                            Option<String>
+                        )
+                    );
+                    error!("greg: message pull sig: {:}, type: {:?}", entry.value.signature.to_string().get(..8).unwrap(), entry.value.data.variant_name());                }
+            }
+            _ => (),
         }
     }
 
@@ -818,12 +840,54 @@ impl CrdsDataStats {
                 } else if entry.value.pubkey() == Pubkey::from_str("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap() {
                     error!("greg: fail insert push: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
                 }
+                if should_report_message_signature(&entry.value.signature) {
+                    datapoint_info!(
+                        "gossip_crds_sample",
+                        (
+                            "push_fail_origin",
+                            entry.value.pubkey().to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "push_fail_signature", 
+                            entry.value.signature.to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "push_fail_from",
+                            from.to_string().get(..8), 
+                            Option<String>
+                        )
+                    );
+                    error!("greg: message push fail sig: {:}, type: {:?}", entry.value.signature.to_string().get(..8).unwrap(), entry.value.data.variant_name());
+                }
             }
             GossipRoute::PullResponse(from) => {
                 if entry.value.pubkey() == Pubkey::from_str("9PyueBw7XndtjCuVc9cUEEcFgDDy2y457xrmztYktna6").unwrap() {
                     error!("greg: fail insert pullres: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
                 } else if entry.value.pubkey() == Pubkey::from_str("7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR").unwrap() {
                     error!("greg: fail insert pullres: {:?}, from: {:?}, data_type: {:?}", entry.value.pubkey(), from, entry.value.data);
+                }
+                if should_report_message_signature(&entry.value.signature) {
+                    datapoint_info!(
+                        "gossip_crds_sample",
+                        (
+                            "pull_fail_origin",
+                            entry.value.pubkey().to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "pull_fail_signature", 
+                            entry.value.signature.to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "pull_fail_from",
+                            from.to_string().get(..8), 
+                            Option<String>
+                        )
+                    );
+                    error!("greg: message pull fail sig: {:}, type: {:?}", entry.value.signature.to_string().get(..8).unwrap(), entry.value.data.variant_name());
                 }
             }
             _ => (),
