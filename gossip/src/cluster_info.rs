@@ -438,13 +438,14 @@ fn retain_staked(
             // the various dashboards.
             CrdsData::Version(_) => true,
             CrdsData::AccountsHashes(_) => true,
-            CrdsData::NodeInstance(_) if !drop_unstaked_node_instance => true,
+            // CrdsData::NodeInstance(_) if !drop_unstaked_node_instance => true,
+            CrdsData::NodeInstance(_) => false,
             CrdsData::LowestSlot(_, _)
             | CrdsData::LegacyVersion(_)
             | CrdsData::DuplicateShred(_, _)
             | CrdsData::RestartHeaviestFork(_)
-            | CrdsData::RestartLastVotedForkSlots(_)
-            | CrdsData::NodeInstance(_) => {
+            | CrdsData::RestartLastVotedForkSlots(_) => {
+            // | CrdsData::NodeInstance(_) => {
                 let stake = stakes.get(&value.pubkey()).copied();
                 stake.unwrap_or_default() >= MIN_STAKE_FOR_GOSSIP
             }
@@ -1649,9 +1650,16 @@ impl ClusterInfo {
             .add_relaxed(num_nodes as u64);
         if self.require_stake_for_gossip(stakes) {
             push_messages.retain(|_, data| {
-                retain_staked(data, stakes, /* drop_unstaked_node_instance */ false);
+                retain_staked(data, stakes, /* drop_unstaked_node_instance */ true);
                 !data.is_empty()
             })
+        }
+        for (pubkey, messages) in push_messages.iter_mut() {
+            for message in messages.iter() {
+                if let CrdsData::NodeInstance(node_instance) = &message.data {
+                    error!("greg: sending out NI. should not be sending our NI");
+                }
+            }
         }
         let push_messages: Vec<_> = {
             let gossip_crds =
@@ -2543,10 +2551,10 @@ impl ClusterInfo {
             retain_staked(
                 &mut pull_responses,
                 stakes,
-                /* drop_unstaked_node_instance */ false,
+                /* drop_unstaked_node_instance */ true,
             );
             for (_, data) in &mut push_messages {
-                retain_staked(data, stakes, /* drop_unstaked_node_instance */ false);
+                retain_staked(data, stakes, /* drop_unstaked_node_instance */ true);
             }
             push_messages.retain(|(_, data)| !data.is_empty());
         }
