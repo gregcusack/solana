@@ -608,6 +608,11 @@ impl Crds {
         let Some((index, _ /*label*/, value)) = self.table.swap_remove_full(key) else {
             return;
         };
+        if let CrdsData::NodeInstance(_) = &value.value.data {
+            if should_report_message_signature(&value.value.signature) {
+                error!("greg: remove ni sig: {:?}, pk: {:?}", value.value.signature.to_string().get(..8).unwrap(), value.value.pubkey());
+            }
+        }
         self.purged.push_back((value.value_hash, now));
         self.shards.remove(index, &value);
         match value.value.data {
@@ -723,8 +728,18 @@ impl Crds {
             .map(|(_, k)| k)
             .filter(|k| !keep.contains(k))
             .flat_map(|k| &self.records[&k])
-            .map(|k| self.table.get_index(*k).unwrap().0.clone())
+            .map(|k| {
+                let (label, value) = self.table.get_index(*k).unwrap();
+                if let CrdsData::NodeInstance(_) = &value.value.data {
+                    if should_report_message_signature(&value.value.signature) {
+                        error!("greg: drop ni sig: {:?}, pk: {:?}", value.value.signature.to_string().get(..8).unwrap(), value.value.pubkey());
+                    }
+                }
+                label.clone()
+            })
             .collect();
+            // .map(|k| self.table.get_index(*k).unwrap().0.clone())
+            // .collect();
         for key in &keys {
             self.remove(key, now);
         }
