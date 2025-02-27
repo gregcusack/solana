@@ -253,7 +253,7 @@ fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std:
     let identity_keypair = keypair_of(matches, "identity");
     let entrypoint_addr = parse_entrypoint(matches);
     let gossip_addr = get_gossip_address(matches, entrypoint_addr);
-
+    error!("greg: gossip_addr: {:?}", gossip_addr);
     let mut shred_version = value_t_or_exit!(matches, "shred_version", u16);
     if shred_version == 0 {
         shred_version = get_entrypoint_shred_version(&entrypoint_addr)

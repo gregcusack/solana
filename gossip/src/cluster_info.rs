@@ -1338,6 +1338,7 @@ impl ClusterInfo {
         sender: &PacketBatchSender,
         generate_pull_requests: bool,
     ) -> Result<(), GossipError> {
+        error!("greg: run_gossip");
         let _st = ScopedTimer::from(&self.stats.gossip_transmit_loop_time);
         let mut packet_batch = PacketBatch::new_unpinned_with_recycler(recycler, 0, "run_gossip");
         self.generate_new_gossip_requests(
@@ -1348,6 +1349,7 @@ impl ClusterInfo {
         )
         .filter_map(|(addr, data)| make_gossip_packet(addr, &data, &self.stats))
         .for_each(|pkt| packet_batch.push(pkt));
+        error!("greg: packet_batch: {:?}", packet_batch.len());
         if !packet_batch.is_empty() {
             sender.send(packet_batch)?;
         }
@@ -2334,6 +2336,7 @@ impl ClusterInfo {
         gossip_addr: &SocketAddr,
         shred_version: u16,
     ) -> (ContactInfo, UdpSocket, Option<TcpListener>) {
+        error!("greg: creating gossip node");
         let bind_ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         let (port, (gossip_socket, ip_echo)) =
             Node::get_gossip_port(gossip_addr, VALIDATOR_PORT_RANGE, bind_ip_addr);
@@ -2348,6 +2351,7 @@ impl ClusterInfo {
         id: Pubkey,
         shred_version: u16,
     ) -> (ContactInfo, UdpSocket, Option<TcpListener>) {
+        error!("greg: creating spy node");
         let bind_ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         let (port, gossip_socket) = bind_in_range(bind_ip_addr, VALIDATOR_PORT_RANGE).unwrap();
         let contact_info = Self::gossip_contact_info(

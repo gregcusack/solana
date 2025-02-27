@@ -320,11 +320,12 @@ pub fn make_gossip_node(
     should_check_duplicate_instance: bool,
     socket_addr_space: SocketAddrSpace,
 ) -> (GossipService, Option<TcpListener>, Arc<ClusterInfo>) {
-    let (node, gossip_socket, ip_echo) = if let Some(gossip_addr) = gossip_addr {
-        ClusterInfo::gossip_node(keypair.pubkey(), gossip_addr, shred_version)
-    } else {
-        ClusterInfo::spy_node(keypair.pubkey(), shred_version)
-    };
+    // let (node, gossip_socket, ip_echo) = if let Some(gossip_addr) = gossip_addr {
+    //     ClusterInfo::gossip_node(keypair.pubkey(), gossip_addr, shred_version)
+    // } else {
+    //     ClusterInfo::spy_node(keypair.pubkey(), shred_version)
+    // };
+    let (node, gossip_socket, ip_echo) = ClusterInfo::spy_node(keypair.pubkey(), shred_version);
     let cluster_info = ClusterInfo::new(node, Arc::new(keypair), socket_addr_space);
     if let Some(entrypoint) = entrypoint {
         cluster_info.set_entrypoint(ContactInfo::new_gossip_entry_point(entrypoint));
