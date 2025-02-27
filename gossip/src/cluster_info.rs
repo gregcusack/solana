@@ -1770,21 +1770,31 @@ impl ClusterInfo {
         let addr_to_pubkey: HashMap<_, _> = requests.iter().map(|req| (req.addr, req.pubkey)).collect();
 
         // Log dropped requests after processing is complete
-        let dropped_requests: Vec<_> = pull_responses
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !processed_indices.contains(i))
-            .map(|(_, (addr, values))| (addr_to_pubkey.get(addr).copied().unwrap_or_default(), values.len()))
-            .collect();
-
-        if !dropped_requests.is_empty() {
+        if processed_indices.len() != pull_responses.len() {
+            let mut dropped_by_pubkey: HashMap<Pubkey, usize> = HashMap::new();
+            
+            for (i, (addr, values)) in pull_responses.iter().enumerate() {
+                if !processed_indices.contains(&i) {
+                    let pubkey = addr_to_pubkey.get(addr).copied().unwrap_or_default();
+                    *dropped_by_pubkey.entry(pubkey).or_default() += values.len();
+                }
+            }
+            
+            let total_dropped = dropped_by_pubkey.values().sum::<usize>();
+            
             error!(
-                "greg: Dropping pull responses due to budget - Dropped responses by pubkey: {:?}, \
-                 total values dropped: {}, budget exhausted at {} bytes",
-                dropped_requests,
-                dropped_requests.iter().map(|(_, count)| count).sum::<usize>(),
+                "greg: Dropping pull responses due to budget - {} values dropped across {} pubkeys, budget exhausted at {} bytes",
+                total_dropped,
+                dropped_by_pubkey.len(),
                 total_bytes
             );
+            
+            // Print top 5 pubkeys with most dropped values
+            let mut dropped_vec: Vec<_> = dropped_by_pubkey.into_iter().collect();
+            dropped_vec.sort_by(|a, b| b.1.cmp(&a.1));
+            for (pubkey, count) in dropped_vec.iter().take(10) {
+                error!("greg: Dropped {} values for pubkey {}", count, pubkey);
+            }
         }
         let dropped_responses = num_crds_values.saturating_sub(sent_crds_values);
         self.stats
