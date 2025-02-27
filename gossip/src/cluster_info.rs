@@ -1766,12 +1766,15 @@ impl ClusterInfo {
             })
             .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
 
+        // Create addr -> pubkey mapping from original requests
+        let addr_to_pubkey: HashMap<_, _> = requests.iter().map(|req| (req.addr, req.pubkey)).collect();
+
         // Log dropped requests after processing is complete
         let dropped_requests: Vec<_> = pull_responses
             .iter()
             .enumerate()
             .filter(|(i, _)| !processed_indices.contains(i))
-            .map(|(_, (addr, values))| (addr, values.len()))
+            .map(|(_, (addr, values))| (addr_to_pubkey.get(addr).copied().unwrap_or_default(), values.len()))
             .collect();
 
         if !dropped_requests.is_empty() {
