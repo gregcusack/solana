@@ -105,7 +105,7 @@ use {
 const DEFAULT_EPOCH_DURATION: Duration =
     Duration::from_millis(DEFAULT_SLOTS_PER_EPOCH * DEFAULT_MS_PER_SLOT);
 /// milliseconds we sleep for between gossip requests
-pub const GOSSIP_SLEEP_MILLIS: u64 = 100;
+pub const GOSSIP_SLEEP_MILLIS: u64 = 10;
 /// A hard limit on incoming gossip messages
 /// Chosen to be able to handle 1Gbps of pure gossip traffic
 /// 128MB/PACKET_DATA_SIZE
@@ -1319,13 +1319,14 @@ impl ClusterInfo {
         // pull-request bloom filters, preventing pull responses to return the
         // same values back to the node itself. Note that packets will arrive
         // and are processed out of order.
-        let out = self.new_push_requests(stakes);
-        if generate_pull_requests {
-            let reqs = self.new_pull_requests(thread_pool, gossip_validators, stakes);
-            Either::Right(out.chain(reqs))
-        } else {
-            Either::Left(out)
-        }
+        // let out = self.new_push_requests(stakes).collect::<Vec<_>>();
+        // error!("greg: push msg out len: {}", out.len());
+        self.new_pull_requests(thread_pool, gossip_validators, stakes)
+        // if generate_pull_requests {
+        //     Either::Right(out.into_iter().chain(self.new_pull_requests(thread_pool, gossip_validators, stakes)))
+        // } else {
+        //     Either::Left(out.into_iter())
+        // }
     }
 
     /// At random pick a node and try to get updated changes from them
@@ -1525,11 +1526,13 @@ impl ClusterInfo {
                         last_push = timestamp();
                     }
                     let elapsed = timestamp() - start;
+                    error!("greg: elapsed: {}", elapsed);
                     if GOSSIP_SLEEP_MILLIS > elapsed {
                         let time_left = GOSSIP_SLEEP_MILLIS - elapsed;
+                        error!("greg: time_left: {}", time_left);
                         sleep(Duration::from_millis(time_left));
                     }
-                    generate_pull_requests = !generate_pull_requests;
+                    // generate_pull_requests = !generate_pull_requests;
                 }
             })
             .unwrap()
