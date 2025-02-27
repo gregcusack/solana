@@ -64,6 +64,7 @@ pub struct CrdsFilter {
 }
 
 // Incoming gossip pull request from a remote node.
+#[derive(Clone, Debug)]
 pub struct PullRequest {
     pub pubkey: Pubkey,   // remote node's pubkey
     pub addr: SocketAddr, // socket-addr the request was received from

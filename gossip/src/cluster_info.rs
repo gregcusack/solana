@@ -1628,12 +1628,25 @@ impl ClusterInfo {
         let mut hard_check = move |node| {
             let (check, ping) = ping_cache.check(rng, &self.keypair(), now, node);
             if let Some(ping) = ping {
+                error!(
+                    "greg: Sending ping to node {} at {} (needs verification)",
+                    node.0, node.1
+                );
                 let ping = Protocol::PingMessage(ping);
                 if let Some(pkt) = make_gossip_packet(node.1, &ping, &self.stats) {
                     packet_batch.push(pkt);
                 }
+            } else if check {
+                error!(
+                    "greg: Node {} at {} already verified in ping cache",
+                    node.0, node.1
+                );
             }
             if !check {
+                error!(
+                    "greg: Pull request failed ping-pong check for node {} at {}",
+                    node.0, node.1
+                );
                 self.stats
                     .pull_request_ping_pong_check_failed_count
                     .add_relaxed(1)
@@ -1660,6 +1673,7 @@ impl ClusterInfo {
         mut requests: Vec<PullRequest>,
         stakes: &HashMap<Pubkey, u64>,
     ) -> PacketBatch {
+        error!("greg: rx pull requests");
         const DEFAULT_EPOCH_DURATION_MS: u64 = DEFAULT_SLOTS_PER_EPOCH * DEFAULT_MS_PER_SLOT;
         let output_size_limit =
             self.update_data_budget(stakes.len()) / PULL_RESPONSE_MIN_SERIALIZED_SIZE;
@@ -1687,6 +1701,13 @@ impl ClusterInfo {
                 &self.stats,
             )
         };
+        for (request, response) in requests.iter().zip(pull_responses.iter()) {
+            error!(
+                "greg: Sending pull response to {}: {} values",
+                request.pubkey,
+                response.len()
+            );
+        }
         // Prioritize more recent values, staked values and ContactInfos.
         let get_score = |value: &CrdsValue| -> u64 {
             let age = now.saturating_sub(value.wallclock());
@@ -1718,29 +1739,50 @@ impl ClusterInfo {
                 })
             })
             .collect();
+        let mut processed_indices = HashSet::new();
         let (total_bytes, sent_crds_values) = WeightedShuffle::new("handle-pull-requests", scores)
             .shuffle(&mut rng)
-            .filter_map(|k| {
+            .enumerate()
+            .filter_map(|(i, k)| {
                 let (&addr, values) = &mut pull_responses[k];
                 let num_values = values.len();
                 let response = Protocol::PullResponse(self_id, std::mem::take(values));
                 let packet = make_gossip_packet(addr, &response, &self.stats)?;
-                Some((packet, num_values))
+                Some((i, k, packet, num_values))
             })
-            .take_while(|(packet, _)| {
+            .take_while(|(i, _k, packet, _num_values)| {
                 if self.outbound_budget.take(packet.meta().size) {
+                    processed_indices.insert(*i);
                     true
                 } else {
                     self.stats.gossip_pull_request_no_budget.add_relaxed(1);
                     false
                 }
             })
-            .map(|(packet, num_values)| {
+            .map(|(_i, _k, packet, num_values)| {
                 let num_bytes = packet.meta().size;
                 packet_batch.push(packet);
                 (num_bytes, num_values)
             })
             .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+
+        // Log dropped requests after processing is complete
+        let dropped_requests: Vec<_> = pull_responses
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !processed_indices.contains(i))
+            .map(|(_, (addr, values))| (addr, values.len()))
+            .collect();
+
+        if !dropped_requests.is_empty() {
+            error!(
+                "greg: Dropping pull responses due to budget - Dropped responses by pubkey: {:?}, \
+                 total values dropped: {}, budget exhausted at {} bytes",
+                dropped_requests,
+                dropped_requests.iter().map(|(_, count)| count).sum::<usize>(),
+                total_bytes
+            );
+        }
         let dropped_responses = num_crds_values.saturating_sub(sent_crds_values);
         self.stats
             .gossip_pull_request_dropped_requests
