@@ -98,6 +98,7 @@ use {
         },
         thread::{sleep, Builder, JoinHandle},
         time::{Duration, Instant},
+        str::FromStr,
     },
     thiserror::Error,
 };
@@ -1701,12 +1702,23 @@ impl ClusterInfo {
                 &self.stats,
             )
         };
+        // Track specific pubkeys we want to monitor
+        let monitored_pubkeys = [
+            "7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR",
+            "5YCCaim3CqZGNCQ46cf38kyUbZASMLbvvzcre5uDRZhk",
+        ]
+        .iter()
+        .filter_map(|s| Pubkey::from_str(s).ok())
+        .collect::<HashSet<_>>();
+        
         for (request, response) in requests.iter().zip(pull_responses.iter()) {
-            error!(
-                "greg: Sending pull response to {}: {} values",
-                request.pubkey,
-                response.len()
-            );
+            if monitored_pubkeys.contains(&request.pubkey) {
+                error!(
+                    "greg: Sending pull response to {}: {} values",
+                    request.pubkey,
+                    response.len()
+                );
+            }
         }
         // Prioritize more recent values, staked values and ContactInfos.
         let get_score = |value: &CrdsValue| -> u64 {
@@ -1773,10 +1785,20 @@ impl ClusterInfo {
         if processed_indices.len() != pull_responses.len() {
             let mut dropped_by_pubkey: HashMap<Pubkey, usize> = HashMap::new();
             
+            
             for (i, (addr, values)) in pull_responses.iter().enumerate() {
                 if !processed_indices.contains(&i) {
                     let pubkey = addr_to_pubkey.get(addr).copied().unwrap_or_default();
                     *dropped_by_pubkey.entry(pubkey).or_default() += values.len();
+                    
+                    // Only log for monitored pubkeys
+                    if monitored_pubkeys.contains(&pubkey) {
+                        error!(
+                            "greg: Dropping total of {} values for monitored pubkey {}",
+                            values.len(),
+                            pubkey
+                        );
+                    }
                 }
             }
             
