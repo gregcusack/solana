@@ -1691,6 +1691,7 @@ impl ClusterInfo {
         const DEFAULT_EPOCH_DURATION_MS: u64 = DEFAULT_SLOTS_PER_EPOCH * DEFAULT_MS_PER_SLOT;
         let output_size_limit =
             self.update_data_budget(stakes.len()) / PULL_RESPONSE_MIN_SERIALIZED_SIZE;
+        error!("greg: output_size_limit: {}", output_size_limit);
         let mut packet_batch =
             PacketBatch::new_unpinned_with_recycler(recycler, 64, "handle_pull_requests");
         let mut rng = rand::thread_rng();
@@ -1724,15 +1725,15 @@ impl ClusterInfo {
         // .filter_map(|s| Pubkey::from_str(s).ok())
         // .collect::<HashSet<_>>();
         
-        for (request, response) in requests.iter().zip(pull_responses.iter()) {
-            // if monitored_pubkeys.contains(&request.pubkey) {
-            error!(
-                "greg: Sending pull response to {}: {} values",
-                request.pubkey,
-                response.len()
-            );
-            // }
-        }
+        // for (request, response) in requests.iter().zip(pull_responses.iter()) {
+        //     // if monitored_pubkeys.contains(&request.pubkey) {
+        //     error!(
+        //         "greg: Sending pull response to {}: {} values",
+        //         request.pubkey,
+        //         response.len()
+        //     );
+        //     // }
+        // }
         // Prioritize more recent values, staked values and ContactInfos.
         let get_score = |value: &CrdsValue| -> u64 {
             let age = now.saturating_sub(value.wallclock());

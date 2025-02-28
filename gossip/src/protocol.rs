@@ -155,7 +155,11 @@ impl Sanitize for Protocol {
     fn sanitize(&self) -> Result<(), SanitizeError> {
         match self {
             Protocol::PullRequest(filter, val) => {
-                filter.sanitize()?;
+                error!("greg: sanitize pull request");
+                match filter.sanitize() {
+                    Ok(_) => (),
+                    Err(e) => error!("greg: filter sanitize error, pk: {}, e: {:?}", val.pubkey(), e),
+                }
                 // PullRequest is only allowed to have ContactInfo in its CrdsData
                 match val.data() {
                     CrdsData::LegacyContactInfo(_) | CrdsData::ContactInfo(_) => val.sanitize(),
