@@ -1805,13 +1805,13 @@ impl ClusterInfo {
                     *dropped_by_pubkey.entry(pubkey).or_default() += values.len();
                     
                     // Only log for monitored pubkeys
-                    if monitored_pubkeys.contains(&pubkey) {
-                        error!(
-                            "greg: Dropping total of {} values for monitored pubkey {}",
-                            values.len(),
-                            pubkey
-                        );
-                    }
+                    // if monitored_pubkeys.contains(&pubkey) {
+                    //     error!(
+                    //         "greg: Dropping total of {} values for monitored pubkey {}",
+                    //         values.len(),
+                    //         pubkey
+                    //     );
+                    // }
                 }
             }
             
