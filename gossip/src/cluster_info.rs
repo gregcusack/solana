@@ -1624,30 +1624,43 @@ impl ClusterInfo {
     where
         R: Rng + CryptoRng,
     {
+        let monitored_pubkeys = [
+            "7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR",
+            "5YCCaim3CqZGNCQ46cf38kyUbZASMLbvvzcre5uDRZhk",
+        ]
+        .iter()
+        .filter_map(|s| Pubkey::from_str(s).ok())
+        .collect::<HashSet<_>>();
         let mut cache = HashMap::<(Pubkey, SocketAddr), bool>::new();
         let mut ping_cache = self.ping_cache.lock().unwrap();
         let mut hard_check = move |node| {
             let (check, ping) = ping_cache.check(rng, &self.keypair(), now, node);
             if let Some(ping) = ping {
-                error!(
-                    "greg: Sending ping to node {} at {} (needs verification)",
-                    node.0, node.1
-                );
+                if monitored_pubkeys.contains(&node.0) {
+                    error!(
+                        "greg: Sending ping to node {} at {} (needs verification)",
+                        node.0, node.1
+                    );
+                }
                 let ping = Protocol::PingMessage(ping);
                 if let Some(pkt) = make_gossip_packet(node.1, &ping, &self.stats) {
                     packet_batch.push(pkt);
                 }
             } else if check {
-                error!(
-                    "greg: Node {} at {} already verified in ping cache",
-                    node.0, node.1
-                );
+                if monitored_pubkeys.contains(&node.0) {
+                    error!(
+                        "greg: Node {} at {} already verified in ping cache",
+                        node.0, node.1
+                    );
+                }
             }
             if !check {
-                error!(
-                    "greg: Pull request failed ping-pong check for node {} at {}",
-                    node.0, node.1
-                );
+                if monitored_pubkeys.contains(&node.0) {
+                    error!(
+                        "greg: Pull request failed ping-pong check for node {} at {}",
+                        node.0, node.1
+                    );
+                }
                 self.stats
                     .pull_request_ping_pong_check_failed_count
                     .add_relaxed(1)
@@ -1674,7 +1687,7 @@ impl ClusterInfo {
         mut requests: Vec<PullRequest>,
         stakes: &HashMap<Pubkey, u64>,
     ) -> PacketBatch {
-        error!("greg: rx pull requests");
+        // error!("greg: rx pull requests");
         const DEFAULT_EPOCH_DURATION_MS: u64 = DEFAULT_SLOTS_PER_EPOCH * DEFAULT_MS_PER_SLOT;
         let output_size_limit =
             self.update_data_budget(stakes.len()) / PULL_RESPONSE_MIN_SERIALIZED_SIZE;
