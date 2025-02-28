@@ -1625,7 +1625,7 @@ impl ClusterInfo {
         R: Rng + CryptoRng,
     {
         let monitored_pubkeys = [
-            "7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR",
+            "EtdiRmgqy2fDbEHAZUcRpBY44AiFpvcGAmWHjFrL9xJE",
             "5YCCaim3CqZGNCQ46cf38kyUbZASMLbvvzcre5uDRZhk",
         ]
         .iter()
@@ -1717,7 +1717,7 @@ impl ClusterInfo {
         };
         // Track specific pubkeys we want to monitor
         let monitored_pubkeys = [
-            "7seHycJwQc8tNL3jrkqwHKYNx7ukN8V7p9jMM8epsNuR",
+            "EtdiRmgqy2fDbEHAZUcRpBY44AiFpvcGAmWHjFrL9xJE",
             "5YCCaim3CqZGNCQ46cf38kyUbZASMLbvvzcre5uDRZhk",
         ]
         .iter()
