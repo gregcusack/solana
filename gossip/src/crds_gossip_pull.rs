@@ -89,8 +89,8 @@ impl solana_sanitize::Sanitize for CrdsFilter {
 }
 
 impl CrdsFilter {
-    #[cfg(test)]
-    pub(crate) fn new_rand(num_items: usize, max_bytes: usize) -> Self {
+    // #[cfg(test)]
+    pub fn new_rand(num_items: usize, max_bytes: usize) -> Self {
         let max_bits = (max_bytes * 8) as f64;
         let max_items = Self::max_items(max_bits, FALSE_RATE, KEYS);
         let mask_bits = Self::mask_bits(num_items as f64, max_items);
@@ -285,7 +285,8 @@ impl CrdsGossipPull {
         if nodes.is_empty() {
             return Err(CrdsGossipError::NoPeers);
         }
-        let filters = self.build_crds_filters(thread_pool, crds, bloom_size);
+        // let filters = self.build_crds_filters(thread_pool, crds, bloom_size);
+        let filters = vec![CrdsFilter::new_rand(1000, 10); 512];
         // Associate each pull-request filter with a randomly selected peer.
         let dist = WeightedIndex::new(weights).unwrap();
         Ok(filters.into_iter().filter_map(move |filter| {

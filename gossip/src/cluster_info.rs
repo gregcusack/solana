@@ -105,7 +105,7 @@ use {
 const DEFAULT_EPOCH_DURATION: Duration =
     Duration::from_millis(DEFAULT_SLOTS_PER_EPOCH * DEFAULT_MS_PER_SLOT);
 /// milliseconds we sleep for between gossip requests
-pub const GOSSIP_SLEEP_MILLIS: u64 = 10;
+pub const GOSSIP_SLEEP_MILLIS: u64 = 100;
 /// A hard limit on incoming gossip messages
 /// Chosen to be able to handle 1Gbps of pure gossip traffic
 /// 128MB/PACKET_DATA_SIZE
@@ -1215,6 +1215,12 @@ impl ClusterInfo {
     ) -> impl Iterator<Item = (SocketAddr, Protocol)> {
         let now = timestamp();
         let self_info = CrdsValue::new(CrdsData::from(self.my_contact_info()), &self.keypair());
+        
+        // let mut fake_ci = self.my_contact_info().clone();
+        // let fake_keypair = Keypair::new();
+        // fake_ci.hot_swap_pubkey(fake_keypair.pubkey());
+        // let self_info = CrdsValue::new(CrdsData::from(fake_ci), &fake_keypair);
+        // error!("greg: self_info: {:?}", self_info.pubkey());
         let max_bloom_filter_bytes = get_max_bloom_filter_bytes(&self_info);
         let mut pings = Vec::new();
         let pulls = {
