@@ -1694,10 +1694,10 @@ impl ClusterInfo {
         let mut packet_batch =
             PacketBatch::new_unpinned_with_recycler(recycler, 64, "handle_pull_requests");
         let mut rng = rand::thread_rng();
-        requests.retain({
-            let now = Instant::now();
-            self.check_pull_request(now, &mut rng, &mut packet_batch)
-        });
+        // requests.retain({
+        //     let now = Instant::now();
+        //     self.check_pull_request(now, &mut rng, &mut packet_batch)
+        // });
         let now = timestamp();
         let self_id = self.id();
         let pull_responses = {
@@ -1716,22 +1716,22 @@ impl ClusterInfo {
             )
         };
         // Track specific pubkeys we want to monitor
-        let monitored_pubkeys = [
-            "EtdiRmgqy2fDbEHAZUcRpBY44AiFpvcGAmWHjFrL9xJE",
-            "5YCCaim3CqZGNCQ46cf38kyUbZASMLbvvzcre5uDRZhk",
-        ]
-        .iter()
-        .filter_map(|s| Pubkey::from_str(s).ok())
-        .collect::<HashSet<_>>();
+        // let monitored_pubkeys = [
+        //     "EtdiRmgqy2fDbEHAZUcRpBY44AiFpvcGAmWHjFrL9xJE",
+        //     "5YCCaim3CqZGNCQ46cf38kyUbZASMLbvvzcre5uDRZhk",
+        // ]
+        // .iter()
+        // .filter_map(|s| Pubkey::from_str(s).ok())
+        // .collect::<HashSet<_>>();
         
         for (request, response) in requests.iter().zip(pull_responses.iter()) {
-            if monitored_pubkeys.contains(&request.pubkey) {
-                error!(
-                    "greg: Sending pull response to {}: {} values",
-                    request.pubkey,
-                    response.len()
-                );
-            }
+            // if monitored_pubkeys.contains(&request.pubkey) {
+            error!(
+                "greg: Sending pull response to {}: {} values",
+                request.pubkey,
+                response.len()
+            );
+            // }
         }
         // Prioritize more recent values, staked values and ContactInfos.
         let get_score = |value: &CrdsValue| -> u64 {
