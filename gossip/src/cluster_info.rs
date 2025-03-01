@@ -2120,6 +2120,7 @@ impl ClusterInfo {
         let mut dropped_packets_counts = [0u64; 7];
         let mut num_packets = 0;
         let mut packets = VecDeque::with_capacity(2);
+        let mut num_packet_batches = 0;
         for packet_batch in receiver
             .recv_timeout(RECV_TIMEOUT)
             .map(std::iter::once)?
@@ -2127,6 +2128,7 @@ impl ClusterInfo {
         {
             num_packets += packet_batch.len();
             packets.push_back(packet_batch);
+            num_packet_batches += 1;
             while num_packets > MAX_GOSSIP_TRAFFIC {
                 // Discard older packets in favor of more recent ones.
                 let Some(packet_batch) = packets.pop_front() else {
@@ -2135,6 +2137,16 @@ impl ClusterInfo {
                 num_packets -= packet_batch.len();
                 count_dropped_packets(&packet_batch, &mut dropped_packets_counts);
             }
+        }
+        // Log when num_packet_batches exceeds certain thresholds
+        if num_packet_batches > 3000 {
+            info!("greg: num_packet_batches > 1000: {}", num_packet_batches);
+        } else if num_packet_batches > 5000 {
+            info!("greg: num_packet_batches > 5000: {}", num_packet_batches);
+        } else if num_packet_batches > 8000 {
+            info!("greg: num_packet_batches > 8000: {}", num_packet_batches);
+        } else if num_packet_batches > 10000 {
+            info!("greg: num_packet_batches > 10000: {}", num_packet_batches);
         }
         let num_packets_dropped = self.stats.record_dropped_packets(&dropped_packets_counts);
         self.stats
