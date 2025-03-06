@@ -583,6 +583,10 @@ impl<'a> CrdsTimeouts<'a> {
             extended_timeout,
         }
     }
+
+    pub fn get_extended_timeout(&self) -> u64 {
+        self.extended_timeout
+    }
 }
 
 impl<'a> Index<&Pubkey> for CrdsTimeouts<'a> {

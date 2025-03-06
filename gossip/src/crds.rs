@@ -565,7 +565,9 @@ impl Crds {
         // Given an index of all crd values associated with a pubkey,
         // returns crds labels of old values to be evicted.
         let evict = |pubkey, index: &IndexSet<usize>| {
-            let timeout = timeouts[pubkey];
+            let _timeout = timeouts[pubkey];
+            // greg: this is the timeout for all pubkeys, use extended instead of default. and see what happens
+            let timeout = timeouts.get_extended_timeout();
             // If the origin's contact-info hasn't expired yet then preserve
             // all associated values.
             let origin = CrdsValueLabel::ContactInfo(*pubkey);
