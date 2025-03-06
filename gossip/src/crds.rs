@@ -570,6 +570,18 @@ impl Crds {
             // all associated values.
             let origin = CrdsValueLabel::ContactInfo(*pubkey);
             if let Some(origin) = self.table.get(&origin) {
+                if let CrdsData::NodeInstance(_) = &origin.value.data {
+                    if should_report_message_signature_ni(&origin.value.signature) {
+                        error!("greg: find_old_labels ci in table. ni sig: {:?}, pk: {:?}, wallclock: {}, local: {}, timeout: {}, now: {}", 
+                            origin.value.signature.to_string().get(..8).unwrap(), 
+                            origin.value.pubkey(),
+                            origin.value.wallclock(),
+                            origin.local_timestamp,
+                            timeout,
+                            now
+                        );
+                    }
+                }
                 if origin
                     .value
                     .wallclock()
@@ -577,24 +589,68 @@ impl Crds {
                     .saturating_add(timeout)
                     > now
                 {
+                    if let CrdsData::NodeInstance(_) = &origin.value.data {
+                        if should_report_message_signature_ni(&origin.value.signature) {
+                            error!(
+                                "greg: find_old_labels ci not expired ni sig: {:?}, pk: {:?}, wallclock: {}, local: {}, timeout: {}, now: {}", 
+                                origin.value.signature.to_string().get(..8).unwrap(), 
+                                origin.value.pubkey(),
+                                origin.value.wallclock(),
+                                origin.local_timestamp,
+                                timeout,
+                                now
+                            );
+                        }
+                    }
                     return vec![];
+                } else {
+                    if let CrdsData::NodeInstance(_) = &origin.value.data {
+                        if should_report_message_signature_ni(&origin.value.signature) {
+                            error!(
+                                "greg: find_old_labels ci expired ni sig: {:?}, pk: {:?}, wallclock: {}, local: {}, timeout: {}, now: {}", 
+                                origin.value.signature.to_string().get(..8).unwrap(), 
+                                origin.value.pubkey(),
+                                origin.value.wallclock(),
+                                origin.local_timestamp,
+                                timeout,
+                                now
+                            );
+                        }
+                    }
                 }
             }
             // Otherwise check each value's timestamp individually.
             index
-                .into_iter()
-                .map(|&ix| self.table.get_index(ix).unwrap())
-                .filter(|(_, entry)| {
-                    entry
-                        .value
-                        .wallclock()
-                        .min(entry.local_timestamp)
-                        .saturating_add(timeout)
-                        <= now
-                })
-                .map(|(label, _)| label)
-                .cloned()
-                .collect::<Vec<_>>()
+            .into_iter()
+            .map(|&ix| self.table.get_index(ix).unwrap())
+            .filter(|(_, entry)| {
+                let is_expired = entry
+                    .value
+                    .wallclock()
+                    .min(entry.local_timestamp)
+                    .saturating_add(timeout)
+                    <= now;
+
+                    if let CrdsData::NodeInstance(_) = &entry.value.data {
+                        if should_report_message_signature_ni(&entry.value.signature) {
+                            error!(
+                                "greg: find_old_labels entry expired: {:?} ni sig: {:?}, pk: {:?}, wallclock: {}, local: {}, timeout: {}, now: {}", 
+                                is_expired,
+                                entry.value.signature.to_string().get(..8).unwrap(), 
+                                entry.value.pubkey(),
+                                entry.value.wallclock(),
+                                entry.local_timestamp,
+                                timeout,
+                                now
+                            );
+                        }
+                    }
+                
+                is_expired
+            })
+            .map(|(label, _)| label)
+            .cloned()
+            .collect::<Vec<_>>()
         };
         thread_pool.install(|| {
             self.records
@@ -609,7 +665,7 @@ impl Crds {
             return;
         };
         if let CrdsData::NodeInstance(_) = &value.value.data {
-            if should_report_message_signature(&value.value.signature) {
+            if should_report_message_signature_ni(&value.value.signature) {
                 error!("greg: remove ni sig: {:?}, pk: {:?}", value.value.signature.to_string().get(..8).unwrap(), value.value.pubkey());
             }
         }
@@ -731,7 +787,7 @@ impl Crds {
             .map(|k| {
                 let (label, value) = self.table.get_index(*k).unwrap();
                 if let CrdsData::NodeInstance(_) = &value.value.data {
-                    if should_report_message_signature(&value.value.signature) {
+                    if should_report_message_signature_ni(&value.value.signature) {
                         error!("greg: drop ni sig: {:?}, pk: {:?}", value.value.signature.to_string().get(..8).unwrap(), value.value.pubkey());
                     }
                 }
@@ -961,9 +1017,11 @@ fn should_report_message_signature(signature: &Signature) -> bool {
 
 /// check if first SIGNATURE_SAMPLE_LEADING_ZEROS bits of signature are 0
 #[inline]
-fn should_report_message_signature_ni(pubkey: &Pubkey) -> bool {
-    let pubkey_str = pubkey.to_string();
-    pubkey_str.starts_with("9P") || pubkey_str.starts_with("7s")
+fn should_report_message_signature_ni(signature: &Signature) -> bool {
+    let Some(Ok(bytes)) = signature.as_ref().get(..8).map(<[u8; 8]>::try_from) else {
+        return false;
+    };
+    u64::from_le_bytes(bytes).trailing_zeros() >= 12
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ use {
         crds::{Crds, GossipRoute, VersionedCrdsValue},
         crds_gossip,
         crds_gossip_error::CrdsGossipError,
-        crds_value::CrdsValue,
+        crds_value::{CrdsValue, CrdsValueLabel},
         ping_pong::PingCache,
     },
     rand::{
