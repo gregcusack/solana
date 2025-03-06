@@ -873,6 +873,11 @@ impl CrdsDataStats {
                     );
                     error!("greg: message sig: {:}, type: {:?}", entry.value.signature.to_string().get(..8).unwrap(), entry.value.data.variant_name());
                 }
+                if let CrdsData::NodeInstance(_) = &entry.value.data {
+                    if should_report_message_signature_ni(&entry.value.signature) {
+                        error!("greg: message sig ni: {:}, type: {:?}", entry.value.signature.to_string().get(..8).unwrap(), entry.value.data.variant_name());
+                    }
+                }
             }
             GossipRoute::PullResponse(from) => {
                 if should_report_message_signature(&entry.value.signature) {
@@ -931,6 +936,11 @@ impl CrdsDataStats {
                         )
                     );
                     error!("greg: message push fail sig: {:}, type: {:?}", entry.value.signature.to_string().get(..8).unwrap(), entry.value.data.variant_name());
+                }
+                if let CrdsData::NodeInstance(_) = &entry.value.data {
+                    if should_report_message_signature_ni(&entry.value.signature) {
+                        error!("greg: message push fail sig ni: {:}, type: {:?}", entry.value.signature.to_string().get(..8).unwrap(), entry.value.data.variant_name());
+                    }
                 }
             }
             GossipRoute::PullResponse(from) => {
