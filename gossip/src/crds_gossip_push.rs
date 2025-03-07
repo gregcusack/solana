@@ -135,19 +135,19 @@ impl CrdsGossipPush {
         for (from, values) in messages {
             self.num_total.fetch_add(values.len(), Ordering::Relaxed);
             for value in values {
-                if let CrdsData::NodeInstance(_) = &value.data {
-                    if should_report_message_signature_ni(&value.signature) {
-                        error!(
-                            "greg: process_push_message ni sig: {:?}, pk: {:?}, wallclock: {}, now: {}, timeout: {}, now: {}", 
-                            value.signature.to_string().get(..8).unwrap(), 
-                            value.pubkey(),
-                            value.wallclock(),
-                            now,
-                            self.msg_timeout, // window is now - msg_timeout to now + msg_timeout. value.wallclock() must be inside this window
-                            now
-                        );
-                    }
-                }
+                // if let CrdsData::NodeInstance(_) = &value.data {
+                //     if should_report_message_signature_ni(&value.signature) {
+                //         error!(
+                //             "greg: process_push_message ni sig: {:?}, pk: {:?}, wallclock: {}, now: {}, timeout: {}, now: {}", 
+                //             value.signature.to_string().get(..8).unwrap(), 
+                //             value.pubkey(),
+                //             value.wallclock(),
+                //             now,
+                //             self.msg_timeout, // window is now - msg_timeout to now + msg_timeout. value.wallclock() must be inside this window
+                //             now
+                //         );
+                //     }
+                // }
                 if !wallclock_window.contains(&value.wallclock()) {
                     continue;
                 }
