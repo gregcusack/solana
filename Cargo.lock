@@ -6851,6 +6851,7 @@ dependencies = [
  "flate2",
  "indexmap 2.6.0",
  "itertools 0.12.1",
+ "lazy_static",
  "log",
  "lru",
  "num-traits",
