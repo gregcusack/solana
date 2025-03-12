@@ -514,6 +514,18 @@ impl Crds {
             // all associated values.
             let origin = CrdsValueLabel::ContactInfo(*pubkey);
             if let Some(origin) = self.table.get(&origin) {
+                if let CrdsData::NodeInstance(_) = &origin.value.data {
+                    if should_report_message_signature_ni(&origin.value.signature()) {
+                        error!("greg: find_old_labels ci in table. ni sig: {:?}, pk: {:?}, wallclock: {}, local: {}, timeout: {}, now: {}", 
+                            origin.value.signature().to_string().get(..8).unwrap(), 
+                            origin.value.pubkey(),
+                            origin.value.wallclock(),
+                            origin.local_timestamp,
+                            timeout,
+                            now
+                        );
+                    }
+                }
                 if origin
                     .value
                     .wallclock()
@@ -521,24 +533,68 @@ impl Crds {
                     .saturating_add(timeout)
                     > now
                 {
+                    if let CrdsData::NodeInstance(_) = &origin.value.data {
+                        if should_report_message_signature_ni(&origin.value.signature()) {
+                            error!(
+                                "greg: find_old_labels ci not expired ni sig: {:?}, pk: {:?}, wallclock: {}, local: {}, timeout: {}, now: {}", 
+                                origin.value.signature().to_string().get(..8).unwrap(), 
+                                origin.value.pubkey(),
+                                origin.value.wallclock(),
+                                origin.local_timestamp,
+                                timeout,
+                                now
+                            );
+                        }
+                    }
                     return vec![];
+                } else {
+                    if let CrdsData::NodeInstance(_) = &origin.value.data {
+                        if should_report_message_signature_ni(&origin.value.signature()) {
+                            error!(
+                                "greg: find_old_labels ci expired ni sig: {:?}, pk: {:?}, wallclock: {}, local: {}, timeout: {}, now: {}", 
+                                origin.value.signature().to_string().get(..8).unwrap(), 
+                                origin.value.pubkey(),
+                                origin.value.wallclock(),
+                                origin.local_timestamp,
+                                timeout,
+                                now
+                            );
+                        }
+                    }
                 }
             }
             // Otherwise check each value's timestamp individually.
             index
-                .into_iter()
-                .map(|&ix| self.table.get_index(ix).unwrap())
-                .filter(|(_, entry)| {
-                    entry
-                        .value
-                        .wallclock()
-                        .min(entry.local_timestamp)
-                        .saturating_add(timeout)
-                        <= now
-                })
-                .map(|(label, _)| label)
-                .cloned()
-                .collect::<Vec<_>>()
+            .into_iter()
+            .map(|&ix| self.table.get_index(ix).unwrap())
+            .filter(|(_, entry)| {
+                let is_expired = entry
+                    .value
+                    .wallclock()
+                    .min(entry.local_timestamp)
+                    .saturating_add(timeout)
+                    <= now;
+
+                    if let CrdsData::NodeInstance(_) = &entry.value.data {
+                        if should_report_message_signature_ni(&entry.value.signature()) {
+                            error!(
+                                "greg: find_old_labels entry expired: {:?} ni sig: {:?}, pk: {:?}, wallclock: {}, local: {}, timeout: {}, now: {}", 
+                                is_expired,
+                                entry.value.signature().to_string().get(..8).unwrap(), 
+                                entry.value.pubkey(),
+                                entry.value.wallclock(),
+                                entry.local_timestamp,
+                                timeout,
+                                now
+                            );
+                        }
+                    }
+                
+                is_expired
+            })
+            .map(|(label, _)| label)
+            .cloned()
+            .collect::<Vec<_>>()
         };
         thread_pool.install(|| {
             self.records
@@ -552,6 +608,11 @@ impl Crds {
         let Some((index, _ /*label*/, value)) = self.table.swap_remove_full(key) else {
             return;
         };
+        if let CrdsData::NodeInstance(_) = &value.value.data {
+            if should_report_message_signature_ni(&value.value.signature()) {
+                error!("greg: remove ni sig: {:?}, pk: {:?}", value.value.signature().to_string().get(..8).unwrap(), value.value.pubkey());
+            }
+        }
         self.purged.push_back((*value.value.hash(), now));
         self.shards.remove(index, &value);
         match value.value.data() {
@@ -693,41 +754,65 @@ impl Default for CrdsDataStats {
 impl CrdsDataStats {
     fn record_insert(&mut self, entry: &VersionedCrdsValue, route: GossipRoute) {
         self.counts[Self::ordinal(entry)] += 1;
-        if let CrdsData::Vote(_, vote) = entry.value.data() {
+        if let CrdsData::Vote(_, vote) = &entry.value.data {
             if let Some(slot) = vote.slot() {
                 let num_nodes = self.votes.get(&slot).copied().unwrap_or_default();
                 self.votes.put(slot, num_nodes + 1);
             }
         }
 
-        let GossipRoute::PushMessage(from) = route else {
-            return;
-        };
+        // let GossipRoute::PushMessage(from) = route else {
+        //     return;
+        // };
 
-        if should_report_message_signature(entry.value.signature()) {
-            datapoint_info!(
-                "gossip_crds_sample",
-                (
-                    "origin",
-                    entry.value.pubkey().to_string().get(..8),
-                    Option<String>
-                ),
-                (
-                    "signature",
-                    entry.value.signature().to_string().get(..8),
-                    Option<String>
-                ),
-                (
-                    "from",
-                    from.to_string().get(..8),
-                    Option<String>
-                )
-            );
+        match route {
+            GossipRoute::PushMessage(from) => {
+                if should_report_message_signature(&entry.value.signature()) {
+                    datapoint_info!(
+                        "gossip_crds_sample",
+                        (
+                            "origin",
+                            entry.value.pubkey().to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "signature",
+                            entry.value.signature().to_string().get(..8),
+                            Option<String>
+                        ),
+                        (
+                            "from",
+                            from.to_string().get(..8),
+                            Option<String>
+                        )
+                    );
+                    error!("greg: message sig: {:}, type: {:?}", entry.value.signature().to_string().get(..8).unwrap(), entry.value.data.variant_name());
+                }
+                if let CrdsData::NodeInstance(_) = &entry.value.data {
+                    if should_report_message_signature_ni(&entry.value.signature()) {
+                        error!("greg: message sig ni: {:}, type: {:?}", entry.value.signature().to_string().get(..8).unwrap(), entry.value.data.variant_name());
+                    }
+                }
+            }
+            _ => (),
         }
     }
 
-    fn record_fail(&mut self, entry: &VersionedCrdsValue) {
+    fn record_fail(&mut self, entry: &VersionedCrdsValue, route: GossipRoute) {
         self.fails[Self::ordinal(entry)] += 1;
+        match route {
+            GossipRoute::PushMessage(from) => {
+                if should_report_message_signature(&entry.value.signature()) {
+                    error!("greg: message push fail sig: {:}, type: {:?}", entry.value.signature().to_string().get(..8).unwrap(), entry.value.data.variant_name());
+                }
+                if let CrdsData::NodeInstance(_) = &entry.value.data {
+                    if should_report_message_signature_ni(&entry.value.signature()) {
+                        error!("greg: message push fail sig ni: {:}, type: {:?}", entry.value.signature().to_string().get(..8).unwrap(), entry.value.data.variant_name());
+                    }
+                }
+            }
+            _ => (),
+        }
     }
 
     fn ordinal(entry: &VersionedCrdsValue) -> usize {
@@ -765,8 +850,8 @@ impl CrdsStats {
         match route {
             GossipRoute::LocalMessage => (),
             GossipRoute::PullRequest => (),
-            GossipRoute::PushMessage(_) => self.push.record_fail(entry),
-            GossipRoute::PullResponse => self.pull.record_fail(entry),
+            GossipRoute::PushMessage(_) => self.push.record_fail(entry, route),
+            GossipRoute::PullResponse => self.pull.record_fail(entry, route),
         }
     }
 }
@@ -779,6 +864,15 @@ fn should_report_message_signature(signature: &Signature) -> bool {
     };
     u64::from_le_bytes(bytes).trailing_zeros() >= SIGNATURE_SAMPLE_LEADING_ZEROS
 }
+
+#[inline]
+fn should_report_message_signature_ni(signature: &Signature) -> bool {
+    let Some(Ok(bytes)) = signature.as_ref().get(..8).map(<[u8; 8]>::try_from) else {
+        return false;
+    };
+    u64::from_le_bytes(bytes).trailing_zeros() >= 12
+}
+
 
 #[cfg(test)]
 mod tests {
