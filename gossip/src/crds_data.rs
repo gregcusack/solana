@@ -137,6 +137,25 @@ impl CrdsData {
         }
     }
 
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            CrdsData::LegacyContactInfo(_) => "LegacyContactInfo",
+            CrdsData::Vote(_, _) => "Vote",
+            CrdsData::LowestSlot(_, _) => "LowestSlot",
+            CrdsData::LegacySnapshotHashes(_) => "LegacySnapshotHashes",
+            CrdsData::AccountsHashes(_) => "AccountsHashes",
+            CrdsData::EpochSlots(_, _) => "EpochSlots",
+            CrdsData::LegacyVersion(_) => "LegacyVersion",
+            CrdsData::Version(_) => "Version",
+            CrdsData::NodeInstance(_) => "NodeInstance",
+            CrdsData::DuplicateShred(_, _) => "DuplicateShred",
+            CrdsData::SnapshotHashes(_) => "SnapshotHashes",
+            CrdsData::ContactInfo(_) => "ContactInfo",
+            CrdsData::RestartLastVotedForkSlots(_) => "RestartLastVotedForkSlots",
+            CrdsData::RestartHeaviestFork(_) => "RestartHeaviestFork",
+        }
+    }
+
     pub(crate) fn wallclock(&self) -> u64 {
         match self {
             CrdsData::LegacyContactInfo(contact_info) => contact_info.wallclock(),
