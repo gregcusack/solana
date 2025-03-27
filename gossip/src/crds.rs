@@ -30,7 +30,7 @@ use {
         contact_info::ContactInfo,
         crds_data::CrdsData,
         crds_entry::CrdsEntry,
-        crds_gossip_pull::CrdsTimeouts,
+        crds_gossip_pull::{CrdsTimeouts, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS},
         crds_shards::CrdsShards,
         crds_value::{CrdsValue, CrdsValueLabel},
     },
@@ -472,10 +472,14 @@ impl Crds {
         mask: u64,
         mask_bits: u32,
     ) -> impl Iterator<Item = &VersionedCrdsValue> {
+        let now = solana_time_utils::timestamp();
         self.shards
             .find(mask, mask_bits)
             .map(move |i| self.table.index(i))
-            .filter(|VersionedCrdsValue { value, .. }| !value.data().is_deprecated())
+            .filter(move |VersionedCrdsValue { value, .. }| {
+                !value.data().is_deprecated()
+                && now.saturating_sub(value.wallclock()) <= CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+            })
     }
 
     /// Update the timestamp's of all the labels that are associated with Pubkey
