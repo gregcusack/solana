@@ -1708,6 +1708,7 @@ impl ClusterInfo {
                         value, stakes, /*drop_unstaked_node_instance:*/ true,
                     )
                 },
+                stakes,
                 &self.stats,
             )
         };
