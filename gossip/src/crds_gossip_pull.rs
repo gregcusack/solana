@@ -302,6 +302,7 @@ impl CrdsGossipPull {
         output_size_limit: usize, // Limit number of crds values returned.
         now: u64,
         should_retain_crds_value: impl Fn(&CrdsValue) -> bool + Sync,
+        stakes: &HashMap<Pubkey, u64>,
         stats: &GossipStats,
     ) -> Vec<Vec<CrdsValue>> {
         Self::filter_crds_values(
@@ -311,6 +312,7 @@ impl CrdsGossipPull {
             output_size_limit,
             now,
             should_retain_crds_value,
+            stakes,
             stats,
         )
     }
@@ -459,6 +461,7 @@ impl CrdsGossipPull {
         now: u64,
         // Predicate returning false if the CRDS value should be discarded.
         should_retain_crds_value: impl Fn(&CrdsValue) -> bool + Sync,
+        stakes: &HashMap<Pubkey, u64>,
         stats: &GossipStats,
     ) -> Vec<Vec<CrdsValue>> {
         let msg_timeout = CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
@@ -494,7 +497,7 @@ impl CrdsGossipPull {
                 }
             };
             let out: Vec<_> = crds
-                .filter_bitmask(filter.mask, filter.mask_bits)
+                .filter_bitmask(filter.mask, filter.mask_bits, stakes)
                 .filter(pred)
                 .map(|entry| entry.value.clone())
                 .take(output_size_limit.load(Ordering::Relaxed).max(0) as usize)

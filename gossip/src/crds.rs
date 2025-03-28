@@ -467,18 +467,24 @@ impl Crds {
     /// Returns all crds values which the first 'mask_bits'
     /// of their hash value is equal to 'mask'.
     /// Excludes deprecated values.
-    pub(crate) fn filter_bitmask(
-        &self,
+    pub(crate) fn filter_bitmask<'a>(
+        &'a self,
         mask: u64,
         mask_bits: u32,
-    ) -> impl Iterator<Item = &VersionedCrdsValue> {
+        stakes: &'a HashMap<Pubkey, u64>,
+    ) -> impl Iterator<Item = &'a VersionedCrdsValue> {
         let now = solana_time_utils::timestamp();
         self.shards
             .find(mask, mask_bits)
             .map(move |i| self.table.index(i))
             .filter(move |VersionedCrdsValue { value, .. }| {
                 !value.data().is_deprecated()
-                && now.saturating_sub(value.wallclock()) <= CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+                && (
+                    // Within timeout window
+                    now.saturating_sub(value.wallclock()) <= CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+                    // OR has non-zero stake
+                    || stakes.get(&value.pubkey()).copied().unwrap_or(0) > 0 
+                )
             })
     }
 
