@@ -3289,31 +3289,35 @@ fn filter_on_shred_version(
     crds: &Crds,
     stats: &GossipStats,
 ) -> Option<Protocol> {
-    let filter_values = |from: &Pubkey, values: &mut Vec<CrdsValue>, skipped_counter: &Counter| {
+    let filter_values = |_from: &Pubkey, values: &mut Vec<CrdsValue>, skipped_counter: &Counter| {
         let num_values = values.len();
         // Node-instances are always exempted from shred-version check so that:
         // * their propagation across cluster is expedited.
         // * prevent two running instances of the same identity key cross
         //   contaminate gossip between clusters.
-        if crds.get_shred_version(from) == Some(self_shred_version) {
-            values.retain(|value| match &value.data {
-                // Allow contact-infos so that shred-versions are updated.
-                CrdsData::ContactInfo(_) => true,
-                CrdsData::LegacyContactInfo(_) => true,
-                CrdsData::NodeInstance(_) => true,
-                // Only retain values with the same shred version.
-                _ => crds.get_shred_version(&value.pubkey()) == Some(self_shred_version),
-            })
-        } else {
-            values.retain(|value| match &value.data {
-                // Allow node to update its own contact info in case their
-                // shred-version changes
-                CrdsData::ContactInfo(node) => node.pubkey() == from,
-                CrdsData::LegacyContactInfo(node) => node.pubkey() == from,
-                CrdsData::NodeInstance(_) => true,
-                _ => false,
-            })
-        }
+        values.retain(|value| match &value.data {
+            CrdsData::ContactInfo(ci) => ci.shred_version() == self_shred_version,
+            _ => crds.get_shred_version(&value.pubkey()) == Some(self_shred_version),
+        });
+        // if crds.get_shred_version(from) == Some(self_shred_version) {
+        //     values.retain(|value| match &value.data {
+        //         // Allow contact-infos so that shred-versions are updated.
+        //         CrdsData::ContactInfo(_) => true,
+        //         CrdsData::LegacyContactInfo(_) => true,
+        //         CrdsData::NodeInstance(_) => true,
+        //         // Only retain values with the same shred version.
+        //         _ => crds.get_shred_version(&value.pubkey()) == Some(self_shred_version),
+        //     })
+        // } else {
+        //     values.retain(|value| match &value.data {
+        //         // Allow node to update its own contact info in case their
+        //         // shred-version changes
+        //         CrdsData::ContactInfo(node) => node.pubkey() == from,
+        //         CrdsData::LegacyContactInfo(node) => node.pubkey() == from,
+        //         CrdsData::NodeInstance(_) => true,
+        //         _ => false,
+        //     })
+        // }
         let num_skipped = num_values - values.len();
         if num_skipped != 0 {
             skipped_counter.add_relaxed(num_skipped as u64);
