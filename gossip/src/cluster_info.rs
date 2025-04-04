@@ -2906,20 +2906,18 @@ fn discard_different_shred_version(
         }
     };
     let num_values = values.len();
-    values.retain(|value| match value.data() {
+    values.retain(|value| {
         // Accept gossip messages if the shred versions match.
         // For wen-restart support, we also need to accept gossip messages
         // with `shred_version = current shred_version + 1`
         // see: https://github.com/solana-foundation/solana-improvement-documents/pull/46/files
-        CrdsData::ContactInfo(contact_info) => {
-            contact_info.shred_version() == self_shred_version
-                || contact_info.shred_version() == self_shred_version.saturating_add(1)
-        }
-        _ => {
-            let value_shred_version = crds.get_shred_version(&value.pubkey());
-            value_shred_version == Some(self_shred_version)
-                || value_shred_version == Some(self_shred_version.saturating_add(1))
-        }
+        let shred_version = match value.data() {
+            CrdsData::ContactInfo(ci) => Some(ci.shred_version()),
+            _ => crds.get_shred_version(&value.pubkey()),
+        };
+        matches!(shred_version, Some(v) if
+            v == self_shred_version || v == self_shred_version.saturating_add(1)
+        )
     });
     let num_skipped = num_values - values.len();
     if num_skipped != 0 {
