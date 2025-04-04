@@ -2893,12 +2893,12 @@ fn discard_different_shred_version(
     crds: &Crds,
     stats: &GossipStats,
 ) {
-    let (from, values, skip_shred_version_counter) = match msg {
-        Protocol::PullResponse(from, values) => {
-            (from, values, &stats.skip_pull_response_shred_version)
+    let (values, skip_shred_version_counter) = match msg {
+        Protocol::PullResponse(_, values) => {
+            (values, &stats.skip_pull_response_shred_version)
         }
-        Protocol::PushMessage(from, values) => {
-            (from, values, &stats.skip_push_message_shred_version)
+        Protocol::PushMessage(_, values) => {
+            (values, &stats.skip_push_message_shred_version)
         }
         // Shred-version on pull-request callers can be checked without a lock
         // on CRDS table and is so verified separately (by
