@@ -2907,8 +2907,8 @@ fn discard_different_shred_version(
     };
     let num_values = values.len();
     values.retain(|value| match value.data() {
-        // accept gossip messages if the shred versions match
-        // for wen-restart support, we also need to accept gossip messages
+        // Accept gossip messages if the shred versions match.
+        // For wen-restart support, we also need to accept gossip messages
         // with `shred_version = current shred_version + 1`
         // see: https://github.com/solana-foundation/solana-improvement-documents/pull/46/files
         CrdsData::ContactInfo(contact_info) => {
