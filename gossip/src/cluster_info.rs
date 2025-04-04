@@ -2894,12 +2894,8 @@ fn discard_different_shred_version(
     stats: &GossipStats,
 ) {
     let (values, skip_shred_version_counter) = match msg {
-        Protocol::PullResponse(_, values) => {
-            (values, &stats.skip_pull_response_shred_version)
-        }
-        Protocol::PushMessage(_, values) => {
-            (values, &stats.skip_push_message_shred_version)
-        }
+        Protocol::PullResponse(_, values) => (values, &stats.skip_pull_response_shred_version),
+        Protocol::PushMessage(_, values) => (values, &stats.skip_push_message_shred_version),
         // Shred-version on pull-request callers can be checked without a lock
         // on CRDS table and is so verified separately (by
         // check_pull_request_shred_version).
@@ -2921,9 +2917,9 @@ fn discard_different_shred_version(
         }
         _ => {
             let value_shred_version = crds.get_shred_version(&value.pubkey());
-            value_shred_version == Some(self_shred_version) 
+            value_shred_version == Some(self_shred_version)
                 || value_shred_version == Some(self_shred_version.saturating_add(1))
-        },
+        }
     });
     let num_skipped = num_values - values.len();
     if num_skipped != 0 {
