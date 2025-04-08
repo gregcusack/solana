@@ -1069,7 +1069,7 @@ impl ClusterInfo {
         let gossip_crds = self.gossip.crds.read().unwrap();
         gossip_crds
             .get_nodes_contact_info()
-            // shred_version not considered for gossip peers (ie, spy nodes do not set shred_version)
+            // shred_version not considered for gossip peers
             .filter(|node| node.pubkey() != &me && self.check_socket_addr_space(&node.gossip()))
             .cloned()
             .collect()
@@ -2887,8 +2887,7 @@ fn check_pull_request_shred_version(self_shred_version: u16, caller: &CrdsValue)
         CrdsData::LegacyContactInfo(node) => node.shred_version(),
         _ => return false,
     };
-    // Allow spy nodes with shred-verion == 0 to pull from other nodes.
-    shred_version == 0u16 || shred_version == self_shred_version
+    shred_version == self_shred_version
 }
 
 // Discards CrdsValues in PushMessages and PullResponses from nodes with
