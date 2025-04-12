@@ -503,9 +503,8 @@ impl ClusterInfo {
                     .rpc()
                     .filter(|addr| self.socket_addr_space.check(addr))?;
                 let node_version = self.get_node_version(node.pubkey());
-                if my_shred_version != 0
-                    && (node.shred_version() != 0 && node.shred_version() != my_shred_version)
-                {
+                // greg: remove check if node.shred_version() != 0 and my_shred_version != 0
+                if node.shred_version() != my_shred_version {
                     return None;
                 }
                 let rpc_addr = node_rpc.ip();
@@ -560,7 +559,7 @@ impl ClusterInfo {
                 }
 
                 let node_version = self.get_node_version(node.pubkey());
-                if my_shred_version != 0 && (node.shred_version() != 0 && node.shred_version() != my_shred_version) {
+                if node.shred_version() != my_shred_version {
                     different_shred_nodes = different_shred_nodes.saturating_add(1);
                     None
                 } else {
@@ -1042,14 +1041,16 @@ impl ClusterInfo {
             .unwrap_or_default()
     }
 
-    /// all validators that have a valid rpc port regardless of `shred_version`.
+    /// all validators that have a valid rpc port.
     pub fn all_rpc_peers(&self) -> Vec<ContactInfo> {
         let self_pubkey = self.id();
         let gossip_crds = self.gossip.crds.read().unwrap();
         gossip_crds
             .get_nodes_contact_info()
             .filter(|node| {
-                node.pubkey() != &self_pubkey && self.check_socket_addr_space(&node.rpc())
+                node.pubkey() != &self_pubkey 
+                    && node.shred_version() == self.my_shred_version()
+                    && self.check_socket_addr_space(&node.rpc())
             })
             .cloned()
             .collect()
@@ -1069,19 +1070,23 @@ impl ClusterInfo {
         let gossip_crds = self.gossip.crds.read().unwrap();
         gossip_crds
             .get_nodes_contact_info()
-            // shred_version not considered for gossip peers
-            .filter(|node| node.pubkey() != &me && self.check_socket_addr_space(&node.gossip()))
+            .filter(|node| {
+                node.pubkey() != &me 
+                    && node.shred_version() == self.my_shred_version()
+                    && self.check_socket_addr_space(&node.gossip()) 
+            })
             .cloned()
             .collect()
     }
 
-    /// all validators that have a valid tvu port regardless of `shred_version`.
+    /// all validators that have a valid tvu port
     pub fn all_tvu_peers(&self) -> Vec<ContactInfo> {
         let self_pubkey = self.id();
         self.time_gossip_read_lock("all_tvu_peers", &self.stats.all_tvu_peers)
             .get_nodes_contact_info()
             .filter(|node| {
                 node.pubkey() != &self_pubkey
+                    && node.shred_version() == self.my_shred_version()
                     && self.check_socket_addr_space(&node.tvu(contact_info::Protocol::UDP))
             })
             .cloned()
@@ -1392,22 +1397,24 @@ impl ClusterInfo {
             }
         }
         // Adopt an entrypoint's `shred_version` if ours is unset
-        if self.my_shred_version() == 0 {
-            if let Some(entrypoint) = entrypoints
-                .iter()
-                .find(|entrypoint| entrypoint.shred_version() != 0)
-            {
-                info!(
-                    "Setting shred version to {:?} from entrypoint {:?}",
-                    entrypoint.shred_version(),
-                    entrypoint.pubkey()
-                );
-                self.my_contact_info
-                    .write()
-                    .unwrap()
-                    .set_shred_version(entrypoint.shred_version());
-            }
-        }
+        // Note: this node's shred version should not be 0 at this point.
+        // greg: can we take this out?
+        // if self.my_shred_version() == 0 {
+        //     if let Some(entrypoint) = entrypoints
+        //         .iter()
+        //         .find(|entrypoint| entrypoint.shred_version() != 0)
+        //     {
+        //         info!(
+        //             "Setting shred version to {:?} from entrypoint {:?}",
+        //             entrypoint.shred_version(),
+        //             entrypoint.pubkey()
+        //         );
+        //         self.my_contact_info
+        //             .write()
+        //             .unwrap()
+        //             .set_shred_version(entrypoint.shred_version());
+        //     }
+        // }
         self.my_shred_version() != 0
             && entrypoints
                 .iter()
@@ -1972,23 +1979,21 @@ impl ClusterInfo {
         let self_pubkey = self.id();
         // Filter out values if the shred-versions are different.
         let self_shred_version = self.my_shred_version();
-        if self_shred_version != 0 {
-            let gossip_crds = self.gossip.crds.read().unwrap();
-            let discard_different_shred_version = |msg| {
-                discard_different_shred_version(msg, self_shred_version, &gossip_crds, &self.stats)
-            };
-            if packets.len() < 4 && packets.iter().map(Vec::len).sum::<usize>() < 16 {
-                for (_, msg) in packets.iter_mut().flatten() {
-                    discard_different_shred_version(msg);
-                }
-            } else {
-                thread_pool.install(|| {
-                    packets
-                        .par_iter_mut()
-                        .flatten()
-                        .for_each(|(_, msg)| discard_different_shred_version(msg))
-                })
+        let gossip_crds = self.gossip.crds.read().unwrap();
+        let discard_different_shred_version = |msg| {
+            discard_different_shred_version(msg, self_shred_version, &gossip_crds, &self.stats)
+        };
+        if packets.len() < 4 && packets.iter().map(Vec::len).sum::<usize>() < 16 {
+            for (_, msg) in packets.iter_mut().flatten() {
+                discard_different_shred_version(msg);
             }
+        } else {
+            thread_pool.install(|| {
+                packets
+                    .par_iter_mut()
+                    .flatten()
+                    .for_each(|(_, msg)| discard_different_shred_version(msg))
+            })
         }
         // Check if there is a duplicate instance of
         // this node with more recent timestamp.

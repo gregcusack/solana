@@ -27,7 +27,6 @@ fn parse_matches() -> ArgMatches<'static> {
         .long("shred-version")
         .value_name("VERSION")
         .takes_value(true)
-        .default_value("0")
         .help("Filter gossip nodes by this shred version");
 
     let gossip_port_arg = clap::Arg::with_name("gossip_port")

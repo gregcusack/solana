@@ -359,9 +359,19 @@ pub fn execute(
     // abort if it fails to obtain a shred-version, so that nodes always join
     // gossip with a valid shred-version. The code to adopt entrypoint shred
     // version can then be deleted from gossip and get_rpc_node above.
-    let expected_shred_version = value_t!(matches, "expected_shred_version", u16)
-        .ok()
-        .or_else(|| get_cluster_shred_version(&entrypoint_addrs, bind_address));
+    // let expected_shred_version = value_t!(matches, "expected_shred_version", u16)
+    //     .ok()
+    //     .or_else(|| get_cluster_shred_version(&entrypoint_addrs, bind_address));
+    let expected_shred_version = match value_t!(matches, "expected_shred_version", u16) {
+        Ok(version) => Some(version),
+        Err(_) => match get_cluster_shred_version(&entrypoint_addrs, bind_address) {
+            None => {
+                error!("Failed to get shred version from entrypoint. Exiting...");
+                exit(1);
+            }
+            shred_version => shred_version,
+        },
+    };
 
     let tower_storage: Arc<dyn tower_storage::TowerStorage> =
         match value_t_or_exit!(matches, "tower_storage", String).as_str() {
@@ -1170,7 +1180,7 @@ pub fn execute(
 
     let cluster_entrypoints = entrypoint_addrs
         .iter()
-        .map(ContactInfo::new_gossip_entry_point)
+        .map(|addr| ContactInfo::new_gossip_entry_point(addr, expected_shred_version.expect("expected_shred_version should not be None")))
         .collect::<Vec<_>>();
 
     let mut node = Node::new_with_external_ip(&identity_keypair.pubkey(), node_config);

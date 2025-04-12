@@ -321,7 +321,7 @@ pub(crate) fn get_gossip_nodes<R: Rng>(
     pubkey: &Pubkey, // This node.
     // By default, should only push to or pull from gossip nodes with the same
     // shred-version.
-    verify_shred_version: impl Fn(/*shred_version:*/ u16) -> bool,
+    my_shred_version: u16,
     crds: &RwLock<Crds>,
     gossip_validators: Option<&HashSet<Pubkey>>,
     stakes: &HashMap<Pubkey, u64>,
@@ -347,7 +347,7 @@ pub(crate) fn get_gossip_nodes<R: Rng>(
         })
         .filter(|node| {
             node.pubkey() != pubkey
-                && verify_shred_version(node.shred_version())
+                && my_shred_version == node.shred_version()
                 && node
                     .gossip()
                     .map(|addr| socket_addr_space.check(&addr))

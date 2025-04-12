@@ -413,11 +413,24 @@ impl ContactInfo {
     }
 
     /// Construct a ContactInfo that's only usable for gossip
-    pub fn new_gossip_entry_point(gossip_addr: &SocketAddr) -> Self {
+    /// greg: why do we need this? and why is the entrypoint set to 0?
+    // pub fn new_gossip_entry_point(gossip_addr: &SocketAddr) -> Self {
+    //     let mut node = Self::new(
+    //         Pubkey::default(),
+    //         solana_time_utils::timestamp(), // wallclock
+    //         0,                              // shred_version
+    //     );
+    //     if let Err(err) = node.set_gossip(*gossip_addr) {
+    //         error!("Invalid entrypoint: {gossip_addr}, {err:?}");
+    //     }
+    //     node
+    // }
+
+    pub fn new_gossip_entry_point(gossip_addr: &SocketAddr, shred_version: u16) -> Self {
         let mut node = Self::new(
             Pubkey::default(),
             solana_time_utils::timestamp(), // wallclock
-            0,                              // shred_version
+            shred_version,
         );
         if let Err(err) = node.set_gossip(*gossip_addr) {
             error!("Invalid entrypoint: {gossip_addr}, {err:?}");
@@ -731,7 +744,7 @@ mod tests {
     #[test]
     fn test_new_gossip_entry_point() {
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 10));
-        let ci = ContactInfo::new_gossip_entry_point(&addr);
+        let ci = ContactInfo::new_gossip_entry_point(&addr, 0);
         assert_eq!(ci.gossip().unwrap(), addr);
         assert_matches!(ci.rpc(), None);
         assert_matches!(ci.rpc_pubsub(), None);

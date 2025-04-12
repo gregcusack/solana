@@ -251,8 +251,10 @@ impl CrdsGossipPush {
             &mut rng,
             timestamp(), // now
             &self_keypair.pubkey(),
+            // greg: should i just pass in self_shred_version here?
+            // greg: do we need to pass in function if we removed shred_version == 0 check?
             // Only push to nodes with the same shred version.
-            |shred_version| shred_version == self_shred_version,
+            self_shred_version,
             crds,
             gossip_validators,
             stakes,
