@@ -1236,6 +1236,14 @@ fn main() {
                 .help("Just use entrypoint address directly"),
         )
         .arg(
+            Arg::with_name("shred_version")
+                .long("shred-version")
+                .takes_value(true)
+                .value_name("VERSION")
+                .requires("check_gossip")
+                .help("The shred version to use for gossip discovery"),
+        )
+        .arg(
             Arg::with_name("mint")
                 .long("mint")
                 .takes_value(true)
@@ -1270,6 +1278,14 @@ fn main() {
         .get_matches();
 
     let skip_gossip = !matches.is_present("check_gossip");
+    let shred_version = if !skip_gossip {
+        value_t!(matches, "shred_version", u16).unwrap_or_else(|e| {
+            eprintln!("error parsing 'shred-version': {e}");
+            exit(1)
+        })
+    } else {
+        0 // will not be used
+    };
 
     let space = value_t!(matches, "space", u64).ok();
     let lamports = value_t!(matches, "lamports", u64).ok();
@@ -1326,7 +1342,7 @@ fn main() {
                 None,                    // find_nodes_by_pubkey
                 Some(&entrypoint_addr),  // find_node_by_gossip_addr
                 None,                    // my_gossip_addr
-                0,                       // my_shred_version
+                shred_version,           // my_shred_version
                 SocketAddrSpace::Unspecified,
             )
             .unwrap_or_else(|err| {
