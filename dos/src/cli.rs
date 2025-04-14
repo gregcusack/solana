@@ -47,10 +47,10 @@ pub struct DosClientParameters {
 
     #[clap(
         long,
-        required_unless_present("skip-gossip"),
+        conflicts_with("skip-gossip"),
         help = "The shred version to use for gossip discovery"
     )]
-    pub shred_version: u16,
+    pub shred_version: Option<u16>,
 
     #[clap(long, help = "Allow contacting private ip addresses")]
     pub allow_private_addr: bool,
@@ -178,6 +178,11 @@ fn validate_input(params: &DosClientParameters) {
             eprintln!("Arguments valid-blockhash, valid-sign, unique-transactions are ignored if data-type != transaction");
             exit(1);
         }
+    }
+
+    if !params.skip_gossip && params.shred_version.is_none() {
+        eprintln!("--shred-version is required when not using --skip-gossip");
+        exit(1);
     }
 }
 

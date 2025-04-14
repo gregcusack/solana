@@ -768,12 +768,12 @@ fn main() {
         let (gossip_nodes, validators) = discover(
             None, // keypair
             Some(&cmd_params.entrypoint_addr),
-            None,                              // num_nodes
-            Duration::from_secs(60),           // timeout
-            None,                              // find_nodes_by_pubkey
-            Some(&cmd_params.entrypoint_addr), // find_node_by_gossip_addr
-            None,                              // my_gossip_addr
-            cmd_params.shred_version,          // my_shred_version
+            None,                                  // num_nodes
+            Duration::from_secs(60),               // timeout
+            None,                                  // find_nodes_by_pubkey
+            Some(&cmd_params.entrypoint_addr),     // find_node_by_gossip_addr
+            None,                                  // my_gossip_addr
+            cmd_params.shred_version.unwrap_or(0), // my_shred_version
             socket_addr_space,
         )
         .unwrap_or_else(|err| {
