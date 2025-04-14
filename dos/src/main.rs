@@ -773,7 +773,7 @@ fn main() {
             None,                              // find_nodes_by_pubkey
             Some(&cmd_params.entrypoint_addr), // find_node_by_gossip_addr
             None,                              // my_gossip_addr
-            0,                                 // my_shred_version
+            cmd_params.shred_version,          // my_shred_version
             socket_addr_space,
         )
         .unwrap_or_else(|err| {
@@ -859,6 +859,7 @@ pub mod test {
                 data_type: DataType::Random,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams::default(),
@@ -880,6 +881,7 @@ pub mod test {
                 data_type: DataType::RepairHighest,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams::default(),
@@ -898,6 +900,7 @@ pub mod test {
                 data_type: DataType::RepairShred,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams::default(),
@@ -916,6 +919,7 @@ pub mod test {
                 data_type: DataType::GetAccountInfo,
                 data_input: Some(Pubkey::default()),
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams::default(),
@@ -949,6 +953,7 @@ pub mod test {
                 data_type: DataType::Random,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams::default(),
@@ -990,6 +995,7 @@ pub mod test {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -1017,6 +1023,7 @@ pub mod test {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -1044,6 +1051,7 @@ pub mod test {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -1125,6 +1133,7 @@ pub mod test {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -1154,6 +1163,7 @@ pub mod test {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -1182,6 +1192,7 @@ pub mod test {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -1210,6 +1221,7 @@ pub mod test {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
+                shred_version: 42,
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
