@@ -48,7 +48,7 @@ pub struct DosClientParameters {
     #[clap(
         long,
         conflicts_with("skip-gossip"),
-        help = "The shred version to use for gossip discovery"
+        help = "The shred version to use for gossip discovery. If not provided, will be discovered from the network"
     )]
     pub shred_version: Option<u16>,
 
@@ -179,11 +179,6 @@ fn validate_input(params: &DosClientParameters) {
             exit(1);
         }
     }
-
-    if !params.skip_gossip && params.shred_version.is_none() {
-        eprintln!("--shred-version is required when not using --skip-gossip");
-        exit(1);
-    }
 }
 
 pub fn build_cli_parameters() -> DosClientParameters {
@@ -239,7 +234,7 @@ mod tests {
                 data_type: DataType::GetAccountInfo,
                 data_input: Some(pubkey),
                 skip_gossip: false,
-                shred_version: 42,
+                shred_version: Some(42),
                 allow_private_addr: false,
                 transaction_params: TransactionParams::default(),
                 tpu_use_quic: false,
@@ -278,7 +273,7 @@ mod tests {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
-                shred_version: 42,
+                shred_version: Some(42),
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -325,7 +320,7 @@ mod tests {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
-                shred_version: 42,
+                shred_version: Some(42),
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -389,7 +384,7 @@ mod tests {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
-                shred_version: 42,
+                shred_version: Some(42),
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
@@ -434,7 +429,7 @@ mod tests {
                 data_type: DataType::Transaction,
                 data_input: None,
                 skip_gossip: false,
-                shred_version: 42,
+                shred_version: Some(42),
                 allow_private_addr: false,
                 num_gen_threads: 1,
                 transaction_params: TransactionParams {
