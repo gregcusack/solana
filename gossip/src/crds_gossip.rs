@@ -310,7 +310,7 @@ impl CrdsGossip {
         self.crds
             .write()
             .unwrap()
-            .trim_purged(now.saturating_sub(5 * self.pull.crds_timeout));
+            .trim_purged(now.saturating_sub(4 * 60 * self.pull.crds_timeout)); // 1 hour
         self.pull.purge_failed_inserts(now);
         rv
     }
