@@ -1955,24 +1955,24 @@ impl ClusterInfo {
         let self_pubkey = self.id();
         // Filter out values if the shred-versions are different.
         let self_shred_version = self.my_shred_version();
-        {
-            let gossip_crds = self.gossip.crds.read().unwrap();
-            let discard_different_shred_version = |msg| {
-                discard_different_shred_version(msg, self_shred_version, &gossip_crds, &self.stats)
-            };
-            if packets.len() < 4 && packets.iter().map(Vec::len).sum::<usize>() < 16 {
-                for (_, msg) in packets.iter_mut().flatten() {
-                    discard_different_shred_version(msg);
-                }
-            } else {
-                thread_pool.install(|| {
-                    packets
-                        .par_iter_mut()
-                        .flatten()
-                        .for_each(|(_, msg)| discard_different_shred_version(msg))
-                })
-            }
-        }
+        // {
+        //     let gossip_crds = self.gossip.crds.read().unwrap();
+        //     let discard_different_shred_version = |msg| {
+        //         discard_different_shred_version(msg, self_shred_version, &gossip_crds, &self.stats)
+        //     };
+        //     if packets.len() < 4 && packets.iter().map(Vec::len).sum::<usize>() < 16 {
+        //         for (_, msg) in packets.iter_mut().flatten() {
+        //             discard_different_shred_version(msg);
+        //         }
+        //     } else {
+        //         thread_pool.install(|| {
+        //             packets
+        //                 .par_iter_mut()
+        //                 .flatten()
+        //                 .for_each(|(_, msg)| discard_different_shred_version(msg))
+        //         })
+        //     }
+        // }
         // Check if there is a duplicate instance of
         // this node with more recent timestamp.
         let check_duplicate_instance = {
@@ -2109,31 +2109,7 @@ impl ClusterInfo {
         self.stats
             .packets_received_count
             .add_relaxed(num_packets as u64);
-        fn verify_packet(
-            packet: &Packet,
-            stakes: &HashMap<Pubkey, u64>,
-            stats: &GossipStats,
-        ) -> Option<(SocketAddr, Protocol)> {
-            let mut protocol: Protocol =
-                stats.record_received_packet(packet.deserialize_slice::<Protocol, _>(..))?;
-            protocol.sanitize().ok()?;
-            if let Protocol::PullResponse(_, values) | Protocol::PushMessage(_, values) =
-                &mut protocol
-            {
-                values.retain(|value| {
-                    should_retain_crds_value(
-                        value, stakes, /*drop_unstaked_node_instance:*/ false,
-                    )
-                });
-                if values.is_empty() {
-                    return None;
-                }
-            }
-            protocol.par_verify().then(|| {
-                stats.packets_received_verified_count.add_relaxed(1);
-                (packet.meta().socket_addr(), protocol)
-            })
-        }
+        
         let stakes = epoch_specs
             .map(EpochSpecs::current_epoch_staked_nodes)
             .cloned()
@@ -2144,13 +2120,13 @@ impl ClusterInfo {
                 if packet_buf.len() == 1 {
                     packet_buf[0]
                         .par_iter()
-                        .filter_map(|packet| verify_packet(packet, &stakes, &self.stats))
+                        .filter_map(|packet| self.verify_packet(packet, &stakes, &self.stats))
                         .collect()
                 } else {
                     packet_buf
                         .par_iter()
                         .flatten()
-                        .filter_map(|packet| verify_packet(packet, &stakes, &self.stats))
+                        .filter_map(|packet| self.verify_packet(packet, &stakes, &self.stats))
                         .collect()
                 }
             })
@@ -2164,6 +2140,37 @@ impl ClusterInfo {
         }
         packet_buf.clear();
         Ok(())
+    }
+
+    fn verify_packet(
+        &self,
+        packet: &Packet,
+        stakes: &HashMap<Pubkey, u64>,
+        stats: &GossipStats,
+    ) -> Option<(SocketAddr, Protocol)> {
+        let mut protocol: Protocol =
+            stats.record_received_packet(packet.deserialize_slice::<Protocol, _>(..))?;
+        protocol.sanitize().ok()?;
+        {
+            let gossip_crds = self.gossip.crds.read().unwrap();
+            discard_different_shred_version(&mut protocol, self.my_shred_version(), &gossip_crds, &self.stats)
+        }
+        if let Protocol::PullResponse(_, values) | Protocol::PushMessage(_, values) =
+            &mut protocol
+        {
+            values.retain(|value| {
+                should_retain_crds_value(
+                    value, stakes, /*drop_unstaked_node_instance:*/ false,
+                )
+            });
+            if values.is_empty() {
+                return None;
+            }
+        }
+        protocol.par_verify().then(|| {
+            stats.packets_received_verified_count.add_relaxed(1);
+            (packet.meta().socket_addr(), protocol)
+        })
     }
 
     /// Process messages from the network
