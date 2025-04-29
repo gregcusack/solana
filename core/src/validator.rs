@@ -868,6 +868,7 @@ impl Validator {
         }
 
         node.info.set_shred_version(shred_version);
+        println!("greg: node.info.shred_version: {:?}", node.info.shred_version());
         node.info.set_wallclock(timestamp());
         Self::print_node_info(&node);
 

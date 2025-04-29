@@ -67,6 +67,8 @@ pub fn spend_and_verify_all_nodes<S: ::std::hash::BuildHasher + Sync + Send>(
     socket_addr_space: SocketAddrSpace,
     connection_cache: &Arc<ConnectionCache>,
 ) {
+    println!("greg: spend_and_verify_all_nodes entry_point_info.shred_version: {:?}", entry_point_info.shred_version());
+
     let cluster_nodes = discover_validators(
         &entry_point_info.gossip().unwrap(),
         nodes,
@@ -75,6 +77,7 @@ pub fn spend_and_verify_all_nodes<S: ::std::hash::BuildHasher + Sync + Send>(
     )
     .unwrap();
     assert_eq!(cluster_nodes.len(), nodes);
+    println!("greg: spend_and_verify_all_nodes cluster_nodes.len(): {:?}", cluster_nodes.len());
     let ignore_nodes = Arc::new(ignore_nodes);
     cluster_nodes.par_iter().for_each(|ingress_node| {
         if ignore_nodes.contains(ingress_node.pubkey()) {

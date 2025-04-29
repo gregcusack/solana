@@ -375,6 +375,7 @@ pub fn run_cluster_partition<C>(
         partitions, config.slots_per_epoch,
     );
     let mut cluster = LocalCluster::new(&mut config, SocketAddrSpace::Unspecified);
+    println!("greg: cluster.entry_point_info.shred_version: {:?}", cluster.entry_point_info.shred_version());
 
     info!("PARTITION_TEST spend_and_verify_all_nodes(), ensure all nodes are caught up");
     cluster_tests::spend_and_verify_all_nodes(
@@ -385,6 +386,10 @@ pub fn run_cluster_partition<C>(
         SocketAddrSpace::Unspecified,
         &cluster.connection_cache,
     );
+    println!("greg: cluster.entry_point_info.shred_version: {:?}", cluster.entry_point_info.shred_version());
+    for node in cluster.validators.values() {
+        println!("greg: node.info.contact_info.shred_version: {:?}", node.info.contact_info.shred_version());
+    }
 
     let cluster_nodes = discover_validators(
         &cluster.entry_point_info.gossip().unwrap(),
@@ -393,7 +398,7 @@ pub fn run_cluster_partition<C>(
         SocketAddrSpace::Unspecified,
     )
     .unwrap();
-
+    println!("greg: run_cluster_partition discover_validators cluster_nodes.len(): {:?}", cluster_nodes.len());
     // Check epochs have correct number of slots
     info!("PARTITION_TEST sleeping until partition starting condition",);
     for node in &cluster_nodes {
@@ -427,6 +432,7 @@ pub fn run_cluster_partition<C>(
     );
     sleep(propagation_duration);
     info!("PARTITION_TEST resuming normal operation");
+
     on_partition_resolved(&mut cluster, &mut context);
 }
 

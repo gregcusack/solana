@@ -2234,9 +2234,11 @@ fn test_hard_fork_invalidates_tower() {
             }
         }
     }
+    println!("greg: num validators pre shutdown: {}", cluster.lock().unwrap().validators.len());
 
     let mut validator_a_info = cluster.lock().unwrap().exit_node(&validator_a_pubkey);
     let mut validator_b_info = cluster.lock().unwrap().exit_node(&validator_b_pubkey);
+    
 
     // setup hard fork at slot < a previously rooted slot!
     // hard fork earlier than root is very unrealistic in the wild, but it's handy for
@@ -2250,6 +2252,11 @@ fn test_hard_fork_invalidates_tower() {
         &cluster.lock().unwrap().genesis_config.hash(),
         Some(&hard_forks),
     );
+    println!("greg: validator ci current shred version: {:?}", validator_a_info.info.contact_info.shred_version());
+    println!("greg: validator current shred version: {:?}", validator_a_info.config.expected_shred_version);
+    println!("greg: computed expected_shred_version: {}", expected_shred_version);
+    println!("greg: num validators post shutdown: {}", cluster.lock().unwrap().validators.len());
+    // cluster.lock().unwrap().set_shred_version(expected_shred_version);
 
     validator_a_info
         .config
@@ -2261,6 +2268,8 @@ fn test_hard_fork_invalidates_tower() {
     validator_b_info.config.new_hard_forks = hard_fork_slots;
     validator_b_info.config.wait_for_supermajority = Some(hard_fork_slot);
     validator_b_info.config.expected_shred_version = Some(expected_shred_version);
+    println!("greg: validator ci updated shred version: {:?}", validator_a_info.info.contact_info.shred_version());
+    println!("greg: validator updated shred version: {:?}", validator_a_info.config.expected_shred_version);
 
     // Clear ledger of all slots post hard fork
     {
@@ -2277,6 +2286,8 @@ fn test_hard_fork_invalidates_tower() {
         validator_a_info,
         validator_b_info,
     );
+    // println!("greg: num validators post restart: {}", cluster.lock().unwrap().validators.len());
+    // cluster.lock().unwrap().set_shred_version(expected_shred_version);
 
     // new slots should be rooted after hard-fork cluster relaunch
     cluster

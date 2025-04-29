@@ -100,6 +100,7 @@ pub struct ClusterConfig {
     pub tpu_use_quic: bool,
     pub tpu_connection_pool_size: usize,
     pub vote_use_quic: bool,
+    pub shred_version: Option<u16>,
 }
 
 impl ClusterConfig {
@@ -140,6 +141,7 @@ impl Default for ClusterConfig {
             tpu_use_quic: DEFAULT_TPU_USE_QUIC,
             tpu_connection_pool_size: DEFAULT_TPU_CONNECTION_POOL_SIZE,
             vote_use_quic: DEFAULT_VOTE_USE_QUIC,
+            shred_version: None,
         }
     }
 }
@@ -358,6 +360,11 @@ impl LocalCluster {
         .expect("assume successful validator start");
 
         let leader_contact_info = leader_server.cluster_info.my_contact_info();
+        println!("greg: leader contact info shred version: {}", leader_contact_info.shred_version());
+        let expected_shred_version = leader_contact_info.shred_version();
+        for validator_config in config.validator_configs.iter_mut() {
+            validator_config.expected_shred_version = Some(expected_shred_version);
+        }
         let mut validators = HashMap::new();
         let leader_info = ValidatorInfo {
             keypair: leader_keypair,
@@ -417,6 +424,7 @@ impl LocalCluster {
                 socket_addr_space,
             );
         });
+        println!("greg: num validators: {}", cluster.validators.len());
 
         discover(
             None,
@@ -432,6 +440,29 @@ impl LocalCluster {
         .unwrap();
 
         cluster
+    }
+
+    pub fn set_shred_version(&mut self, shred_version: u16) {
+        println!("greg: setting validators shred version to: {}", shred_version);
+        self.validators.values().for_each(|v| {
+            println!("greg: validator contact info shred version pre: {}", v.info.contact_info.shred_version());
+        });
+        self.validators.values_mut().for_each(|v| {
+            v.info.contact_info.set_shred_version(shred_version);
+        });
+        self.validators.values().for_each(|v| {
+            println!("greg: validator contact info shred version post: {}", v.info.contact_info.shred_version());
+        });
+        println!("greg: done setting validators shred version to: {}", shred_version);
+    }
+
+    pub fn cluster_shred_version(&self) -> u16 {
+        let validators_contact_info: Vec<_> = self
+            .validators
+            .values()
+            .map(|v| v.info.contact_info.clone())
+            .collect();
+        validators_contact_info[0].shred_version()
     }
 
     pub fn exit(&mut self) {
@@ -509,7 +540,10 @@ impl LocalCluster {
         }
         let validator_pubkey = validator_keypair.pubkey();
         let validator_node = Node::new_localhost_with_pubkey(&validator_keypair.pubkey());
-        let contact_info = validator_node.info.clone();
+        let mut contact_info = validator_node.info.clone();
+        if let Some(expected_shred_version) = validator_config.expected_shred_version {
+            contact_info.set_shred_version(expected_shred_version);
+        }
         let (ledger_path, _blockhash) = create_new_tmp_ledger_with_size!(
             &self.genesis_config,
             validator_config.max_genesis_archive_unpacked_size,
@@ -551,6 +585,7 @@ impl LocalCluster {
         ));
         Self::sync_ledger_path_across_nested_config_fields(&mut config, &ledger_path);
         let voting_keypair = voting_keypair.unwrap();
+        println!("greg: adding validator");
         let validator_server = Validator::new(
             validator_node,
             validator_keypair.clone(),
@@ -615,6 +650,7 @@ impl LocalCluster {
             .map(|v| v.info.contact_info.clone())
             .collect();
         assert!(!alive_node_contact_infos.is_empty());
+        println!("greg: discovering validators with shred version: {}", alive_node_contact_infos[0].shred_version());
         info!("{} discovering nodes", test_name);
         let cluster_nodes = discover_validators(
             &alive_node_contact_infos[0].gossip().unwrap(),
