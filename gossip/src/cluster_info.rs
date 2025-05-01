@@ -2038,7 +2038,7 @@ impl ClusterInfo {
                     data.retain(&mut verify_gossip_addr);
                     if !data.is_empty() {
                         pull_responses.append(&mut data);
-                        if rand::thread_rng().gen_ratio(1, 100) {
+                        if rand::thread_rng().gen_ratio(1, 10) {
                             for value in data.iter() {
                                 match value.data() {
                                     CrdsData::NodeInstance(_) => {
