@@ -51,6 +51,7 @@ use {
         ops::{Bound, Index, IndexMut},
         sync::Mutex,
     },
+    rand::Rng,
 };
 
 const CRDS_SHARDS_BITS: u32 = 12;
@@ -708,6 +709,23 @@ impl CrdsDataStats {
             }
         }
 
+        if let GossipRoute::PullResponse = route {
+            if rand::thread_rng().gen_ratio(1, 10) {
+                match entry.value.data() {
+                    CrdsData::NodeInstance(_) => {
+                        error!("greg: ni: {:?}", entry.value.pubkey());
+                    },
+                    CrdsData::LegacyContactInfo(_) => {
+                        error!("greg: lci: {:?}", entry.value.pubkey());
+                    },
+                    CrdsData::Version(_) => {
+                        error!("greg: v: {:?}", entry.value.pubkey());
+                    },
+                    _ => (),
+                }
+            }
+        }
+       
         let GossipRoute::PushMessage(from) = route else {
             return;
         };
