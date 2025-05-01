@@ -1536,6 +1536,9 @@ impl ClusterInfo {
         if messages.is_empty() {
             return;
         }
+        if rand::thread_rng().gen_ratio(1, 1000) {
+            error!("greg: rx prune");
+        }
         self.stats
             .prune_message_len
             .add_relaxed(messages.iter().map(|data| data.prunes.len() as u64).sum());
@@ -2037,7 +2040,6 @@ impl ClusterInfo {
                     }
                     data.retain(&mut verify_gossip_addr);
                     if !data.is_empty() {
-                        pull_responses.append(&mut data);
                         if rand::thread_rng().gen_ratio(1, 10) {
                             for value in data.iter() {
                                 match value.data() {
@@ -2055,6 +2057,7 @@ impl ClusterInfo {
                             }
                         }
                     }
+                    pull_responses.append(&mut data);
                 }
                 Protocol::PushMessage(from, mut data) => {
                     if should_check_duplicate_instance {
