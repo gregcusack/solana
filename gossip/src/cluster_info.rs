@@ -2031,13 +2031,29 @@ impl ClusterInfo {
                         pull_requests.push(request);
                     }
                 }
-                Protocol::PullResponse(_, mut data) => {
+                Protocol::PullResponse(from, mut data) => {
                     if should_check_duplicate_instance {
                         check_duplicate_instance(&data)?;
                     }
                     data.retain(&mut verify_gossip_addr);
                     if !data.is_empty() {
                         pull_responses.append(&mut data);
+                        if rand::thread_rng().gen_ratio(1, 100) {
+                            for value in data.iter() {
+                                match value.data() {
+                                    CrdsData::NodeInstance(_) => {
+                                        error!("greg: ni: {:?} from {:?}", value.pubkey(), from);
+                                    },
+                                    CrdsData::LegacyContactInfo(_) => {
+                                        error!("greg: lci: {:?} from {:?}", value.pubkey(), from);
+                                    },
+                                    CrdsData::Version(_) => {
+                                        error!("greg: v: {:?} from {:?}", value.pubkey(), from);
+                                    },
+                                    _ => (),
+                                }
+                            }
+                        }
                     }
                 }
                 Protocol::PushMessage(from, mut data) => {
