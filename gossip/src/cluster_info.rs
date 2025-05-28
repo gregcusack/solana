@@ -19,6 +19,7 @@ use {
         contact_info::{self, ContactInfo, ContactInfoQuery, Error as ContactInfoError},
         crds::{Crds, Cursor, GossipRoute},
         crds_data::{self, CrdsData, EpochSlotsIndex, LowestSlot, SnapshotHashes, Vote, MAX_VOTES},
+        crds_filter::{should_retain_crds_value, GossipFilterDirection, MIN_STAKE_TO_SKIP_PING},
         crds_gossip::CrdsGossip,
         crds_gossip_error::CrdsGossipError,
         crds_gossip_pull::{
@@ -133,11 +134,6 @@ pub const DEFAULT_CONTACT_DEBUG_INTERVAL_MILLIS: u64 = 10_000;
 pub const DEFAULT_CONTACT_SAVE_INTERVAL_MILLIS: u64 = 60_000;
 // Limit number of unique pubkeys in the crds table.
 pub(crate) const CRDS_UNIQUE_PUBKEY_CAPACITY: usize = 8192;
-/// Minimum stake that a node should have so that its CRDS values are
-/// propagated through gossip (few types are exempted).
-const MIN_STAKE_FOR_GOSSIP: u64 = solana_native_token::LAMPORTS_PER_SOL;
-/// Minimum number of staked nodes for enforcing stakes in gossip.
-const MIN_NUM_STAKED_NODES: usize = 500;
 
 // Must have at least one socket to monitor the TVU port
 pub const MINIMUM_NUM_TVU_RECEIVE_SOCKETS: NonZeroUsize = NonZeroUsize::new(1).unwrap();
@@ -175,61 +171,6 @@ pub struct ClusterInfo {
     contact_save_interval: u64,  // milliseconds, 0 = disabled
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
-}
-
-pub(crate) enum GossipFilterDirection {
-    Ingress,
-    Egress,
-}
-
-/// Returns false if the CRDS value should be discarded.
-/// `direction` controls whether we are looking at
-/// incoming packet (via Push or PullResponse) or
-/// we are about to make a packet
-#[inline]
-#[must_use]
-pub(crate) fn should_retain_crds_value(
-    value: &CrdsValue,
-    stakes: &HashMap<Pubkey, u64>,
-    direction: GossipFilterDirection,
-) -> bool {
-    let retain_if_staked = || {
-        stakes.len() < MIN_NUM_STAKED_NODES || {
-            let stake = stakes.get(&value.pubkey()).copied();
-            stake.unwrap_or_default() >= MIN_STAKE_FOR_GOSSIP
-        }
-    };
-    match value.data() {
-        CrdsData::ContactInfo(_) => true,
-        // Unstaked nodes can still serve snapshots.
-        CrdsData::SnapshotHashes(_) => true,
-        // Messages only allowed for staked nodes
-        CrdsData::DuplicateShred(_, _)
-        | CrdsData::LowestSlot(_, _)
-        | CrdsData::RestartHeaviestFork(_)
-        | CrdsData::RestartLastVotedForkSlots(_) => retain_if_staked(),
-        // Legacy unstaked nodes can still send EpochSlots
-        CrdsData::EpochSlots(_, _) | CrdsData::Vote(_, _) => match direction {
-            // always store if we have received them
-            // to avoid getting them again in PullResponses
-            GossipFilterDirection::Ingress => true,
-            // only forward if the origin is staked
-            GossipFilterDirection::Egress => retain_if_staked(),
-        },
-        // Deprecated messages we still see in the mainnet.
-        // We want to store them to avoid getting them again
-        // in PullResponses.
-        CrdsData::NodeInstance(_) | CrdsData::LegacyContactInfo(_) | CrdsData::Version(_) => {
-            match direction {
-                GossipFilterDirection::Ingress => true,
-                GossipFilterDirection::Egress => false,
-            }
-        }
-        // Fully deprecated messages
-        CrdsData::LegacySnapshotHashes(_) => false,
-        CrdsData::LegacyVersion(_) => false,
-        CrdsData::AccountsHashes(_) => false,
-    }
 }
 
 impl ClusterInfo {
@@ -1301,7 +1242,7 @@ impl ClusterInfo {
             self.flush_push_queue();
             self.gossip
                 .new_push_messages(&self_id, timestamp(), stakes, |value| {
-                    should_retain_crds_value(value, stakes, GossipFilterDirection::Egress)
+                    should_retain_crds_value(value, stakes, GossipFilterDirection::EgressPush)
                 })
         };
         self.stats
@@ -1707,7 +1648,13 @@ impl ClusterInfo {
                 &requests,
                 output_size_limit,
                 now,
-                |value| should_retain_crds_value(value, stakes, GossipFilterDirection::Egress),
+                |value| {
+                    should_retain_crds_value(
+                        value,
+                        stakes,
+                        GossipFilterDirection::EgressPullResponse,
+                    )
+                },
                 self.my_shred_version(),
                 &self.stats,
             )
@@ -3014,7 +2961,7 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
         _ => return true, // If not a contact-info, nothing to verify.
     };
     // For (sufficiently) staked nodes, don't bother with ping/pong.
-    if stakes.get(pubkey) >= Some(&MIN_STAKE_FOR_GOSSIP) {
+    if stakes.get(pubkey).copied() >= Some(MIN_STAKE_TO_SKIP_PING) {
         return true;
     }
     // Invalid addresses are not verifiable.
