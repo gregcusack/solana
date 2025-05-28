@@ -180,31 +180,26 @@ pub struct ClusterInfo {
 // Returns false if the CRDS value should be discarded.
 #[inline]
 #[must_use]
-fn should_retain_crds_value(
-    value: &CrdsValue,
-    stakes: &HashMap<Pubkey, u64>,
-    drop_unstaked_node_instance: bool,
-) -> bool {
+fn should_retain_crds_value(value: &CrdsValue, stakes: &HashMap<Pubkey, u64>) -> bool {
     match value.data() {
         CrdsData::ContactInfo(_) => true,
-        CrdsData::LegacyContactInfo(_) => true,
+        CrdsData::LegacyContactInfo(_) => false,
         // May Impact new validators starting up without any stake yet.
         CrdsData::Vote(_, _) => true,
         // Unstaked nodes can still help repair.
         CrdsData::EpochSlots(_, _) => true,
+        CrdsData::LegacySnapshotHashes(_) => false,
         // Unstaked nodes can still serve snapshots.
-        CrdsData::LegacySnapshotHashes(_) | CrdsData::SnapshotHashes(_) => true,
-        // Otherwise unstaked voting nodes will show up with no version in
-        // the various dashboards.
-        CrdsData::Version(_) => true,
-        CrdsData::AccountsHashes(_) => true,
-        CrdsData::NodeInstance(_) if !drop_unstaked_node_instance => true,
-        CrdsData::LowestSlot(_, _)
-        | CrdsData::LegacyVersion(_)
+        CrdsData::SnapshotHashes(_) => true,
+        CrdsData::Version(_) => false,
+        CrdsData::AccountsHashes(_) => false,
+        CrdsData::NodeInstance(_) => false,
+        CrdsData::LegacyVersion(_) => false,
+        CrdsData::LowestSlot(1.., _) => false,
+        CrdsData::LowestSlot(0, _)
         | CrdsData::DuplicateShred(_, _)
         | CrdsData::RestartHeaviestFork(_)
-        | CrdsData::RestartLastVotedForkSlots(_)
-        | CrdsData::NodeInstance(_) => {
+        | CrdsData::RestartLastVotedForkSlots(_) => {
             stakes.len() < MIN_NUM_STAKED_NODES || {
                 let stake = stakes.get(&value.pubkey()).copied();
                 stake.unwrap_or_default() >= MIN_STAKE_FOR_GOSSIP
@@ -1282,9 +1277,7 @@ impl ClusterInfo {
             self.flush_push_queue();
             self.gossip
                 .new_push_messages(&self_id, timestamp(), stakes, |value| {
-                    should_retain_crds_value(
-                        value, stakes, /*drop_unstaked_node_instance:*/ false,
-                    )
+                    should_retain_crds_value(value, stakes)
                 })
         };
         self.stats
@@ -1690,11 +1683,7 @@ impl ClusterInfo {
                 &requests,
                 output_size_limit,
                 now,
-                |value| {
-                    should_retain_crds_value(
-                        value, stakes, /*drop_unstaked_node_instance:*/ true,
-                    )
-                },
+                |value| should_retain_crds_value(value, stakes),
                 self.my_shred_version(),
                 &self.stats,
             )
@@ -2131,11 +2120,7 @@ impl ClusterInfo {
             if let Protocol::PullResponse(_, values) | Protocol::PushMessage(_, values) =
                 &mut protocol
             {
-                values.retain(|value| {
-                    should_retain_crds_value(
-                        value, stakes, /*drop_unstaked_node_instance:*/ false,
-                    )
-                });
+                values.retain(|value| should_retain_crds_value(value, stakes));
                 if values.is_empty() {
                     return None;
                 }
