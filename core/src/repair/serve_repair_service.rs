@@ -63,6 +63,7 @@ impl ServeRepairService {
             response_receiver,
             socket_addr_space,
             Some(stats_reporter_sender),
+            None,
         );
         let t_listen = serve_repair.listen(
             blockstore,

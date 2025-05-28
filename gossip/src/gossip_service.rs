@@ -6,6 +6,7 @@ use {
         cluster_info_metrics::submit_gossip_stats,
         contact_info::ContactInfo,
         epoch_specs::EpochSpecs,
+        ping_timer::gossip_ping_observer,
     },
     crossbeam_channel::Sender,
     rand::{thread_rng, Rng},
@@ -102,6 +103,7 @@ impl GossipService {
             response_receiver,
             socket_addr_space,
             stats_reporter_sender,
+            Some(Arc::new(gossip_ping_observer)),
         );
         let t_metrics = Builder::new()
             .name("solGossipMetr".to_string())

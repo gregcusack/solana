@@ -29,6 +29,7 @@ mod push_active_set;
 mod received_cache;
 pub mod restart_crds_values;
 pub mod weighted_shuffle;
+pub mod ping_timer;
 
 #[macro_use]
 extern crate log;

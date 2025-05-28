@@ -2140,6 +2140,9 @@ impl ClusterInfo {
                     return None;
                 }
             }
+            // if let Protocol::PongMessage(pong) = &protocol {
+            //     PING_RTT_TRACKER.lock().unwrap().record_pong(pong);
+            // }
             protocol.verify().then(|| {
                 stats.packets_received_verified_count.add_relaxed(1);
                 (packet.meta().socket_addr(), protocol)

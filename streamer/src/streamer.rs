@@ -419,21 +419,41 @@ impl StakedNodes {
 
 fn recv_send(
     sock: &UdpSocket,
-    r: &PacketBatchReceiver,
+    greg_receiver: &PacketBatchReceiver,
     socket_addr_space: &SocketAddrSpace,
+    on_send: &Option<Arc<dyn for<'a> Fn(PacketRef<'a>) + Send + Sync + 'static>>,
     stats: &mut Option<StreamerSendStats>,
 ) -> Result<()> {
     let timer = Duration::new(1, 0);
-    let packet_batch = r.recv_timeout(timer)?;
+    let packet_batch = greg_receiver.recv_timeout(timer)?;
     if let Some(stats) = stats {
         packet_batch.iter().for_each(|p| stats.record(p));
     }
-    let packets = packet_batch.iter().filter_map(|pkt| {
-        let addr = pkt.meta().socket_addr();
-        let data = pkt.data(..)?;
-        socket_addr_space.check(&addr).then_some((data, addr))
-    });
-    batch_send(sock, packets.collect::<Vec<_>>())?;
+    // let packets = packet_batch.iter().filter_map(|pkt| {
+    //     let addr = pkt.meta().socket_addr();
+    //     let data = pkt.data(..)?;
+    //     socket_addr_space.check(&addr).then_some((data, addr))
+    // });
+    // batch_send(sock, packets.collect::<Vec<_>>())?;
+    let packets_to_send: Vec<_> = packet_batch
+        .iter()
+        .filter_map(|pkt| {
+            let addr = pkt.meta().socket_addr();
+            let data = pkt.data(..)?;
+            if !socket_addr_space.check(&addr) {
+                return None;
+            }
+
+            // 👇 Call the observer (e.g., for ping)
+            if let Some(cb) = on_send {
+                cb(pkt);
+            }
+
+            Some((data, addr))
+        })
+        .collect();
+
+    batch_send(sock, packets_to_send)?;
     Ok(())
 }
 
@@ -463,10 +483,12 @@ pub fn recv_packet_batches(
 pub fn responder(
     name: &'static str,
     sock: Arc<UdpSocket>,
-    r: PacketBatchReceiver,
+    greg_receiver: PacketBatchReceiver,
     socket_addr_space: SocketAddrSpace,
     stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
+    on_send: Option<Arc<dyn for<'a> Fn(PacketRef<'a>) + Send + Sync + 'static>>, // ✅ trait object
 ) -> JoinHandle<()> {
+    // let on_send_ref = &on_send;
     Builder::new()
         .name(format!("solRspndr{name}"))
         .spawn(move || {
@@ -480,7 +502,7 @@ pub fn responder(
             }
 
             loop {
-                if let Err(e) = recv_send(&sock, &r, &socket_addr_space, &mut stats) {
+                if let Err(e) = recv_send(&sock, &greg_receiver, &socket_addr_space, &on_send, &mut stats) {
                     match e {
                         StreamerError::RecvTimeout(RecvTimeoutError::Disconnected) => break,
                         StreamerError::RecvTimeout(RecvTimeoutError::Timeout) => (),
@@ -579,6 +601,7 @@ mod test {
                 Arc::new(send),
                 r_responder,
                 SocketAddrSpace::Unspecified,
+                None,
                 None,
             );
             let mut packet_batch = PinnedPacketBatch::default();

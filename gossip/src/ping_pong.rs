@@ -1,4 +1,5 @@
 use {
+    crate::ping_timer::PING_RTT_TRACKER,
     lru::LruCache,
     rand::{CryptoRng, Rng},
     serde_big_array::BigArray,
@@ -26,16 +27,16 @@ const PING_PONG_HASH_PREFIX: &[u8] = "SOLANA_PING_PONG".as_bytes();
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Ping<const N: usize> {
-    from: Pubkey,
+    pub from: Pubkey,
     #[serde(with = "BigArray")]
     token: [u8; N],
-    signature: Signature,
+    pub signature: Signature,
 }
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Pong {
-    from: Pubkey,
+    pub from: Pubkey,
     hash: Hash, // Hash of received ping token.
     signature: Signature,
 }
@@ -65,6 +66,7 @@ pub struct PingCache<const N: usize> {
 impl<const N: usize> Ping<N> {
     pub fn new(token: [u8; N], keypair: &Keypair) -> Self {
         let signature = keypair.sign_message(&token);
+        PING_RTT_TRACKER.lock().unwrap().record_create_ping(signature);
         Ping {
             from: keypair.pubkey(),
             token,
