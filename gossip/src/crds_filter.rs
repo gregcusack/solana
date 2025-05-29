@@ -49,23 +49,19 @@ pub(crate) fn should_retain_crds_value(
         | CrdsData::LowestSlot(_, _)
         | CrdsData::RestartHeaviestFork(_)
         | CrdsData::RestartLastVotedForkSlots(_) => retain_if_staked(),
+
+        // CrdsData::EpochSlots(_, _) => match direction {
+        //     Ingress => true,
+        //     EgressPush | EgressPullResponse => retain_if_staked(),
+        // },
         // Legacy unstaked nodes can still send EpochSlots
         CrdsData::EpochSlots(_, _) | CrdsData::Vote(_, _) => match direction {
             // always store if we have received them
             // to avoid getting them again in PullResponses
-            Ingress => true,
-            // only forward if the origin is staked
-            EgressPush | EgressPullResponse => retain_if_staked(),
+            Ingress | EgressPush => true,
+            EgressPullResponse => retain_if_staked(),
         },
-        // Deprecated messages we still see in the mainnet.
-        // We want to store them to avoid getting them again
-        // in PullResponses.
-        CrdsData::NodeInstance(_) | CrdsData::LegacyContactInfo(_) | CrdsData::Version(_) => {
-            match direction {
-                Ingress => true,
-                EgressPush | EgressPullResponse => false,
-            }
-        }
+        CrdsData::NodeInstance(_) | CrdsData::LegacyContactInfo(_) | CrdsData::Version(_) => false,
         // Fully deprecated messages
         CrdsData::LegacySnapshotHashes(_) => false,
         CrdsData::LegacyVersion(_) => false,
