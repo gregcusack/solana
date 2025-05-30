@@ -19,6 +19,15 @@ pub struct PingRttTracker {
     pending: HashMap<Signature, Instant>, // 👈 keyed by sender pubkey
 }
 
+pub static PONG_RTT_TRACKER: LazyLock<Mutex<PongRttTracker>> = LazyLock::new(|| {
+    Mutex::new(PongRttTracker::default())
+});
+
+#[derive(Default)]
+pub struct PongRttTracker {
+    pending: HashMap<Signature, Instant>, // 👈 keyed by sender pubkey
+}
+
 impl PingRttTracker {
     pub fn record_create_ping(&mut self, sig: Signature) {
         self.pending.insert(sig, Instant::now());
@@ -37,15 +46,23 @@ impl PingRttTracker {
     }
 }
 
-// ✅ Call this when sending a ping packet
-// pub fn gossip_ping_observer(packet: &Packet) {
-//     if let Some(data) = packet.data(..) {
-//         if let Ok(Protocol::PingMessage(ping)) = bincode::deserialize(data) {
-//             let now = Instant::now();
-//             PING_RTT_TRACKER.lock().unwrap().record_send(&ping, now);
-//         }
-//     }
-// }
+impl PongRttTracker {
+    pub fn record_rx_pong(&mut self, sig: Signature) {
+        self.pending.insert(sig, Instant::now());
+    }
+
+    pub fn record_add_pong(&mut self, sig: Signature) {
+        if let Some(start) = self.pending.remove(&sig) {
+            let elapsed_us = start.elapsed().as_micros();
+            datapoint_info!(
+                "gossip_pong",
+                ("sig", format!("{:?}", sig), String),
+                ("diff_us", elapsed_us, i64)
+            );
+        }
+    }
+}
+
 
 pub fn gossip_ping_observer(packet: PacketRef<'_>) {
     if let Some(data) = packet.data(..) {

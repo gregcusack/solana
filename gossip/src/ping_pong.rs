@@ -1,5 +1,5 @@
 use {
-    crate::ping_timer::PING_RTT_TRACKER,
+    crate::ping_timer::{PING_RTT_TRACKER, PONG_RTT_TRACKER},
     lru::LruCache,
     rand::{CryptoRng, Rng},
     serde_big_array::BigArray,
@@ -38,7 +38,7 @@ pub struct Ping<const N: usize> {
 pub struct Pong {
     pub from: Pubkey,
     hash: Hash, // Hash of received ping token.
-    signature: Signature,
+    pub signature: Signature,
 }
 
 /// Maintains records of remote nodes which have returned a valid response to a
@@ -188,6 +188,7 @@ impl<const N: usize> PingCache<N> {
             return false;
         };
         self.pongs.put(remote_node, now);
+        PONG_RTT_TRACKER.lock().unwrap().record_add_pong(pong.signature);
         true
     }
 

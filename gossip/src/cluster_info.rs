@@ -31,6 +31,7 @@ use {
         epoch_specs::EpochSpecs,
         gossip_error::GossipError,
         ping_pong::Pong,
+        ping_timer::PONG_RTT_TRACKER,
         protocol::{
             split_gossip_messages, Ping, PingCache, Protocol, PruneData,
             DUPLICATE_SHRED_MAX_PAYLOAD_SIZE, MAX_INCREMENTAL_SNAPSHOT_HASHES,
@@ -2127,6 +2128,9 @@ impl ClusterInfo {
         ) -> Option<(SocketAddr, Protocol)> {
             let mut protocol: Protocol =
                 stats.record_received_packet(packet.deserialize_slice::<Protocol, _>(..))?;
+            if let Protocol::PongMessage(pong) = &protocol {
+                PONG_RTT_TRACKER.lock().unwrap().record_rx_pong(pong.signature);
+            }
             protocol.sanitize().ok()?;
             if let Protocol::PullResponse(_, values) | Protocol::PushMessage(_, values) =
                 &mut protocol
@@ -2140,9 +2144,6 @@ impl ClusterInfo {
                     return None;
                 }
             }
-            // if let Protocol::PongMessage(pong) = &protocol {
-            //     PING_RTT_TRACKER.lock().unwrap().record_pong(pong);
-            // }
             protocol.verify().then(|| {
                 stats.packets_received_verified_count.add_relaxed(1);
                 (packet.meta().socket_addr(), protocol)
