@@ -926,7 +926,7 @@ impl ServeRepair {
         let (check, ping) = request
             .sender()
             .map(|&sender| {
-                ping_cache.check(
+                ping_cache.check_repair(
                     &mut rng,
                     identity_keypair,
                     Instant::now(),

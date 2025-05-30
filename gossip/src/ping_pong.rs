@@ -73,6 +73,15 @@ impl<const N: usize> Ping<N> {
             signature,
         }
     }
+
+    pub fn new_repair(token: [u8; N], keypair: &Keypair) -> Self {
+        let signature = keypair.sign_message(&token);
+        Ping {
+            from: keypair.pubkey(),
+            token,
+            signature,
+        }
+    }
 }
 
 impl<const N: usize> Sanitize for Ping<N> {
@@ -204,6 +213,25 @@ impl<const N: usize> PingCache<N> {
         Some(Ping::new(token, keypair))
     }
 
+    fn maybe_ping_repair<R: Rng + CryptoRng>(
+        &mut self,
+        rng: &mut R,
+        keypair: &Keypair,
+        now: Instant,
+        remote_node: (Pubkey, SocketAddr),
+    ) -> Option<Ping<N>> {
+        // Rate limit consecutive pings sent to a remote node.
+        if matches!(self.pings.peek(&remote_node),
+            Some(&t) if now.saturating_duration_since(t) < self.rate_limit_delay)
+        {
+            return None;
+        }
+        self.pings.put(remote_node, now);
+        self.maybe_refresh_key(rng, now);
+        let token = make_ping_token::<N>(self.hashers[0], &remote_node);
+        Some(Ping::new_repair(token, keypair))
+    }
+
     /// Returns true if the remote node has responded to a ping message.
     /// Removes expired pong messages. In order to extend verifications before
     /// expiration, if the pong message is not too recent, and the node has not
@@ -234,6 +262,32 @@ impl<const N: usize> PingCache<N> {
         };
         let ping = should_ping
             .then(|| self.maybe_ping(rng, keypair, now, remote_node))
+            .flatten();
+        (check, ping)
+    }
+
+    pub fn check_repair<R: Rng + CryptoRng>(
+        &mut self,
+        rng: &mut R,
+        keypair: &Keypair,
+        now: Instant,
+        remote_node: (Pubkey, SocketAddr),
+    ) -> (bool, Option<Ping<N>>) {
+        let (check, should_ping) = match self.pongs.get(&remote_node) {
+            None => (false, true),
+            Some(t) => {
+                let age = now.saturating_duration_since(*t);
+                // Pop if the pong message has expired.
+                if age > self.ttl {
+                    self.pongs.pop(&remote_node);
+                }
+                // If the pong message is not too recent, generate a new ping
+                // message to extend remote node verification.
+                (true, age > self.ttl / 8)
+            }
+        };
+        let ping = should_ping
+            .then(|| self.maybe_ping_repair(rng, keypair, now, remote_node))
             .flatten();
         (check, ping)
     }
