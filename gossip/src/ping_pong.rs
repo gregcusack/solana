@@ -186,7 +186,7 @@ impl<const N: usize> PingCache<N> {
         };
         self.pongs.put(remote_node, now);
         if let Some(sent_time) = self.ping_times.pop(&socket.ip()) {
-            if should_report_message_signature(pong.signature(), 5) {
+            if should_report_message_signature(pong.signature(), 4) {
                 let rtt = now.saturating_duration_since(sent_time);
                 datapoint_info!(
                     "ping_rtt",
