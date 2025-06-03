@@ -151,6 +151,8 @@ pub struct GossipStats {
     pub(crate) purge: Counter,
     pub(crate) purge_count: Counter,
     pub(crate) push_fanout_num_entries: Counter,
+    pub(crate) local_push_fanout_num_entries: Counter,
+    pub(crate) ci_local_push_fanout_num_entries: Counter,
     pub(crate) push_fanout_num_nodes: Counter,
     pub(crate) push_message_value_count: Counter,
     pub(crate) push_vote_read: Counter,
@@ -165,6 +167,10 @@ pub struct GossipStats {
     pub(crate) tvu_peers: Counter,
     pub(crate) verify_gossip_packets_time: Counter,
     pub(crate) window_request_loopback: Counter,
+    // divide by push_fanout_num_entries to get average time in crds/crdsvalue
+    pub(crate) crds_timing_stats: Counter,
+    pub(crate) local_crds_timing_stats: Counter,
+    pub(crate) ci_local_crds_timing_stats: Counter,
 }
 
 impl GossipStats {
@@ -459,6 +465,16 @@ pub(crate) fn submit_gossip_stats(
             i64
         ),
         (
+            "local_push_fanout_num_entries",
+            stats.local_push_fanout_num_entries.clear(),
+            i64
+        ),
+        (
+            "ci_local_push_fanout_num_entries",
+            stats.ci_local_push_fanout_num_entries.clear(),
+            i64
+        ),
+        (
             "push_fanout_num_nodes",
             stats.push_fanout_num_nodes.clear(),
             i64
@@ -483,6 +499,17 @@ pub(crate) fn submit_gossip_stats(
         (
             "generate_prune_messages",
             stats.generate_prune_messages.clear(),
+            i64
+        ),
+        ("crds_timing_stats", stats.crds_timing_stats.clear(), i64),
+        (
+            "local_crds_timing_stats",
+            stats.local_crds_timing_stats.clear(),
+            i64
+        ),
+        (
+            "ci_local_crds_timing_stats",
+            stats.ci_local_crds_timing_stats.clear(),
             i64
         ),
     );

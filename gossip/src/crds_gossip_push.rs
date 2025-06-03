@@ -15,6 +15,7 @@ use {
     crate::{
         cluster_info::CRDS_UNIQUE_PUBKEY_CAPACITY,
         crds::{Crds, CrdsError, Cursor, GossipRoute},
+        crds_data::CrdsData,
         crds_gossip,
         crds_value::CrdsValue,
         protocol::{Ping, PingCache},
@@ -175,6 +176,11 @@ impl CrdsGossipPush {
         // map of pubkeys to indices in Vec<CrdsValue> pushed to that peer
         HashMap<Pubkey, Vec</*index:*/ usize>>,
         usize, // number of push messages
+        usize, // time in crds
+        usize, // local time in crds
+        usize, // ci local time in crds
+        u64, // local count
+        u64, // ci local count
     ) {
         const MAX_NUM_PUSHES: usize = 1 << 12;
         let mut num_pushes = 0;
@@ -186,12 +192,30 @@ impl CrdsGossipPush {
         // crds should be locked last after self.{active_set,crds_cursor}.
         let crds = crds.read().unwrap();
         let entries = crds
-            .get_entries(crds_cursor.deref_mut())
-            .map(|entry| &entry.value)
-            .filter(|value| wallclock_window.contains(&value.wallclock()))
-            .filter(|value| should_retain_crds_value(value));
-        'outer: for value in entries {
+            .get_entries_and_index(crds_cursor.deref_mut())
+            .map(|(entry, index)| (&entry.value, index))
+            .filter(|(value, _)| wallclock_window.contains(&value.wallclock()))
+            .filter(|(value, _)| should_retain_crds_value(value));
+        let mut time_in_crds: u64 = 0;
+        let mut local_time_in_crds: u64 = 0;
+        let mut ci_local_time_in_crds: u64 = 0;
+        let mut local_count: u64 = 0;
+        let mut ci_local_count: u64 = 0;
+        'outer: for (value, index) in entries {
             let origin = value.pubkey();
+            
+            let start = crds.timing_metrics.get(&index).unwrap();
+            let now = timestamp();
+            time_in_crds += now - start;
+            if *pubkey == origin {
+                local_time_in_crds += now - start;
+                local_count += 1;
+                if let CrdsData::ContactInfo(_) = value.data() {
+                    ci_local_time_in_crds += now - start;
+                    ci_local_count += 1;
+                }
+            }
+
             let mut nodes = active_set
                 .get_nodes(
                     pubkey,
@@ -217,7 +241,17 @@ impl CrdsGossipPush {
         drop(crds_cursor);
         drop(active_set);
         self.num_pushes.fetch_add(num_pushes, Ordering::Relaxed);
-        (values, push_messages, num_pushes)
+        // (values, push_messages, num_pushes)
+        (
+            values,
+            push_messages,
+            num_pushes,
+            time_in_crds as usize,
+            local_time_in_crds as usize,
+            ci_local_time_in_crds as usize,
+            local_count,
+            ci_local_count,
+        )
     }
 
     /// Add the `from` to the peer's filter of nodes.

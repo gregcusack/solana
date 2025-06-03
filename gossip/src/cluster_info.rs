@@ -1237,7 +1237,7 @@ impl ClusterInfo {
         stakes: &HashMap<Pubkey, u64>,
     ) -> impl Iterator<Item = (SocketAddr, Protocol)> {
         let self_id = self.id();
-        let (entries, push_messages, num_pushes) = {
+        let (entries, push_messages, num_pushes, time_in_crds, local_time_in_crds, ci_local_time_in_crds, local_count, ci_local_count) = {
             let _st = ScopedTimer::from(&self.stats.new_push_requests);
             self.flush_push_queue();
             self.gossip
@@ -1251,6 +1251,21 @@ impl ClusterInfo {
         self.stats
             .push_fanout_num_nodes
             .add_relaxed(num_pushes as u64);
+        self.stats
+            .crds_timing_stats
+            .add_relaxed(time_in_crds as u64);
+        self.stats
+            .local_crds_timing_stats
+            .add_relaxed(local_time_in_crds as u64);
+        self.stats
+            .ci_local_crds_timing_stats
+            .add_relaxed(ci_local_time_in_crds as u64);
+        self.stats
+            .local_push_fanout_num_entries
+            .add_relaxed(local_count);
+        self.stats
+            .ci_local_push_fanout_num_entries
+            .add_relaxed(ci_local_count);
         let push_messages: Vec<_> = {
             let gossip_crds =
                 self.time_gossip_read_lock("push_req_lookup", &self.stats.new_push_requests2);
@@ -3393,7 +3408,7 @@ mod tests {
         );
         //check that all types of gossip messages are signed correctly
         cluster_info.flush_push_queue();
-        let (entries, push_messages, _) = cluster_info.gossip.new_push_messages(
+        let (entries, push_messages, _, _, _, _, _, _) = cluster_info.gossip.new_push_messages(
             &cluster_info.id(),
             timestamp(),
             &stakes,
