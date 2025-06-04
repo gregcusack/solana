@@ -2080,10 +2080,6 @@ impl ClusterInfo {
                 break;
             }
         }
-        static FIRST_PACKET: Once = Once::new();
-        FIRST_PACKET.call_once(|| {
-            info!("greg: first_gossip_packet_received: {}", timestamp());
-        });
         self.stats
             .packets_received_count
             .add_relaxed(num_packets as u64);
@@ -2131,6 +2127,12 @@ impl ClusterInfo {
                 }
             })
         };
+        if packets_verified.len() > 0 {
+            static FIRST_PACKET: Once = Once::new();
+            FIRST_PACKET.call_once(|| {
+                info!("greg: first_gossip_packet_received: {}", timestamp());
+            });
+        }
         if let Err(TrySendError::Full(_)) = sender.try_send(packets_verified) {
             self.stats.gossip_packets_dropped_count.add_relaxed(
                 packet_buf
