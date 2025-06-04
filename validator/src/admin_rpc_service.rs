@@ -210,7 +210,7 @@ pub trait AdminRpc {
     ) -> Result<()>;
 
     #[rpc(meta, name = "setContactIp")]
-    fn set_contact_ip(&self, meta: Self::Metadata, new_ip: String) -> Result<()>;
+    fn set_gossip_socket(&self, meta: Self::Metadata, ip: String, port: u16) -> Result<()>;
 
     #[rpc(meta, name = "setStakedNodesOverrides")]
     fn set_staked_nodes_overrides(&self, meta: Self::Metadata, path: String) -> Result<()>;
@@ -515,10 +515,10 @@ impl AdminRpc for AdminRpcImpl {
         AdminRpcImpl::set_identity_keypair(meta, identity_keypair, require_tower)
     }
 
-    fn set_contact_ip(&self, meta: Self::Metadata, new_ip: String) -> Result<()> {
+    fn set_gossip_socket(&self, meta: Self::Metadata, ip: String, port: u16) -> Result<()> {
         info!("greg: set_contact_ip request received");
 
-        let ip: std::net::IpAddr = new_ip.parse().map_err(|e| {
+        let ip: std::net::IpAddr = ip.parse().map_err(|e| {
             error!("Invalid IP address: {e}");
             jsonrpc_core::Error::invalid_params(format!("Invalid IP address: {e}"))
         })?;
@@ -526,11 +526,6 @@ impl AdminRpc for AdminRpcImpl {
 
         meta.with_post_init(|post_init| {
             let cluster_info = &post_init.cluster_info;
-    
-            let port = cluster_info.my_contact_info()
-                .gossip()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Gossip address not set"))?
-                .port();
     
             let new_socket = SocketAddr::new(ip, port);
             info!("greg: Setting gossip ip to {new_socket}");
@@ -540,7 +535,6 @@ impl AdminRpc for AdminRpcImpl {
             info!("greg: set contact info");
             Ok(())
         })
-
     }
 
     fn set_staked_nodes_overrides(&self, meta: Self::Metadata, path: String) -> Result<()> {
