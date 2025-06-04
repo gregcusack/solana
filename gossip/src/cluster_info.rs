@@ -45,7 +45,8 @@ use {
     },
     crossbeam_channel::{Receiver, TrySendError},
     itertools::{Either, Itertools},
-    rand::{seq::SliceRandom, CryptoRng, Rng},
+    // rand::{seq::SliceRandom, CryptoRng, Rng},
+    rand::{CryptoRng, Rng},
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
     solana_clock::{Slot, DEFAULT_MS_PER_SLOT, DEFAULT_SLOTS_PER_EPOCH},
     solana_hash::Hash,
@@ -1134,52 +1135,53 @@ impl ClusterInfo {
     // If the network entrypoint hasn't been discovered yet, add it to the crds table
     fn append_entrypoint_to_pulls(
         &self,
-        thread_pool: &ThreadPool,
-        max_bloom_filter_bytes: usize,
+        _thread_pool: &ThreadPool,
+        _max_bloom_filter_bytes: usize,
         pulls: impl Iterator<Item = (SocketAddr, CrdsFilter)> + Clone,
     ) -> impl Iterator<Item = (SocketAddr, CrdsFilter)> {
-        const THROTTLE_DELAY: u64 = CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2;
-        let mut pulls = pulls.peekable();
-        let entrypoint = {
-            let mut entrypoints = self.entrypoints.write().unwrap();
-            let Some(entrypoint) = entrypoints.choose_mut(&mut rand::thread_rng()) else {
-                return Either::Left(pulls);
-            };
-            if pulls.peek().is_some() {
-                let now = timestamp();
-                if now <= entrypoint.wallclock().saturating_add(THROTTLE_DELAY) {
-                    return Either::Left(pulls);
-                }
-                entrypoint.set_wallclock(now);
-                if let Some(entrypoint_gossip) = entrypoint.gossip() {
-                    if self
-                        .time_gossip_read_lock("entrypoint", &self.stats.entrypoint)
-                        .get_nodes_contact_info()
-                        .any(|node| node.gossip() == Some(entrypoint_gossip))
-                    {
-                        // Found the entrypoint, no need to pull from it.
-                        return Either::Left(pulls);
-                    }
-                }
-            }
-            let Some(entrypoint) = entrypoint.gossip() else {
-                return Either::Left(pulls);
-            };
-            entrypoint
-        };
-        let filters = if pulls.peek().is_none() {
-            let _st = ScopedTimer::from(&self.stats.entrypoint2);
-            Either::Left(
-                self.gossip
-                    .pull
-                    .build_crds_filters(thread_pool, &self.gossip.crds, max_bloom_filter_bytes)
-                    .into_iter(),
-            )
-        } else {
-            Either::Right(pulls.clone().map(|(_, filter)| filter))
-        };
-        self.stats.pull_from_entrypoint_count.add_relaxed(1);
-        Either::Right(pulls.chain(repeat(entrypoint).zip(filters)))
+        return pulls;
+        // const THROTTLE_DELAY: u64 = CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2;
+        // let mut pulls = pulls.peekable();
+        // let entrypoint = {
+        //     let mut entrypoints = self.entrypoints.write().unwrap();
+        //     let Some(entrypoint) = entrypoints.choose_mut(&mut rand::thread_rng()) else {
+        //         return Either::Left(pulls);
+        //     };
+        //     if pulls.peek().is_some() {
+        //         let now = timestamp();
+        //         if now <= entrypoint.wallclock().saturating_add(THROTTLE_DELAY) {
+        //             return Either::Left(pulls);
+        //         }
+        //         entrypoint.set_wallclock(now);
+        //         if let Some(entrypoint_gossip) = entrypoint.gossip() {
+        //             if self
+        //                 .time_gossip_read_lock("entrypoint", &self.stats.entrypoint)
+        //                 .get_nodes_contact_info()
+        //                 .any(|node| node.gossip() == Some(entrypoint_gossip))
+        //             {
+        //                 // Found the entrypoint, no need to pull from it.
+        //                 return Either::Left(pulls);
+        //             }
+        //         }
+        //     }
+        //     let Some(entrypoint) = entrypoint.gossip() else {
+        //         return Either::Left(pulls);
+        //     };
+        //     entrypoint
+        // };
+        // let filters = if pulls.peek().is_none() {
+        //     let _st = ScopedTimer::from(&self.stats.entrypoint2);
+        //     Either::Left(
+        //         self.gossip
+        //             .pull
+        //             .build_crds_filters(thread_pool, &self.gossip.crds, max_bloom_filter_bytes)
+        //             .into_iter(),
+        //     )
+        // } else {
+        //     Either::Right(pulls.clone().map(|(_, filter)| filter))
+        // };
+        // self.stats.pull_from_entrypoint_count.add_relaxed(1);
+        // Either::Right(pulls.chain(repeat(entrypoint).zip(filters)))
     }
 
     fn new_pull_requests(
