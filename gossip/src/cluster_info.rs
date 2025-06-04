@@ -99,6 +99,7 @@ use {
         },
         thread::{sleep, Builder, JoinHandle},
         time::{Duration, Instant},
+        sync::Once,
     },
     thiserror::Error,
 };
@@ -2079,6 +2080,10 @@ impl ClusterInfo {
                 break;
             }
         }
+        static FIRST_PACKET: Once = Once::new();
+        FIRST_PACKET.call_once(|| {
+            info!("greg: first_gossip_packet_received: {}", timestamp());
+        });
         self.stats
             .packets_received_count
             .add_relaxed(num_packets as u64);
