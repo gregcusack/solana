@@ -45,11 +45,12 @@ use {
     solana_hash::Hash,
     solana_pubkey::Pubkey,
     solana_signature::Signature,
+    solana_time_utils::timestamp,
     std::{
         cmp::Ordering,
         collections::{hash_map, BTreeMap, HashMap, VecDeque},
         ops::{Bound, Index, IndexMut},
-        sync::Mutex,
+        sync::{Mutex, Once},
     },
 };
 
@@ -250,12 +251,24 @@ impl Crds {
                     CrdsData::ContactInfo(node) => {
                         self.nodes.insert(entry_index);
                         self.shred_versions.insert(pubkey, node.shred_version());
+                        static FIRST_CONTACT_INFO: Once = Once::new();
+                        FIRST_CONTACT_INFO.call_once(|| {
+                            info!("greg: first_contact_info_received: {}", timestamp());
+                        });
                     }
                     CrdsData::Vote(_, _) => {
                         self.votes.insert(value.ordinal, entry_index);
+                        static FIRST_VOTE: Once = Once::new();
+                        FIRST_VOTE.call_once(|| {
+                            info!("greg: first_vote_received: {}", timestamp());
+                        });
                     }
                     CrdsData::EpochSlots(_, _) => {
                         self.epoch_slots.insert(value.ordinal, entry_index);
+                        static FIRST_EPOCH_SLOTS: Once = Once::new();
+                        FIRST_EPOCH_SLOTS.call_once(|| {
+                            info!("greg: first_epoch_slots_received: {}", timestamp());
+                        });
                     }
                     CrdsData::DuplicateShred(_, _) => {
                         self.duplicate_shreds.insert(value.ordinal, entry_index);

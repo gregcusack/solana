@@ -2024,6 +2024,10 @@ impl ClusterInfo {
                             .push_message_value_count
                             .add_relaxed(data.len() as u64);
                         push_messages.push((from, data));
+                        static FIRST_PUSH: Once = Once::new();
+                        FIRST_PUSH.call_once(|| {
+                            info!("greg: first_push_packet_received: {}", timestamp());
+                        });
                     }
                 }
                 Protocol::PruneMessage(_from, data) => prune_messages.push(data),
