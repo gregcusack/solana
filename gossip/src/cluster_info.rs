@@ -567,10 +567,10 @@ impl ClusterInfo {
                 }
             })
             .collect();
-        if nodes.len() > 0 {
+        if nodes.len() > 1 {
             static FIRST_PEER: Once = Once::new();
             FIRST_PEER.call_once(|| {
-                info!("greg: first_peer: {}", timestamp());
+                info!("greg: first_peer_not_me: {}, nodes: {}", timestamp(), nodes.len());
             });
         }
         format!(
