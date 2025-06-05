@@ -495,7 +495,12 @@ impl ClusterInfo {
                 ))
             })
             .collect();
-
+        if nodes.len() > 0 {
+            static FIRST_PEER_RPC: Once = Once::new();
+            FIRST_PEER_RPC.call_once(|| {
+                info!("greg: first_peer_rpc: {}", timestamp());
+            });
+        }
         format!(
             "RPC Address       |Age(ms)| Node identifier                              \
              | Version | RPC  |PubSub|ShredVer\n\
@@ -562,7 +567,12 @@ impl ClusterInfo {
                 }
             })
             .collect();
-
+        if nodes.len() > 0 {
+            static FIRST_PEER: Once = Once::new();
+            FIRST_PEER.call_once(|| {
+                info!("greg: first_peer: {}", timestamp());
+            });
+        }
         format!(
             "IP Address        |Age(ms)| Node identifier                              \
              | Version |Gossip|TPUvote| TPU  |TPUfwd| TVU  |TVU Q |ServeR|ShredVer\n\
