@@ -1328,7 +1328,7 @@ impl Validator {
         let stats_reporter_service =
             StatsReporterService::new(stats_reporter_receiver, exit.clone());
 
-        let (gossip_rebind_tx, gossip_rebind_rx) = crossbeam_channel::bounded(4);
+        let (gossip_rebind_tx, gossip_rebind_rx) = crossbeam_channel::bounded(1);
         let gossip_service = GossipService::new_with_rebind(
             &cluster_info,
             Some(bank_forks.clone()),

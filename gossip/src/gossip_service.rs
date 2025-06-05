@@ -150,11 +150,11 @@ impl GossipService {
         // let gossip_socket = Arc::new(gossip_socket);
         let gossip_socket = Arc::new(AtomicUdpSocket::new(gossip_socket));
 
-        // trace!(
-        //     "GossipService: id: {}, listening on: {:?}",
-        //     &cluster_info.id(),
-        //     gossip_socket.local_addr().unwrap()
-        // );
+        trace!(
+            "GossipService: id: {}, listening on: {:?}",
+            &cluster_info.id(),
+            gossip_socket.local_addr().unwrap()
+        );
         let socket_addr_space = *cluster_info.socket_addr_space();
         let gossip_receiver_stats = Arc::new(StreamerReceiveStats::new("gossip_receiver"));
         let t_receiver = streamer::receiver_atomic(

@@ -1,7 +1,7 @@
 // src/atomic_udp_socket.rs
 use {
     arc_swap::ArcSwap,
-    std::{net::UdpSocket, sync::Arc},
+    std::{net::{SocketAddr, UdpSocket}, sync::Arc},
 };
 
 #[derive(Clone)]
@@ -22,5 +22,9 @@ impl AtomicUdpSocket {
     pub fn swap(&self, new_sock: UdpSocket) {
         info!("greg: AtomicUdpSocket::swap new_sock: {:?}", new_sock);
         self.inner.store(Arc::new(new_sock));
+    }
+
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        self.inner.load().local_addr()
     }
 }
