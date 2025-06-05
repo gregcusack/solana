@@ -329,6 +329,7 @@ pub fn receiver(
         .unwrap()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn receiver_atomic(
     thread_name: String,
     socket: Arc<AtomicUdpSocket>,
