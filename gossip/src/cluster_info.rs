@@ -392,7 +392,10 @@ impl ClusterInfo {
 
     pub fn set_gossip_ip(&self, gossip_addr: SocketAddr) -> Result<(), ContactInfoError> {
         info!("greg: set gossip ip");
-        self.my_contact_info.write().unwrap().set_gossip(gossip_addr)?;
+        self.my_contact_info
+            .write()
+            .unwrap()
+            .set_gossip(gossip_addr)?;
         info!("greg: set gossip ip 2");
         self.refresh_my_gossip_contact_info();
         info!("greg: set gossip ip 3");

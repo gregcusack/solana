@@ -7,17 +7,18 @@ use {
         contact_info::ContactInfo,
         epoch_specs::EpochSpecs,
     },
-    crossbeam_channel::Sender,
+    crossbeam_channel::{Receiver, RecvTimeoutError, Sender},
     rand::{thread_rng, Rng},
     solana_client::{connection_cache::ConnectionCache, tpu_client::TpuClientWrapper},
     solana_keypair::Keypair,
-    solana_net_utils::DEFAULT_IP_ECHO_SERVER_THREADS,
+    solana_net_utils::{bind_to, DEFAULT_IP_ECHO_SERVER_THREADS},
     solana_perf::recycler::Recycler,
     solana_pubkey::Pubkey,
     solana_rpc_client::rpc_client::RpcClient,
     solana_runtime::bank_forks::BankForks,
     solana_signer::Signer,
     solana_streamer::{
+        atomic_udp_socket::AtomicUdpSocket,
         evicting_sender::EvictingSender,
         socket::SocketAddrSpace,
         streamer::{self, StreamerReceiveStats},
@@ -130,6 +131,135 @@ impl GossipService {
             t_listen,
             t_gossip,
             t_metrics,
+        ];
+        Self { thread_hdls }
+    }
+
+    pub fn new_with_rebind(
+        cluster_info: &Arc<ClusterInfo>,
+        bank_forks: Option<Arc<RwLock<BankForks>>>,
+        gossip_socket: UdpSocket,
+        gossip_validators: Option<HashSet<Pubkey>>,
+        should_check_duplicate_instance: bool,
+        stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
+        exit: Arc<AtomicBool>,
+        gossip_rebind_rx: Receiver<SocketAddr>,
+    ) -> Self {
+        let (request_sender, request_receiver) =
+            EvictingSender::new_bounded(GOSSIP_CHANNEL_CAPACITY);
+        // let gossip_socket = Arc::new(gossip_socket);
+        let gossip_socket = Arc::new(AtomicUdpSocket::new(gossip_socket));
+
+        // trace!(
+        //     "GossipService: id: {}, listening on: {:?}",
+        //     &cluster_info.id(),
+        //     gossip_socket.local_addr().unwrap()
+        // );
+        let socket_addr_space = *cluster_info.socket_addr_space();
+        let gossip_receiver_stats = Arc::new(StreamerReceiveStats::new("gossip_receiver"));
+        let t_receiver = streamer::receiver_atomic(
+            "solRcvrGossip".to_string(),
+            gossip_socket.clone(),
+            exit.clone(),
+            request_sender,
+            Recycler::default(),
+            gossip_receiver_stats.clone(),
+            Some(Duration::from_millis(1)), // coalesce
+            false,
+            None,
+            false,
+        );
+        let (consume_sender, listen_receiver) =
+            EvictingSender::new_bounded(GOSSIP_CHANNEL_CAPACITY);
+        let t_socket_consume = cluster_info.clone().start_socket_consume_thread(
+            bank_forks.clone(),
+            request_receiver,
+            consume_sender,
+            exit.clone(),
+        );
+        let (response_sender, response_receiver) =
+            EvictingSender::new_bounded(GOSSIP_CHANNEL_CAPACITY);
+        let t_listen = cluster_info.clone().listen(
+            bank_forks.clone(),
+            listen_receiver,
+            response_sender.clone(),
+            should_check_duplicate_instance,
+            exit.clone(),
+        );
+        let t_gossip = cluster_info.clone().gossip(
+            bank_forks.clone(),
+            response_sender,
+            gossip_validators,
+            exit.clone(),
+        );
+        let t_responder = streamer::responder_atomic(
+            "Gossip",
+            gossip_socket.clone(),
+            response_receiver,
+            socket_addr_space,
+            stats_reporter_sender,
+        );
+        let t_metrics = Builder::new()
+            .name("solGossipMetr".to_string())
+            .spawn({
+                let cluster_info = cluster_info.clone();
+                let mut epoch_specs = bank_forks.map(EpochSpecs::from);
+                let exit_clone = exit.clone();
+                move || {
+                    while !exit_clone.load(Ordering::Relaxed) {
+                        sleep(SUBMIT_GOSSIP_STATS_INTERVAL);
+                        let stakes = epoch_specs
+                            .as_mut()
+                            .map(|epoch_specs| epoch_specs.current_epoch_staked_nodes())
+                            .cloned()
+                            .unwrap_or_default();
+
+                        submit_gossip_stats(&cluster_info.stats, &cluster_info.gossip, &stakes);
+                        gossip_receiver_stats.report();
+                    }
+                }
+            })
+            .unwrap();
+
+        // socket rebind thread
+        let gossip_socket_rebind = gossip_socket.clone();
+        let exit_clone = exit.clone();
+        let t_rebind = std::thread::Builder::new()
+            .name("gossipRebinder".to_string())
+            .spawn(move || {
+                while !exit_clone.load(Ordering::Relaxed) {
+                    match gossip_rebind_rx.recv_timeout(Duration::from_secs(1)) {
+                        Ok(new_addr) => {
+                            info!("greg: GossipService::new_with_rebind rebind gossip socket to {new_addr}");
+                            match bind_to(new_addr.ip(), new_addr.port(), false) {
+                                Ok(new_socket) => {
+                                    // if let Err(e) = new_socket.set_nonblocking(true) {
+                                    //     log::warn!("Failed to set nonblocking on new gossip socket: {e}");
+                                    //     continue;
+                                    // }
+                                    info!("greg: Rebinding gossip socket to {new_addr}");
+                                    gossip_socket_rebind.swap(new_socket);
+                                }
+                                Err(e) => {
+                                    warn!("greg: Failed to bind new gossip socket to {new_addr}: {e}");
+                                }
+                            }
+                        }
+                        Err(RecvTimeoutError::Timeout) => continue,
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            })
+            .expect("Failed to spawn gossip rebinder thread");
+
+        let thread_hdls = vec![
+            t_receiver,
+            t_responder,
+            t_socket_consume,
+            t_listen,
+            t_gossip,
+            t_metrics,
+            t_rebind,
         ];
         Self { thread_hdls }
     }
