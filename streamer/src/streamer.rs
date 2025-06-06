@@ -148,11 +148,10 @@ impl StreamerReceiveStats {
 pub type Result<T> = std::result::Result<T, StreamerError>;
 
 pub trait SocketProvider {
-    /// Returns `(socket_ref, changed_since_last_call)`
     fn current_socket(&mut self) -> (&UdpSocket, bool);
 }
 
-/// Fixed, never-changing `UdpSocket`
+/// Fixed UDP Socket -> default
 pub struct FixedSocketProvider {
     socket: Arc<UdpSocket>,
 }
@@ -186,6 +185,7 @@ impl AtomicSocketProvider {
     }
 }
 impl SocketProvider for AtomicSocketProvider {
+    // Check if the socket has changed since the last call
     #[inline]
     fn current_socket(&mut self) -> (&UdpSocket, bool) {
         let s = self.atomic.load();
@@ -214,15 +214,14 @@ pub fn receiver(
 ) -> JoinHandle<()> {
     let res = socket.set_read_timeout(Some(Duration::new(1, 0)));
     assert!(res.is_ok(), "streamer::receiver set_read_timeout error");
-
-    let provider = FixedSocketProvider::new(socket);
     Builder::new()
         .name(thread_name)
         .spawn(move || {
+            let mut provider = FixedSocketProvider::new(socket);
             let _ = recv_loop(
-                provider,
+                &mut provider,
                 &exit,
-                packet_batch_sender,
+                &packet_batch_sender,
                 &recycler,
                 &stats,
                 coalesce,
@@ -247,14 +246,14 @@ pub fn receiver_atomic(
     in_vote_only_mode: Option<Arc<AtomicBool>>,
     is_staked_service: bool,
 ) -> JoinHandle<()> {
-    let provider = AtomicSocketProvider::new(socket);
     Builder::new()
         .name(thread_name)
         .spawn(move || {
+            let mut provider = AtomicSocketProvider::new(socket);
             let _ = recv_loop(
-                provider,
+                &mut provider,
                 &exit,
-                packet_batch_sender,
+                &packet_batch_sender,
                 &recycler,
                 &stats,
                 coalesce,
@@ -267,9 +266,9 @@ pub fn receiver_atomic(
 }
 
 fn recv_loop<P: SocketProvider>(
-    mut provider: P,
+    provider: &mut P,
     exit: &AtomicBool,
-    packet_batch_sender: impl ChannelSend<PacketBatch>,
+    packet_batch_sender: &impl ChannelSend<PacketBatch>,
     recycler: &PacketBatchRecycler,
     stats: &StreamerReceiveStats,
     coalesce: Option<Duration>,
