@@ -1329,7 +1329,7 @@ impl Validator {
             StatsReporterService::new(stats_reporter_receiver, exit.clone());
 
         let (gossip_rebind_tx, gossip_rebind_rx) = crossbeam_channel::bounded(1);
-        let gossip_service = GossipService::new_with_rebind(
+        let gossip_service = GossipService::new(
             &cluster_info,
             Some(bank_forks.clone()),
             node.sockets.gossip,
@@ -1337,7 +1337,7 @@ impl Validator {
             should_check_duplicate_instance,
             Some(stats_reporter_sender.clone()),
             exit.clone(),
-            gossip_rebind_rx,
+            Some(gossip_rebind_rx),
         );
         let serve_repair = ServeRepair::new(
             cluster_info.clone(),

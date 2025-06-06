@@ -1,7 +1,10 @@
 // src/atomic_udp_socket.rs
 use {
     arc_swap::ArcSwap,
-    std::{net::{SocketAddr, UdpSocket}, sync::Arc},
+    std::{
+        net::{SocketAddr, UdpSocket},
+        sync::Arc,
+    },
 };
 
 #[derive(Clone)]
