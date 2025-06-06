@@ -147,10 +147,319 @@ impl StreamerReceiveStats {
 
 pub type Result<T> = std::result::Result<T, StreamerError>;
 
-fn recv_loop(
-    socket: &UdpSocket,
+pub trait SocketProvider {
+    /// Returns `(socket_ref, changed_since_last_call)`
+    fn current_socket(&mut self) -> (&UdpSocket, bool);
+}
+
+/// Fixed, never-changing `UdpSocket`
+pub struct FixedSocketProvider {
+    socket: Arc<UdpSocket>,
+}
+impl FixedSocketProvider {
+    pub fn new(socket: Arc<UdpSocket>) -> Self { Self { socket } }
+}
+impl SocketProvider for FixedSocketProvider {
+    #[inline]
+    fn current_socket(&mut self) -> (&UdpSocket, bool) { (&self.socket, false) }
+}
+
+/// Hot-swappable `AtomicUdpSocket`
+pub struct AtomicSocketProvider {
+    atomic: Arc<AtomicUdpSocket>,
+    last_id: usize,
+    current: Option<Arc<UdpSocket>>,
+}
+impl AtomicSocketProvider {
+    pub fn new(atomic: Arc<AtomicUdpSocket>) -> Self { 
+        Self { atomic, last_id: 0, current: None } 
+    }
+}
+impl SocketProvider for AtomicSocketProvider {
+    #[inline]
+    fn current_socket(&mut self) -> (&UdpSocket, bool) {
+        let s = self.atomic.load();
+        let id = Arc::as_ptr(&s) as usize;
+        let changed = id != self.last_id;
+        self.last_id = id;
+        self.current = Some(s);
+        (self.current.as_ref().unwrap(), changed)
+    }
+}
+
+// fn recv_loop(
+//     socket: &UdpSocket,
+//     exit: &AtomicBool,
+//     packet_batch_sender: &impl ChannelSend<PacketBatch>,
+//     recycler: &PacketBatchRecycler,
+//     stats: &StreamerReceiveStats,
+//     coalesce: Option<Duration>,
+//     use_pinned_memory: bool,
+//     in_vote_only_mode: Option<Arc<AtomicBool>>,
+//     is_staked_service: bool,
+// ) -> Result<()> {
+//     loop {
+//         let mut packet_batch = if use_pinned_memory {
+//             PinnedPacketBatch::new_with_recycler(recycler, PACKETS_PER_BATCH, stats.name)
+//         } else {
+//             PinnedPacketBatch::with_capacity(PACKETS_PER_BATCH)
+//         };
+//         loop {
+//             // Check for exit signal, even if socket is busy
+//             // (for instance the leader transaction socket)
+//             if exit.load(Ordering::Relaxed) {
+//                 return Ok(());
+//             }
+
+//             if let Some(ref in_vote_only_mode) = in_vote_only_mode {
+//                 if in_vote_only_mode.load(Ordering::Relaxed) {
+//                     sleep(Duration::from_millis(1));
+//                     continue;
+//                 }
+//             }
+
+//             if let Ok(len) = packet::recv_from(&mut packet_batch, socket, coalesce) {
+//                 if len > 0 {
+//                     let StreamerReceiveStats {
+//                         packets_count,
+//                         packet_batches_count,
+//                         full_packet_batches_count,
+//                         max_channel_len,
+//                         ..
+//                     } = stats;
+
+//                     packets_count.fetch_add(len, Ordering::Relaxed);
+//                     packet_batches_count.fetch_add(1, Ordering::Relaxed);
+//                     max_channel_len.fetch_max(packet_batch_sender.len(), Ordering::Relaxed);
+//                     if len == PACKETS_PER_BATCH {
+//                         full_packet_batches_count.fetch_add(1, Ordering::Relaxed);
+//                     }
+//                     packet_batch
+//                         .iter_mut()
+//                         .for_each(|p| p.meta_mut().set_from_staked_node(is_staked_service));
+//                     match packet_batch_sender.try_send(packet_batch.into()) {
+//                         Ok(_) => {}
+//                         Err(TrySendError::Full(_)) => {
+//                             stats.num_packets_dropped.fetch_add(len, Ordering::Relaxed);
+//                         }
+//                         Err(TrySendError::Disconnected(err)) => {
+//                             return Err(StreamerError::Send(SendError(err)))
+//                         }
+//                     }
+//                 }
+//                 break;
+//             }
+//         }
+//     }
+// }
+
+// fn recv_loop_atomic(
+//     sock: &Arc<AtomicUdpSocket>,
+//     exit: &AtomicBool,
+//     packet_batch_sender: &impl ChannelSend<PacketBatch>,
+//     recycler: &PacketBatchRecycler,
+//     stats: &StreamerReceiveStats,
+//     coalesce: Option<Duration>,
+//     use_pinned_memory: bool,
+//     in_vote_only_mode: Option<Arc<AtomicBool>>,
+//     is_staked_service: bool,
+// ) -> Result<()> {
+//     let mut last_socket_id: usize = 0;
+//     loop {
+//         if exit.load(Ordering::Relaxed) {
+//             return Ok(());
+//         }
+
+//         let socket = sock.load();
+//         let current_socket_id = Arc::as_ptr(&socket) as usize;
+
+//         if current_socket_id != last_socket_id {
+//             let res = socket.set_read_timeout(Some(Duration::from_secs(1)));
+//             assert!(
+//                 res.is_ok(),
+//                 "streamer::receiver_atomic set_read_timeout error"
+//             );
+//             last_socket_id = current_socket_id;
+//         }
+
+//         let mut packet_batch = if use_pinned_memory {
+//             PinnedPacketBatch::new_with_recycler(recycler, PACKETS_PER_BATCH, stats.name)
+//         } else {
+//             PinnedPacketBatch::with_capacity(PACKETS_PER_BATCH)
+//         };
+//         loop {
+//             // Check for exit signal, even if socket is busy
+//             // (for instance the leader transaction socket)
+//             if exit.load(Ordering::Relaxed) {
+//                 return Ok(());
+//             }
+
+//             if let Some(ref in_vote_only_mode) = in_vote_only_mode {
+//                 if in_vote_only_mode.load(Ordering::Relaxed) {
+//                     sleep(Duration::from_millis(1));
+//                     continue;
+//                 }
+//             }
+
+//             if let Ok(len) = packet::recv_from(&mut packet_batch, &socket, coalesce) {
+//                 if len > 0 {
+//                     let StreamerReceiveStats {
+//                         packets_count,
+//                         packet_batches_count,
+//                         full_packet_batches_count,
+//                         max_channel_len,
+//                         ..
+//                     } = stats;
+
+//                     packets_count.fetch_add(len, Ordering::Relaxed);
+//                     packet_batches_count.fetch_add(1, Ordering::Relaxed);
+//                     max_channel_len.fetch_max(packet_batch_sender.len(), Ordering::Relaxed);
+//                     if len == PACKETS_PER_BATCH {
+//                         full_packet_batches_count.fetch_add(1, Ordering::Relaxed);
+//                     }
+//                     packet_batch
+//                         .iter_mut()
+//                         .for_each(|p| p.meta_mut().set_from_staked_node(is_staked_service));
+//                     match packet_batch_sender.try_send(packet_batch.into()) {
+//                         Ok(_) => {}
+//                         Err(TrySendError::Full(_)) => {
+//                             stats.num_packets_dropped.fetch_add(len, Ordering::Relaxed);
+//                         }
+//                         Err(TrySendError::Disconnected(err)) => {
+//                             return Err(StreamerError::Send(SendError(err)))
+//                         }
+//                     }
+//                 }
+//                 break;
+//             }
+//         }
+//     }
+// }
+
+#[allow(clippy::too_many_arguments)]
+pub fn receiver(
+    thread_name: String,
+    socket: Arc<UdpSocket>,
+    exit: Arc<AtomicBool>,
+    packet_batch_sender: impl ChannelSend<PacketBatch>,
+    recycler: PacketBatchRecycler,
+    stats: Arc<StreamerReceiveStats>,
+    coalesce: Option<Duration>,
+    use_pinned_memory: bool,
+    in_vote_only_mode: Option<Arc<AtomicBool>>,
+    is_staked_service: bool,
+) -> JoinHandle<()> {
+    let res = socket.set_read_timeout(Some(Duration::new(1, 0)));
+    assert!(res.is_ok(), "streamer::receiver set_read_timeout error");
+
+    spawn_receiver(
+        thread_name,
+        FixedSocketProvider::new(socket),
+        exit,
+        packet_batch_sender,
+        recycler,
+        stats,
+        coalesce,
+        use_pinned_memory,
+        in_vote_only_mode,
+        is_staked_service,
+    )
+    // Builder::new()
+    //     .name(thread_name)
+    //     .spawn(move || {
+    //         let _ = recv_loop(
+    //             &socket,
+    //             &exit,
+    //             &packet_batch_sender,
+    //             &recycler,
+    //             &stats,
+    //             coalesce,
+    //             use_pinned_memory,
+    //             in_vote_only_mode,
+    //             is_staked_service,
+    //         );
+    //     })
+    //     .unwrap()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn receiver_atomic(
+    thread_name: String,
+    socket: Arc<AtomicUdpSocket>,
+    exit: Arc<AtomicBool>,
+    packet_batch_sender: impl ChannelSend<PacketBatch>,
+    recycler: PacketBatchRecycler,
+    stats: Arc<StreamerReceiveStats>,
+    coalesce: Option<Duration>,
+    use_pinned_memory: bool,
+    in_vote_only_mode: Option<Arc<AtomicBool>>,
+    is_staked_service: bool,
+) -> JoinHandle<()> {
+    spawn_receiver(
+        thread_name,
+        AtomicSocketProvider::new(socket),
+        exit,
+        packet_batch_sender,
+        recycler,
+        stats,
+        coalesce,
+        use_pinned_memory,
+        in_vote_only_mode,
+        is_staked_service,
+    )
+    // Builder::new()
+    //     .name(thread_name)
+    //     .spawn(move || {
+    //         let _ = recv_loop_atomic(
+    //             &socket,
+    //             &exit,
+    //             &packet_batch_sender,
+    //             &recycler,
+    //             &stats,
+    //             coalesce,
+    //             use_pinned_memory,
+    //             in_vote_only_mode,
+    //             is_staked_service,
+    //         );
+    //     })
+    //     .unwrap()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_receiver<P: SocketProvider + Send + 'static>(
+    thread_name: String,
+    provider: P,
+    exit: Arc<AtomicBool>,
+    packet_batch_sender: impl ChannelSend<PacketBatch> + Send + 'static,
+    recycler: PacketBatchRecycler,
+    stats: Arc<StreamerReceiveStats>,
+    coalesce: Option<Duration>,
+    use_pinned_memory: bool,
+    in_vote_only_mode: Option<Arc<AtomicBool>>,
+    is_staked_service: bool,
+) -> JoinHandle<()> {
+    Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            let _ = recv_loop_generic(
+                provider,
+                &exit,
+                packet_batch_sender,
+                &recycler,
+                &stats,
+                coalesce,
+                use_pinned_memory,
+                in_vote_only_mode,
+                is_staked_service,
+            );
+        })
+        .unwrap()
+}
+
+fn recv_loop_generic<P: SocketProvider + Send + 'static>(
+    mut provider: P,
     exit: &AtomicBool,
-    packet_batch_sender: &impl ChannelSend<PacketBatch>,
+    packet_batch_sender: impl ChannelSend<PacketBatch> + Send + 'static,
     recycler: &PacketBatchRecycler,
     stats: &StreamerReceiveStats,
     coalesce: Option<Duration>,
@@ -159,6 +468,13 @@ fn recv_loop(
     is_staked_service: bool,
 ) -> Result<()> {
     loop {
+        if exit.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let (socket, changed) = provider.current_socket();
+        if changed {
+            socket.set_read_timeout(Some(Duration::from_secs(1)))?;
+        }
         let mut packet_batch = if use_pinned_memory {
             PinnedPacketBatch::new_with_recycler(recycler, PACKETS_PER_BATCH, stats.name)
         } else {
@@ -210,154 +526,8 @@ fn recv_loop(
                 break;
             }
         }
+
     }
-}
-
-fn recv_loop_atomic(
-    sock: &Arc<AtomicUdpSocket>,
-    exit: &AtomicBool,
-    packet_batch_sender: &impl ChannelSend<PacketBatch>,
-    recycler: &PacketBatchRecycler,
-    stats: &StreamerReceiveStats,
-    coalesce: Option<Duration>,
-    use_pinned_memory: bool,
-    in_vote_only_mode: Option<Arc<AtomicBool>>,
-    is_staked_service: bool,
-) -> Result<()> {
-    let mut last_socket_id: usize = 0;
-    loop {
-        if exit.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        let socket = sock.load();
-        let current_socket_id = Arc::as_ptr(&socket) as usize;
-
-        if current_socket_id != last_socket_id {
-            let res = socket.set_read_timeout(Some(Duration::from_secs(1)));
-            assert!(
-                res.is_ok(),
-                "streamer::receiver_atomic set_read_timeout error"
-            );
-            last_socket_id = current_socket_id;
-        }
-
-        let mut packet_batch = if use_pinned_memory {
-            PinnedPacketBatch::new_with_recycler(recycler, PACKETS_PER_BATCH, stats.name)
-        } else {
-            PinnedPacketBatch::with_capacity(PACKETS_PER_BATCH)
-        };
-        loop {
-            // Check for exit signal, even if socket is busy
-            // (for instance the leader transaction socket)
-            if exit.load(Ordering::Relaxed) {
-                return Ok(());
-            }
-
-            if let Some(ref in_vote_only_mode) = in_vote_only_mode {
-                if in_vote_only_mode.load(Ordering::Relaxed) {
-                    sleep(Duration::from_millis(1));
-                    continue;
-                }
-            }
-
-            if let Ok(len) = packet::recv_from(&mut packet_batch, &socket, coalesce) {
-                if len > 0 {
-                    let StreamerReceiveStats {
-                        packets_count,
-                        packet_batches_count,
-                        full_packet_batches_count,
-                        max_channel_len,
-                        ..
-                    } = stats;
-
-                    packets_count.fetch_add(len, Ordering::Relaxed);
-                    packet_batches_count.fetch_add(1, Ordering::Relaxed);
-                    max_channel_len.fetch_max(packet_batch_sender.len(), Ordering::Relaxed);
-                    if len == PACKETS_PER_BATCH {
-                        full_packet_batches_count.fetch_add(1, Ordering::Relaxed);
-                    }
-                    packet_batch
-                        .iter_mut()
-                        .for_each(|p| p.meta_mut().set_from_staked_node(is_staked_service));
-                    match packet_batch_sender.try_send(packet_batch.into()) {
-                        Ok(_) => {}
-                        Err(TrySendError::Full(_)) => {
-                            stats.num_packets_dropped.fetch_add(len, Ordering::Relaxed);
-                        }
-                        Err(TrySendError::Disconnected(err)) => {
-                            return Err(StreamerError::Send(SendError(err)))
-                        }
-                    }
-                }
-                break;
-            }
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn receiver(
-    thread_name: String,
-    socket: Arc<UdpSocket>,
-    exit: Arc<AtomicBool>,
-    packet_batch_sender: impl ChannelSend<PacketBatch>,
-    recycler: PacketBatchRecycler,
-    stats: Arc<StreamerReceiveStats>,
-    coalesce: Option<Duration>,
-    use_pinned_memory: bool,
-    in_vote_only_mode: Option<Arc<AtomicBool>>,
-    is_staked_service: bool,
-) -> JoinHandle<()> {
-    let res = socket.set_read_timeout(Some(Duration::new(1, 0)));
-    assert!(res.is_ok(), "streamer::receiver set_read_timeout error");
-    Builder::new()
-        .name(thread_name)
-        .spawn(move || {
-            let _ = recv_loop(
-                &socket,
-                &exit,
-                &packet_batch_sender,
-                &recycler,
-                &stats,
-                coalesce,
-                use_pinned_memory,
-                in_vote_only_mode,
-                is_staked_service,
-            );
-        })
-        .unwrap()
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn receiver_atomic(
-    thread_name: String,
-    socket: Arc<AtomicUdpSocket>,
-    exit: Arc<AtomicBool>,
-    packet_batch_sender: impl ChannelSend<PacketBatch>,
-    recycler: PacketBatchRecycler,
-    stats: Arc<StreamerReceiveStats>,
-    coalesce: Option<Duration>,
-    use_pinned_memory: bool,
-    in_vote_only_mode: Option<Arc<AtomicBool>>,
-    is_staked_service: bool,
-) -> JoinHandle<()> {
-    Builder::new()
-        .name(thread_name)
-        .spawn(move || {
-            let _ = recv_loop_atomic(
-                &socket,
-                &exit,
-                &packet_batch_sender,
-                &recycler,
-                &stats,
-                coalesce,
-                use_pinned_memory,
-                in_vote_only_mode,
-                is_staked_service,
-            );
-        })
-        .unwrap()
 }
 
 #[derive(Debug, Default)]

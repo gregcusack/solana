@@ -147,7 +147,6 @@ impl GossipService {
     ) -> Self {
         let (request_sender, request_receiver) =
             EvictingSender::new_bounded(GOSSIP_CHANNEL_CAPACITY);
-        // let gossip_socket = Arc::new(gossip_socket);
         let gossip_socket = Arc::new(AtomicUdpSocket::new(gossip_socket));
 
         trace!(
@@ -233,10 +232,6 @@ impl GossipService {
                             info!("greg: GossipService::new_with_rebind rebind gossip socket to {new_addr}");
                             match bind_to(new_addr.ip(), new_addr.port(), false) {
                                 Ok(new_socket) => {
-                                    // if let Err(e) = new_socket.set_nonblocking(true) {
-                                    //     log::warn!("Failed to set nonblocking on new gossip socket: {e}");
-                                    //     continue;
-                                    // }
                                     info!("greg: Rebinding gossip socket to {new_addr}");
                                     gossip_socket_rebind.swap(new_socket);
                                 }

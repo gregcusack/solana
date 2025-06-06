@@ -209,9 +209,6 @@ pub trait AdminRpc {
         require_tower: bool,
     ) -> Result<()>;
 
-    #[rpc(meta, name = "setContactIpPort")]
-    fn set_gossip_ip_port(&self, meta: Self::Metadata, ip: String, port: u16) -> Result<()>;
-
     #[rpc(meta, name = "setGossipSocket")]
     fn set_gossip_socket(&self, meta: Self::Metadata, ip: String, port: u16) -> Result<()>;
 
@@ -516,28 +513,6 @@ impl AdminRpc for AdminRpcImpl {
         })?;
 
         AdminRpcImpl::set_identity_keypair(meta, identity_keypair, require_tower)
-    }
-
-    fn set_gossip_ip_port(&self, meta: Self::Metadata, ip: String, port: u16) -> Result<()> {
-        info!("greg: set_contact_ip request received");
-
-        let ip: std::net::IpAddr = ip.parse().map_err(|e| {
-            error!("Invalid IP address: {e}");
-            jsonrpc_core::Error::invalid_params(format!("Invalid IP address: {e}"))
-        })?;
-        info!("greg: ip: {ip}");
-
-        meta.with_post_init(|post_init| {
-            let cluster_info = &post_init.cluster_info;
-
-            let new_socket = SocketAddr::new(ip, port);
-            info!("greg: Setting gossip ip to {new_socket}");
-            cluster_info.set_gossip_ip(new_socket).map_err(|e| {
-                jsonrpc_core::Error::invalid_params(format!("Failed to set gossip ip: {e}"))
-            })?;
-            info!("greg: set contact info");
-            Ok(())
-        })
     }
 
     fn set_gossip_socket(&self, meta: Self::Metadata, ip: String, port: u16) -> Result<()> {
