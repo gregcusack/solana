@@ -176,11 +176,10 @@ pub struct AtomicSocketProvider {
 impl AtomicSocketProvider {
     pub fn new(atomic: Arc<AtomicUdpSocket>) -> Self {
         let s = atomic.load();
-        let id = Arc::as_ptr(&s) as usize;
         Self {
             atomic,
             current: s,
-            last_id: id,
+            last_id: 0,
         }
     }
 }
