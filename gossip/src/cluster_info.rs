@@ -2335,7 +2335,7 @@ pub struct Sockets {
 pub struct NodeConfig {
     pub gossip_addr: SocketAddr,
     pub port_range: PortRange,
-    pub bind_ip_addr: IpAddr,
+    pub bind_ip_addrs: BindIpAddrs,
     pub public_tpu_addr: Option<SocketAddr>,
     pub public_tpu_forwards_addr: Option<SocketAddr>,
     pub vortexor_receiver_addr: Option<SocketAddr>,
@@ -2346,6 +2346,33 @@ pub struct NodeConfig {
     pub num_tvu_retransmit_sockets: NonZeroUsize,
     /// The number of QUIC tpu endpoints
     pub num_quic_endpoints: NonZeroUsize,
+}
+
+#[derive(Debug, Clone)]
+pub struct BindIpAddrs {
+    primary: IpAddr,
+    secondary: Vec<IpAddr>,
+}
+
+impl BindIpAddrs {
+    pub fn new(addrs: Vec<IpAddr>) -> Result<Self, String> {
+        if addrs.is_empty() {
+            return Err(
+                "BindIpAddrs requires at least one IP address (--bind-address)".to_string(),
+            );
+        }
+        let primary = addrs[0];
+        let secondary = addrs[1..].to_vec();
+        Ok(Self { primary, secondary })
+    }
+
+    pub fn primary(&self) -> IpAddr {
+        self.primary
+    }
+
+    pub fn secondary(&self) -> &[IpAddr] {
+        &self.secondary
+    }
 }
 
 #[derive(Debug)]
@@ -2667,7 +2694,7 @@ impl Node {
         let NodeConfig {
             gossip_addr,
             port_range,
-            bind_ip_addr,
+            bind_ip_addrs,
             public_tpu_addr,
             public_tpu_forwards_addr,
             num_tvu_receive_sockets,
@@ -2675,6 +2702,7 @@ impl Node {
             num_quic_endpoints,
             vortexor_receiver_addr,
         } = config;
+        let bind_ip_addr = bind_ip_addrs.primary();
 
         let (gossip_port, (gossip, ip_echo)) =
             bind_gossip_port_in_range(&gossip_addr, port_range, bind_ip_addr);
@@ -3309,7 +3337,7 @@ mod tests {
         let config = NodeConfig {
             gossip_addr: socketaddr!(ip, 0),
             port_range,
-            bind_ip_addr: IpAddr::V4(ip),
+            bind_ip_addrs: BindIpAddrs::new(vec![IpAddr::V4(ip)]).unwrap(),
             public_tpu_addr: None,
             public_tpu_forwards_addr: None,
             num_tvu_receive_sockets: MINIMUM_NUM_TVU_RECEIVE_SOCKETS,
@@ -3333,7 +3361,7 @@ mod tests {
         let config = NodeConfig {
             gossip_addr: socketaddr!(Ipv4Addr::LOCALHOST, port),
             port_range,
-            bind_ip_addr: ip,
+            bind_ip_addrs: BindIpAddrs::new(vec![ip]).unwrap(),
             public_tpu_addr: None,
             public_tpu_forwards_addr: None,
             num_tvu_receive_sockets: MINIMUM_NUM_TVU_RECEIVE_SOCKETS,
