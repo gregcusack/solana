@@ -594,6 +594,7 @@ impl Sanitize for ContactInfo {
 }
 
 pub(crate) fn sanitize_socket(socket: &SocketAddr) -> Result<(), Error> {
+    info!("greg: socket: {:?}", socket);
     if socket.port() == 0u16 {
         return Err(Error::InvalidPort(socket.port()));
     }

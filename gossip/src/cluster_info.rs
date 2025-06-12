@@ -2333,8 +2333,10 @@ pub struct Sockets {
 }
 
 pub struct NodeConfig {
+    /// The IP address that is advertised to the cluster
     pub gossip_addr: SocketAddr,
     pub port_range: PortRange,
+    /// The IP address this node binds will be used to bind the node
     pub bind_ip_addr: IpAddr,
     pub public_tpu_addr: Option<SocketAddr>,
     pub public_tpu_forwards_addr: Option<SocketAddr>,
@@ -2675,7 +2677,7 @@ impl Node {
             num_quic_endpoints,
             vortexor_receiver_addr,
         } = config;
-
+        info!("greg: gossip_addr: {:?}", gossip_addr);
         let (gossip_port, (gossip, ip_echo)) =
             bind_gossip_port_in_range(&gossip_addr, port_range, bind_ip_addr);
 
@@ -2778,6 +2780,7 @@ impl Node {
             0u16,        // shred_version
         );
         let addr = gossip_addr.ip();
+        info!("greg: gossip_addr2: {:?}", addr);
         use contact_info::Protocol::{QUIC, UDP};
         info.set_gossip((addr, gossip_port)).unwrap();
         info.set_tvu(UDP, (addr, tvu_port)).unwrap();
