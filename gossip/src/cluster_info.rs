@@ -2339,8 +2339,8 @@ pub struct NodeConfig {
     /// The gossip port advertised to the cluster
     pub gossip_port: u16,
     pub port_range: PortRange,
-    /// The IP address the node binds to
-    pub bind_ip_addr: IpAddr,
+    /// The IP addresses the node binds to
+    pub bind_ip_addrs: BindIpAddrs,
     pub public_tpu_addr: Option<SocketAddr>,
     pub public_tpu_forwards_addr: Option<SocketAddr>,
     /// The number of TVU receive sockets to create
@@ -2349,6 +2349,33 @@ pub struct NodeConfig {
     pub num_tvu_retransmit_sockets: NonZeroUsize,
     /// The number of QUIC tpu endpoints
     pub num_quic_endpoints: NonZeroUsize,
+}
+
+#[derive(Debug, Clone)]
+pub struct BindIpAddrs {
+    primary: IpAddr,
+    secondary: Vec<IpAddr>,
+}
+
+impl BindIpAddrs {
+    pub fn new(addrs: Vec<IpAddr>) -> Result<Self, String> {
+        if addrs.is_empty() {
+            return Err(
+                "BindIpAddrs requires at least one IP address (--bind-address)".to_string(),
+            );
+        }
+        let primary = addrs[0];
+        let secondary = addrs[1..].to_vec();
+        Ok(Self { primary, secondary })
+    }
+
+    pub fn primary(&self) -> IpAddr {
+        self.primary
+    }
+
+    pub fn secondary(&self) -> &[IpAddr] {
+        &self.secondary
+    }
 }
 
 #[derive(Debug)]
@@ -2660,13 +2687,14 @@ impl Node {
             advertised_ip,
             gossip_port,
             port_range,
-            bind_ip_addr,
+            bind_ip_addrs,
             public_tpu_addr,
             public_tpu_forwards_addr,
             num_tvu_receive_sockets,
             num_tvu_retransmit_sockets,
             num_quic_endpoints,
         } = config;
+        let bind_ip_addr = bind_ip_addrs.primary();
 
         let gossip_addr = SocketAddr::new(advertised_ip, gossip_port);
         let (gossip_port, (gossip, ip_echo)) =
@@ -3278,7 +3306,7 @@ mod tests {
             advertised_ip: IpAddr::V4(ip),
             gossip_port: 0,
             port_range,
-            bind_ip_addr: IpAddr::V4(ip),
+            bind_ip_addrs: BindIpAddrs::new(vec![IpAddr::V4(ip)]).unwrap(),
             public_tpu_addr: None,
             public_tpu_forwards_addr: None,
             num_tvu_receive_sockets: MINIMUM_NUM_TVU_RECEIVE_SOCKETS,
@@ -3302,7 +3330,7 @@ mod tests {
             advertised_ip: ip,
             gossip_port: port,
             port_range,
-            bind_ip_addr: ip,
+            bind_ip_addrs: BindIpAddrs::new(vec![ip]).unwrap(),
             public_tpu_addr: None,
             public_tpu_forwards_addr: None,
             num_tvu_receive_sockets: MINIMUM_NUM_TVU_RECEIVE_SOCKETS,
