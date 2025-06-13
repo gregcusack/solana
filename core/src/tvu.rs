@@ -550,7 +550,7 @@ pub mod tests {
                 TvuSockets {
                     repair: target1.sockets.repair,
                     retransmit: target1.sockets.retransmit_sockets,
-                    fetch: target1.sockets.tvu,
+                    fetch: target1.sockets.tvu_multihomed.all_sockets(),
                     ancestor_hashes_requests: target1.sockets.ancestor_hashes_requests,
                 }
             },

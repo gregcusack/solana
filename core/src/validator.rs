@@ -1508,8 +1508,8 @@ impl Validator {
             &cluster_info,
             TvuSockets {
                 repair: node.sockets.repair.try_clone().unwrap(),
-                retransmit: node.sockets.retransmit_sockets,
-                fetch: node.sockets.tvu,
+                retransmit: node.sockets.retransmit_sockets, //greg: these are egress and should be atomicudpsockets
+                fetch: node.sockets.tvu_multihomed.all_sockets(), //greg: these are ingress
                 ancestor_hashes_requests: node.sockets.ancestor_hashes_requests,
             },
             blockstore.clone(),

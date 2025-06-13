@@ -94,7 +94,13 @@ fn verify_reachable_ports(
         udp_sockets.extend(node.sockets.tpu_vote.iter());
     }
     if verify_address(&node.info.tvu(Protocol::UDP)) {
-        udp_sockets.extend(node.sockets.tvu.iter());
+        udp_sockets.extend(
+            node.sockets
+                .tvu_multihomed
+                .all
+                .values()
+                .flat_map(|s| s.iter()),
+        ); //greg: maybe just primary?
         udp_sockets.extend(node.sockets.broadcast.iter());
         udp_sockets.extend(node.sockets.retransmit_sockets.iter());
     }

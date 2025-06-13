@@ -56,7 +56,11 @@ fn test_node(exit: Arc<AtomicBool>) -> (Arc<ClusterInfo>, GossipService, UdpSock
     (
         cluster_info,
         gossip_service,
-        test_node.sockets.tvu.pop().unwrap(),
+        test_node
+            .sockets
+            .tvu_multihomed
+            .take_primary_socket()
+            .unwrap(),
     )
 }
 
@@ -84,7 +88,11 @@ fn test_node_with_bank(
     (
         cluster_info,
         gossip_service,
-        test_node.sockets.tvu.pop().unwrap(),
+        test_node
+            .sockets
+            .tvu_multihomed
+            .take_primary_socket()
+            .unwrap(),
     )
 }
 
