@@ -71,6 +71,7 @@ use {
     solana_signature::Signature,
     solana_signer::Signer,
     solana_streamer::{
+        atomic_udp_socket::AtomicUdpSocket,
         packet,
         quic::DEFAULT_QUIC_ENDPOINTS,
         socket::SocketAddrSpace,
@@ -2307,7 +2308,8 @@ impl ClusterInfo {
 pub struct Sockets {
     pub gossip: UdpSocket,
     pub ip_echo: Option<TcpListener>,
-    pub tvu: Vec<UdpSocket>,
+    // pub tvu: Vec<UdpSocket>,
+    pub tvu_multihomed: MultihomedSockets,
     pub tvu_quic: UdpSocket,
     pub tpu: Vec<UdpSocket>,
     pub tpu_forwards: Vec<UdpSocket>,
@@ -2317,7 +2319,7 @@ pub struct Sockets {
     // and receiving repair responses from the cluster.
     pub repair: UdpSocket,
     pub repair_quic: UdpSocket,
-    pub retransmit_sockets: Vec<UdpSocket>,
+    pub retransmit_sockets: Vec<UdpSocket>, //greg: these need to be atomicudpsockets
     // Socket receiving remote repair requests from the cluster,
     // and sending back repair responses.
     pub serve_repair: UdpSocket,
@@ -2379,6 +2381,10 @@ impl BindIpAddrs {
     pub fn secondary(&self) -> &[IpAddr] {
         &self.secondary
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = IpAddr> + '_ {
+        std::iter::once(self.primary).chain(self.secondary.iter().copied())
+    }
 }
 
 #[derive(Debug)]
@@ -2419,6 +2425,10 @@ impl Node {
             bind_common_in_range_with_config(localhost_ip_addr, port_range, udp_config).unwrap();
         let gossip_addr = SocketAddr::new(localhost_ip_addr, gossip_port);
         let tvu = bind_to_localhost().unwrap();
+        let tvu = MultihomedSockets {
+            all: HashMap::from([(localhost_ip_addr, vec![tvu])]),
+            primary: localhost_ip_addr,
+        };
         let tvu_quic = bind_to_localhost().unwrap();
         let ((_tpu_forwards_port, tpu_forwards), (_tpu_forwards_quic_port, tpu_forwards_quic)) =
             bind_two_in_range_with_offset_and_config(
@@ -2475,7 +2485,12 @@ impl Node {
             }};
         }
         set_socket!(set_gossip, gossip_addr, "gossip");
-        set_socket!(set_tvu, UDP, tvu.local_addr().unwrap(), "TVU");
+        set_socket!(
+            set_tvu,
+            UDP,
+            tvu.primary_socket().unwrap().local_addr().unwrap(),
+            "TVU"
+        );
         set_socket!(set_tvu, QUIC, tvu_quic.local_addr().unwrap(), "TVU QUIC");
         set_socket!(set_tpu, tpu.local_addr().unwrap(), "TPU");
         set_socket!(
@@ -2514,7 +2529,7 @@ impl Node {
             sockets: Sockets {
                 gossip,
                 ip_echo: Some(ip_echo),
-                tvu: vec![tvu],
+                tvu_multihomed: tvu,
                 tvu_quic,
                 tpu: vec![tpu],
                 tpu_forwards: vec![tpu_forwards],
@@ -2558,6 +2573,10 @@ impl Node {
         let socket_config = SocketConfig::default();
         let socket_config_reuseport = SocketConfig::default().reuseport(true);
         let (tvu_port, tvu) = Self::bind_with_config(bind_ip_addr, port_range, socket_config);
+        let tvu = MultihomedSockets {
+            all: HashMap::from([(bind_ip_addr, vec![tvu])]),
+            primary: bind_ip_addr,
+        };
         let (tvu_quic_port, tvu_quic) =
             Self::bind_with_config(bind_ip_addr, port_range, socket_config);
         let ((tpu_port, tpu), (_tpu_quic_port, tpu_quic)) =
@@ -2670,7 +2689,7 @@ impl Node {
             sockets: Sockets {
                 gossip,
                 ip_echo: Some(ip_echo),
-                tvu: vec![tvu],
+                tvu_multihomed: tvu,
                 tvu_quic,
                 tpu: vec![tpu],
                 tpu_forwards: vec![tpu_forwards],
@@ -2713,13 +2732,13 @@ impl Node {
         let socket_config = SocketConfig::default();
         let socket_config_reuseport = SocketConfig::default().reuseport(true);
 
-        let (tvu_port, tvu_sockets) = multi_bind_in_range_with_config(
-            bind_ip_addr,
+        let (tvu_port, tvu_multihomed) = RebindingSocket::bind_all(
+            &bind_ip_addrs,
             port_range,
             socket_config_reuseport,
             num_tvu_receive_sockets.get(),
         )
-        .expect("tvu multi_bind");
+        .expect("should bind to multiple tvu sockets");
 
         let (tvu_quic_port, tvu_quic) =
             Self::bind_with_config(bind_ip_addr, port_range, socket_config);
@@ -2829,7 +2848,7 @@ impl Node {
         trace!("new ContactInfo: {:?}", info);
         let sockets = Sockets {
             gossip,
-            tvu: tvu_sockets,
+            tvu_multihomed,
             tvu_quic,
             tpu: tpu_sockets,
             tpu_forwards: tpu_forwards_sockets,
@@ -2853,6 +2872,70 @@ impl Node {
         };
         info!("Bound all network sockets as follows: {:#?}", &sockets);
         Node { info, sockets }
+    }
+}
+
+pub struct RebindingSocket {
+    pub socket: Arc<AtomicUdpSocket>,
+    pub rebind_rx: Receiver<SocketAddr>,
+}
+
+impl RebindingSocket {
+    pub fn new(socket: UdpSocket, rebind_rx: Receiver<SocketAddr>) -> Self {
+        Self {
+            socket: Arc::new(AtomicUdpSocket::new(socket)),
+            rebind_rx,
+        }
+    }
+
+    pub fn bind_all(
+        bind_addrs: &BindIpAddrs,
+        range: PortRange,
+        config: SocketConfig,
+        num_sockets: usize,
+    ) -> std::io::Result<(u16, MultihomedSockets)> {
+        let mut primary_port: Option<u16> = None;
+        let mut sockets_map = HashMap::new();
+        for ip in bind_addrs.iter() {
+            let (p, sockets) = multi_bind_in_range_with_config(ip, range, config, num_sockets)?;
+            if ip == bind_addrs.primary() {
+                primary_port = Some(p);
+            }
+            sockets_map.insert(ip, sockets);
+        }
+        Ok((
+            primary_port.expect("primary bind address should succeed"),
+            MultihomedSockets {
+                all: sockets_map,
+                primary: bind_addrs.primary(),
+            },
+        ))
+    }
+}
+
+#[derive(Debug)]
+pub struct MultihomedSockets {
+    pub all: HashMap<IpAddr, Vec<UdpSocket>>,
+    pub primary: IpAddr,
+}
+
+impl MultihomedSockets {
+    pub fn primary_socket(&self) -> Option<&UdpSocket> {
+        self.all
+            .get(&self.primary)
+            .and_then(|sockets| sockets.first())
+    }
+
+    pub fn primary_sockets(&self) -> Option<&[UdpSocket]> {
+        self.all.get(&self.primary).map(Vec::as_slice)
+    }
+
+    pub fn take_primary_socket(&mut self) -> Option<UdpSocket> {
+        self.all.get_mut(&self.primary)?.pop()
+    }
+
+    pub fn all_sockets(self) -> Vec<UdpSocket> {
+        self.all.into_values().flatten().collect()
     }
 }
 
@@ -3311,7 +3394,11 @@ mod tests {
         check_socket(&node.sockets.repair, ip, range);
         check_socket(&node.sockets.tvu_quic, ip, range);
 
-        check_sockets(&node.sockets.tvu, ip, range);
+        check_sockets(
+            node.sockets.tvu_multihomed.primary_sockets().unwrap(),
+            ip,
+            range,
+        );
         check_sockets(&node.sockets.tpu, ip, range);
     }
 
