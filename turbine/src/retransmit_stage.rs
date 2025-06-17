@@ -12,7 +12,7 @@ use {
     rand::Rng,
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
     solana_clock::Slot,
-    solana_gossip::{cluster_info::ClusterInfo, contact_info::Protocol},
+    solana_gossip::{cluster_info::{ClusterInfo, MultihomedEgressSocket}, contact_info::Protocol},
     solana_ledger::{
         leader_schedule_cache::LeaderScheduleCache,
         shred::{self, ShredFlags, ShredId, ShredType},
@@ -231,7 +231,7 @@ fn retransmit(
     leader_schedule_cache: &LeaderScheduleCache,
     cluster_info: &ClusterInfo,
     retransmit_receiver: &Receiver<Vec<shred::Payload>>,
-    retransmit_sockets: &[UdpSocket],
+    retransmit_sockets: &[MultihomedEgressSocket],
     quic_endpoint_sender: &AsyncSender<(SocketAddr, Bytes)>,
     xdp_sender: Option<&XdpSender>,
     stats: &mut RetransmitStats,
@@ -344,7 +344,12 @@ fn retransmit(
 
     let retransmit_socket = |index| {
         let socket = xdp_sender.map(RetransmitSocket::Xdp).unwrap_or_else(|| {
-            RetransmitSocket::Socket(&retransmit_sockets[index % retransmit_sockets.len()])
+            let group = &retransmit_sockets[index % retransmit_sockets.len()];
+            let sock = group
+                .primary_socket_at(index)
+                .expect("Missing retransmit socket for index");
+            RetransmitSocket::Socket(sock)
+            // RetransmitSocket::Socket(&retransmit_sockets[index % retransmit_sockets.len()]) //greg: todo
         });
         socket
     };
@@ -580,7 +585,7 @@ impl RetransmitStage {
         bank_forks: Arc<RwLock<BankForks>>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         cluster_info: Arc<ClusterInfo>,
-        retransmit_sockets: Arc<Vec<UdpSocket>>,
+        retransmit_sockets: Arc<Vec<MultihomedEgressSocket>>,
         quic_endpoint_sender: AsyncSender<(SocketAddr, Bytes)>,
         retransmit_receiver: Receiver<Vec<shred::Payload>>,
         max_slots: Arc<MaxSlots>,
@@ -608,6 +613,8 @@ impl RetransmitStage {
 
         let (xdp_retransmitter, xdp_sender) = if let Some(xdp_config) = xdp_config {
             let src_port = retransmit_sockets[0]
+                .primary_socket()
+                .expect("failed to get primary socket")
                 .local_addr()
                 .expect("failed to get local address")
                 .port();

@@ -2319,7 +2319,8 @@ pub struct Sockets {
     // and receiving repair responses from the cluster.
     pub repair: UdpSocket,
     pub repair_quic: UdpSocket,
-    pub retransmit_sockets: Vec<UdpSocket>, //greg: these need to be atomicudpsockets
+    // pub retransmit_sockets: Vec<UdpSocket>, //greg: these need to be atomicudpsockets
+    pub retransmit_sockets: MultihomedSockets<RebindingSocket>,
     // Socket receiving remote repair requests from the cluster,
     // and sending back repair responses.
     pub serve_repair: UdpSocket,
@@ -2732,7 +2733,7 @@ impl Node {
         let socket_config = SocketConfig::default();
         let socket_config_reuseport = SocketConfig::default().reuseport(true);
 
-        let (tvu_port, tvu_multihomed) = RebindingSocket::bind_all(
+        let (tvu_port, tvu_multihomed) = MultihomedEgressSocket::bind_all(
             &bind_ip_addrs,
             port_range,
             socket_config_reuseport,
@@ -2789,8 +2790,8 @@ impl Node {
         )
         .unwrap();
 
-        let (_, retransmit_sockets) = multi_bind_in_range_with_config(
-            bind_ip_addr,
+        let (_, retransmit_sockets) = MultihomedEgressSocket::bind_primary_only(
+            &bind_ip_addrs,
             port_range,
             socket_config_reuseport,
             num_tvu_retransmit_sockets.get(),
@@ -2877,40 +2878,19 @@ impl Node {
 
 pub struct RebindingSocket {
     pub socket: Arc<AtomicUdpSocket>,
-    pub rebind_rx: Receiver<SocketAddr>,
 }
 
 impl RebindingSocket {
-    pub fn new(socket: UdpSocket, rebind_rx: Receiver<SocketAddr>) -> Self {
+    pub fn new(socket: UdpSocket) -> Self {
         Self {
             socket: Arc::new(AtomicUdpSocket::new(socket)),
-            rebind_rx,
         }
+    }
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        self.socket.local_addr()
     }
 
-    pub fn bind_all(
-        bind_addrs: &BindIpAddrs,
-        range: PortRange,
-        config: SocketConfig,
-        num_sockets: usize,
-    ) -> std::io::Result<(u16, MultihomedSockets)> {
-        let mut primary_port: Option<u16> = None;
-        let mut sockets_map = HashMap::new();
-        for ip in bind_addrs.iter() {
-            let (p, sockets) = multi_bind_in_range_with_config(ip, range, config, num_sockets)?;
-            if ip == bind_addrs.primary() {
-                primary_port = Some(p);
-            }
-            sockets_map.insert(ip, sockets);
-        }
-        Ok((
-            primary_port.expect("primary bind address should succeed"),
-            MultihomedSockets {
-                all: sockets_map,
-                primary: bind_addrs.primary(),
-            },
-        ))
-    }
+    
 }
 
 #[derive(Debug)]
@@ -2936,6 +2916,85 @@ impl MultihomedSockets {
 
     pub fn all_sockets(self) -> Vec<UdpSocket> {
         self.all.into_values().flatten().collect()
+    }
+}
+
+pub struct Multihomed<T> {
+    pub all: HashMap<IpAddr, Vec<T>>, 
+    pub primary: IpAddr,
+}
+
+impl<T> Multihomed<T> {
+    /// First socket of the primary interface (if any)
+    pub fn primary_socket(&self) -> Option<&T> {
+        self.all.get(&self.primary).and_then(|v| v.first())
+    }
+
+    pub fn primary_sockets(&self) -> Option<&[T]> {
+        self.all.get(&self.primary).map(Vec::as_slice)
+    }
+
+    pub fn take_primary_socket(&mut self) -> Option<T> {
+        self.all.get_mut(&self.primary)?.pop()
+    }
+
+    pub fn all_sockets(self) -> Vec<T> {
+        self.all.into_values().flatten().collect()
+    }
+
+    /// First socket for a specific IP
+    pub fn socket_for(&self, ip: &IpAddr) -> Option<&T> {
+        self.all.get(ip).and_then(|v| v.first())
+    }
+
+    pub fn primary_socket_at(&self, idx: usize) -> Option<&T> {
+        self.all.get(&self.primary).and_then(|socks| socks.get(idx % socks.len()))
+    }
+}
+
+pub type MultihomedIngressSocket = Multihomed<UdpSocket>;
+pub type MultihomedEgressSocket  = Multihomed<RebindingSocket>;
+
+impl MultihomedEgressSocket {
+    /// Bind sockets on the primary IP
+    pub fn bind_primary_only(
+        bind_addrs: &BindIpAddrs,
+        range: PortRange,
+        cfg: SocketConfig,
+        num_sockets: usize,
+    ) -> io::Result<(u16, Self)> {
+        let ip = bind_addrs.primary();
+        let (port, raw) = multi_bind_in_range_with_config(ip, range, cfg, num_sockets)?;
+        let wrapped: Vec<_> = raw.into_iter().map(RebindingSocket::new).collect();
+        let sockets = Multihomed {
+            all: HashMap::from([(ip, wrapped)]),
+            primary: ip,
+        };
+        Ok((port, sockets))
+    }
+
+    pub fn bind_all(
+        bind_addrs: &BindIpAddrs,
+        range: PortRange,
+        config: SocketConfig,
+        num_sockets: usize,
+    ) -> std::io::Result<(u16, MultihomedSockets)> {
+        let mut primary_port: Option<u16> = None;
+        let mut sockets_map = HashMap::new();
+        for ip in bind_addrs.iter() {
+            let (p, sockets) = multi_bind_in_range_with_config(ip, range, config, num_sockets)?;
+            if ip == bind_addrs.primary() {
+                primary_port = Some(p);
+            }
+            sockets_map.insert(ip, sockets);
+        }
+        Ok((
+            primary_port.expect("primary bind address should succeed"),
+            MultihomedSockets {
+                all: sockets_map,
+                primary: bind_addrs.primary(),
+            },
+        ))
     }
 }
 

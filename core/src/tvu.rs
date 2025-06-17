@@ -26,7 +26,7 @@ use {
     solana_clock::Slot,
     solana_geyser_plugin_manager::block_metadata_notifier_interface::BlockMetadataNotifierArc,
     solana_gossip::{
-        cluster_info::ClusterInfo, duplicate_shred_handler::DuplicateShredHandler,
+        cluster_info::{ClusterInfo, MultihomedEgressSocket}, duplicate_shred_handler::DuplicateShredHandler,
         duplicate_shred_listener::DuplicateShredListener,
     },
     solana_keypair::Keypair,
@@ -83,7 +83,8 @@ pub struct Tvu {
 pub struct TvuSockets {
     pub fetch: Vec<UdpSocket>,
     pub repair: UdpSocket,
-    pub retransmit: Vec<UdpSocket>,
+    // pub retransmit: Vec<UdpSocket>, // greg: these need to be atomicudpsockets
+    pub retransmit: Vec<MultihomedEgressSocket>,
     pub ancestor_hashes_requests: UdpSocket,
 }
 
