@@ -1322,6 +1322,7 @@ impl Validator {
             StatsReporterService::new(stats_reporter_receiver, exit.clone());
 
         let atomic_socket = Arc::new(AtomicUdpSocket::new(node.sockets.gossip));
+        let atomic_sockets = Arc::new(node.sockets);
         let gossip_service = GossipService::new(
             &cluster_info,
             Some(bank_forks.clone()),
@@ -1686,6 +1687,7 @@ impl Validator {
             outstanding_repair_requests,
             cluster_slots,
             gossip_socket: Some(atomic_socket.clone()),
+            sockets: Some(atomic_sockets.clone()),
         });
 
         Ok(Self {

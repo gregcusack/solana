@@ -219,6 +219,9 @@ pub trait AdminRpc {
     #[rpc(meta, name = "setGossipSocket")]
     fn set_gossip_socket(&self, meta: Self::Metadata, ip: String, port: u16) -> Result<()>;
 
+    #[rpc(meta, name = "setTvuRetransmitSocket")]
+    fn set_tvu_retransmit_socket(&self, meta: Self::Metadata, ip: String) -> Result<()>;
+
     #[rpc(meta, name = "repairShredFromPeer")]
     fn repair_shred_from_peer(
         &self,
@@ -561,6 +564,36 @@ impl AdminRpc for AdminRpcImpl {
                         "Failed to refresh gossip ContactInfo: {e}"
                     ))
                 })?;
+            Ok(())
+        })
+    }
+
+    fn set_tvu_retransmit_socket(&self, meta: Self::Metadata, ip: String) -> Result<()> {
+        let new_ip: IpAddr = ip
+            .parse()
+            .map_err(|e| jsonrpc_core::Error::invalid_params(format!("Invalid IP address: {e}")))?;
+
+        meta.with_post_init(|post_init| {
+            if let Some(sockets) = &post_init.sockets {
+                let retransmit_sockets = &sockets.retransmit_sockets;
+                let vec = retransmit_sockets
+                    .all
+                    .get(&new_ip)
+                    .ok_or_else(|e| {
+                        jsonrpc_core::Error::invalid_params(format!("Failed to get primary retransmit socket. Rebind failed: {e}"))
+                    })?;
+
+                for atomic in vec {
+                    let port = atomic.load().local_addr()?.port();
+                    let sock = UdpSocket::bind(SocketAddr::new(new_ip, port))?;
+                    atomic.swap(sock);            // hot-swap
+                }
+                // hot-swap new socket
+                socket.swap(new_socket);
+            }
+            post_init
+                .cluster_info
+                .refresh_my_gossip_contact_info();
             Ok(())
         })
     }
@@ -1022,6 +1055,7 @@ mod tests {
                         solana_core::cluster_slots_service::cluster_slots::ClusterSlots::default(),
                     ),
                     gossip_socket: None,
+                    sockets: None,
                 }))),
                 staked_nodes_overrides: Arc::new(RwLock::new(HashMap::new())),
                 rpc_to_plugin_manager_sender: None,

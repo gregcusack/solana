@@ -1112,7 +1112,7 @@ impl ClusterInfo {
             .collect()
     }
 
-    fn refresh_my_gossip_contact_info(&self) {
+    pub fn refresh_my_gossip_contact_info(&self) {
         let keypair: Arc<Keypair> = self.keypair().clone();
         let node = {
             let mut node = self.my_contact_info.write().unwrap();

@@ -3,7 +3,7 @@ use {
         cluster_slots_service::cluster_slots::ClusterSlots,
         repair::{outstanding_requests::OutstandingRequests, serve_repair::ShredRepairType},
     },
-    solana_gossip::cluster_info::ClusterInfo,
+    solana_gossip::cluster_info::{ClusterInfo, Sockets},
     solana_pubkey::Pubkey,
     solana_quic_definitions::NotifyKeyUpdate,
     solana_runtime::bank_forks::BankForks,
@@ -80,4 +80,5 @@ pub struct AdminRpcRequestMetadataPostInit {
     pub outstanding_repair_requests: Arc<RwLock<OutstandingRequests<ShredRepairType>>>,
     pub cluster_slots: Arc<ClusterSlots>,
     pub gossip_socket: Option<Arc<AtomicUdpSocket>>,
+    pub sockets: Option<Arc<Sockets>>,
 }
