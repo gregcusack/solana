@@ -26,7 +26,7 @@ use {
     solana_clock::Slot,
     solana_geyser_plugin_manager::block_metadata_notifier_interface::BlockMetadataNotifierArc,
     solana_gossip::{
-        cluster_info::{ClusterInfo, MultihomedEgressSocket}, duplicate_shred_handler::DuplicateShredHandler,
+        cluster_info::{ClusterInfo, MultihomedEgressSockets, Multihomed}, duplicate_shred_handler::DuplicateShredHandler,
         duplicate_shred_listener::DuplicateShredListener,
     },
     solana_keypair::Keypair,
@@ -46,7 +46,7 @@ use {
         prioritization_fee_cache::PrioritizationFeeCache, snapshot_controller::SnapshotController,
         vote_sender_types::ReplayVoteSender,
     },
-    solana_streamer::evicting_sender::EvictingSender,
+    solana_streamer::{atomic_udp_socket::AtomicUdpSocket, evicting_sender::EvictingSender},
     solana_turbine::{retransmit_stage::RetransmitStage, xdp::XdpConfig},
     std::{
         collections::HashSet,
@@ -83,8 +83,7 @@ pub struct Tvu {
 pub struct TvuSockets {
     pub fetch: Vec<UdpSocket>,
     pub repair: UdpSocket,
-    // pub retransmit: Vec<UdpSocket>, // greg: these need to be atomicudpsockets
-    pub retransmit: Vec<MultihomedEgressSocket>,
+    pub retransmit: Multihomed<AtomicUdpSocket>,
     pub ancestor_hashes_requests: UdpSocket,
 }
 

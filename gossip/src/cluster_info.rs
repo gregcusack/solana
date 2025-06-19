@@ -2309,7 +2309,7 @@ pub struct Sockets {
     pub gossip: UdpSocket,
     pub ip_echo: Option<TcpListener>,
     // pub tvu: Vec<UdpSocket>,
-    pub tvu_multihomed: MultihomedSockets,
+    pub tvu_multihomed: Multihomed<UdpSocket>,
     pub tvu_quic: UdpSocket,
     pub tpu: Vec<UdpSocket>,
     pub tpu_forwards: Vec<UdpSocket>,
@@ -2320,7 +2320,7 @@ pub struct Sockets {
     pub repair: UdpSocket,
     pub repair_quic: UdpSocket,
     // pub retransmit_sockets: Vec<UdpSocket>, //greg: these need to be atomicudpsockets
-    pub retransmit_sockets: MultihomedSockets<RebindingSocket>,
+    pub retransmit_sockets: Multihomed<AtomicUdpSocket>,
     // Socket receiving remote repair requests from the cluster,
     // and sending back repair responses.
     pub serve_repair: UdpSocket,
@@ -2426,7 +2426,7 @@ impl Node {
             bind_common_in_range_with_config(localhost_ip_addr, port_range, udp_config).unwrap();
         let gossip_addr = SocketAddr::new(localhost_ip_addr, gossip_port);
         let tvu = bind_to_localhost().unwrap();
-        let tvu = MultihomedSockets {
+        let tvu = Multihomed {
             all: HashMap::from([(localhost_ip_addr, vec![tvu])]),
             primary: localhost_ip_addr,
         };
@@ -2574,7 +2574,7 @@ impl Node {
         let socket_config = SocketConfig::default();
         let socket_config_reuseport = SocketConfig::default().reuseport(true);
         let (tvu_port, tvu) = Self::bind_with_config(bind_ip_addr, port_range, socket_config);
-        let tvu = MultihomedSockets {
+        let tvu = Multihomed {
             all: HashMap::from([(bind_ip_addr, vec![tvu])]),
             primary: bind_ip_addr,
         };
@@ -2733,7 +2733,7 @@ impl Node {
         let socket_config = SocketConfig::default();
         let socket_config_reuseport = SocketConfig::default().reuseport(true);
 
-        let (tvu_port, tvu_multihomed) = MultihomedEgressSocket::bind_all(
+        let (tvu_port, tvu_multihomed) = Multihomed::bind_all(
             &bind_ip_addrs,
             port_range,
             socket_config_reuseport,
@@ -2790,7 +2790,7 @@ impl Node {
         )
         .unwrap();
 
-        let (_, retransmit_sockets) = MultihomedEgressSocket::bind_primary_only(
+        let (_, retransmit_sockets) = MultihomedEgressSockets::bind_primary_only(
             &bind_ip_addrs,
             port_range,
             socket_config_reuseport,
@@ -2876,49 +2876,7 @@ impl Node {
     }
 }
 
-pub struct RebindingSocket {
-    pub socket: Arc<AtomicUdpSocket>,
-}
-
-impl RebindingSocket {
-    pub fn new(socket: UdpSocket) -> Self {
-        Self {
-            socket: Arc::new(AtomicUdpSocket::new(socket)),
-        }
-    }
-    pub fn local_addr(&self) -> Option<SocketAddr> {
-        self.socket.local_addr()
-    }
-
-    
-}
-
 #[derive(Debug)]
-pub struct MultihomedSockets {
-    pub all: HashMap<IpAddr, Vec<UdpSocket>>,
-    pub primary: IpAddr,
-}
-
-impl MultihomedSockets {
-    pub fn primary_socket(&self) -> Option<&UdpSocket> {
-        self.all
-            .get(&self.primary)
-            .and_then(|sockets| sockets.first())
-    }
-
-    pub fn primary_sockets(&self) -> Option<&[UdpSocket]> {
-        self.all.get(&self.primary).map(Vec::as_slice)
-    }
-
-    pub fn take_primary_socket(&mut self) -> Option<UdpSocket> {
-        self.all.get_mut(&self.primary)?.pop()
-    }
-
-    pub fn all_sockets(self) -> Vec<UdpSocket> {
-        self.all.into_values().flatten().collect()
-    }
-}
-
 pub struct Multihomed<T> {
     pub all: HashMap<IpAddr, Vec<T>>, 
     pub primary: IpAddr,
@@ -2950,27 +2908,9 @@ impl<T> Multihomed<T> {
     pub fn primary_socket_at(&self, idx: usize) -> Option<&T> {
         self.all.get(&self.primary).and_then(|socks| socks.get(idx % socks.len()))
     }
-}
 
-pub type MultihomedIngressSocket = Multihomed<UdpSocket>;
-pub type MultihomedEgressSocket  = Multihomed<RebindingSocket>;
-
-impl MultihomedEgressSocket {
-    /// Bind sockets on the primary IP
-    pub fn bind_primary_only(
-        bind_addrs: &BindIpAddrs,
-        range: PortRange,
-        cfg: SocketConfig,
-        num_sockets: usize,
-    ) -> io::Result<(u16, Self)> {
-        let ip = bind_addrs.primary();
-        let (port, raw) = multi_bind_in_range_with_config(ip, range, cfg, num_sockets)?;
-        let wrapped: Vec<_> = raw.into_iter().map(RebindingSocket::new).collect();
-        let sockets = Multihomed {
-            all: HashMap::from([(ip, wrapped)]),
-            primary: ip,
-        };
-        Ok((port, sockets))
+    pub fn len(&self) -> usize {
+        self.all.get(&self.primary).map(|v| v.len()).unwrap_or(0)
     }
 
     pub fn bind_all(
@@ -2978,7 +2918,7 @@ impl MultihomedEgressSocket {
         range: PortRange,
         config: SocketConfig,
         num_sockets: usize,
-    ) -> std::io::Result<(u16, MultihomedSockets)> {
+    ) -> std::io::Result<(u16, Multihomed<T>)> {
         let mut primary_port: Option<u16> = None;
         let mut sockets_map = HashMap::new();
         for ip in bind_addrs.iter() {
@@ -2990,11 +2930,33 @@ impl MultihomedEgressSocket {
         }
         Ok((
             primary_port.expect("primary bind address should succeed"),
-            MultihomedSockets {
+            Multihomed {
                 all: sockets_map,
                 primary: bind_addrs.primary(),
             },
         ))
+    }
+}
+
+pub type MultihomedIngressSocket = Multihomed<UdpSocket>;
+pub type MultihomedEgressSockets  = Multihomed<AtomicUdpSocket>;
+
+impl MultihomedEgressSockets {
+    /// Bind sockets on the primary IP
+    pub fn bind_primary_only(
+        bind_addrs: &BindIpAddrs,
+        range: PortRange,
+        cfg: SocketConfig,
+        num_sockets: usize,
+    ) -> io::Result<(u16, Self)> {
+        let ip = bind_addrs.primary();
+        let (port, raw) = multi_bind_in_range_with_config(ip, range, cfg, num_sockets)?;
+        let wrapped: Vec<_> = raw.into_iter().map(AtomicUdpSocket::new).collect();
+        let sockets = Multihomed {
+            all: HashMap::from([(ip, wrapped)]),
+            primary: ip,
+        };
+        Ok((port, sockets))
     }
 }
 

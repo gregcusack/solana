@@ -12,7 +12,7 @@ use {
     rand::Rng,
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
     solana_clock::Slot,
-    solana_gossip::{cluster_info::{ClusterInfo, MultihomedEgressSocket}, contact_info::Protocol},
+    solana_gossip::{cluster_info::{ClusterInfo, Multihomed}, contact_info::Protocol},
     solana_ledger::{
         leader_schedule_cache::LeaderScheduleCache,
         shred::{self, ShredFlags, ShredId, ShredType},
@@ -30,6 +30,7 @@ use {
         bank_forks::BankForks,
     },
     solana_streamer::{
+        atomic_udp_socket::AtomicUdpSocket,
         sendmmsg::{multi_target_send, SendPktsError},
         socket::SocketAddrSpace,
     },
@@ -215,7 +216,7 @@ impl<const K: usize> ShredDeduper<K> {
 }
 
 enum RetransmitSocket<'a> {
-    Socket(&'a UdpSocket),
+    Socket(Arc<UdpSocket>),
     Xdp(&'a XdpSender),
 }
 
@@ -231,7 +232,7 @@ fn retransmit(
     leader_schedule_cache: &LeaderScheduleCache,
     cluster_info: &ClusterInfo,
     retransmit_receiver: &Receiver<Vec<shred::Payload>>,
-    retransmit_sockets: &[MultihomedEgressSocket],
+    retransmit_sockets: &Multihomed<AtomicUdpSocket>,
     quic_endpoint_sender: &AsyncSender<(SocketAddr, Bytes)>,
     xdp_sender: Option<&XdpSender>,
     stats: &mut RetransmitStats,
@@ -342,16 +343,36 @@ fn retransmit(
         )
     };
 
+    //greg: figuire out `retransmit_sockets`` here. before we passed in a slice of UdpSockets
+    // now we are passing in a Multihomed<AtomicUdpSocket>
+    // so we need to figure out which socket to use for each index
+    // wonderinf if this needs to be aware of rebinding or we can just pass in the slice of the interface and 
+    // corresponding atomicudpsockets
     let retransmit_socket = |index| {
-        let socket = xdp_sender.map(RetransmitSocket::Xdp).unwrap_or_else(|| {
-            let group = &retransmit_sockets[index % retransmit_sockets.len()];
-            let sock = group
-                .primary_socket_at(index)
-                .expect("Missing retransmit socket for index");
-            RetransmitSocket::Socket(sock)
-            // RetransmitSocket::Socket(&retransmit_sockets[index % retransmit_sockets.len()]) //greg: todo
-        });
-        socket
+        if let Some(xdp) = xdp_sender {
+            return RetransmitSocket::Xdp(xdp);
+        }
+    
+        // so this is just for primary...
+        // what if we switch over to backup interface?
+        let atomic = retransmit_sockets
+            .primary_socket_at(index)
+            .expect("missing retransmit socket");
+    
+        // **HOT SWAP POINT** – grab the current UdpSocket
+        let udp: Arc<UdpSocket> = atomic.load();        // cheap Arc clone
+        RetransmitSocket::Socket(udp)
+        // let socket = xdp_sender.map(RetransmitSocket::Xdp).unwrap_or_else(|| {
+            
+            
+        //     let group = &retransmit_sockets[index % retransmit_sockets.len()];
+        //     let sock = group
+        //         .primary_socket_at(index)
+        //         .expect("Missing retransmit socket for index");
+        //     RetransmitSocket::Socket(sock)
+        //     // RetransmitSocket::Socket(&retransmit_sockets[index % retransmit_sockets.len()]) //greg: todo
+        // });
+        // socket
     };
 
     let slot_stats = if num_shreds < PAR_ITER_MIN_NUM_SHREDS {
@@ -585,7 +606,7 @@ impl RetransmitStage {
         bank_forks: Arc<RwLock<BankForks>>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         cluster_info: Arc<ClusterInfo>,
-        retransmit_sockets: Arc<Vec<MultihomedEgressSocket>>,
+        retransmit_sockets: Arc<Multihomed<AtomicUdpSocket>>,
         quic_endpoint_sender: AsyncSender<(SocketAddr, Bytes)>,
         retransmit_receiver: Receiver<Vec<shred::Payload>>,
         max_slots: Arc<MaxSlots>,
@@ -612,7 +633,9 @@ impl RetransmitStage {
         };
 
         let (xdp_retransmitter, xdp_sender) = if let Some(xdp_config) = xdp_config {
-            let src_port = retransmit_sockets[0]
+            //greg: this is a hack to get port of egress
+            // tbh this is for xdp i think and we can ignore for now
+            let src_port = retransmit_sockets
                 .primary_socket()
                 .expect("failed to get primary socket")
                 .local_addr()
@@ -625,6 +648,8 @@ impl RetransmitStage {
             (None, None)
         };
 
+        //greg: think about how this will work. do we need to check for rebinding here?
+        // or do we check for rebinding inside `retransmit()`?        
         let retransmit_thread_handle = Builder::new()
             .name("solRetransmittr".to_string())
             .spawn({
