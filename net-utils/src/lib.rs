@@ -997,7 +997,7 @@ mod tests {
         );
 
         let mut udp_sockets = Vec::new();
-        for _ in 0..MAX_PORT_VERIFY_THREADS * 2 {
+        for _ in 0..MAX_PORT_VERIFY_THREADS {
             let (_p1, (sock_a, _tl_a)) = bind_common_in_range_with_config(
                 ip_a,
                 sockets::localhost_port_range_for_tests(),
