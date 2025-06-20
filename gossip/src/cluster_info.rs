@@ -2306,27 +2306,27 @@ pub struct Sockets {
     pub gossip: UdpSocket, // MHing -> gossip: Multihomed<AtomicUdpSocket>
     pub ip_echo: Option<TcpListener>,
     pub tvu: Vec<UdpSocket>, // MHing -> tvu: Multihomed<UdpSocket>
-    pub tvu_quic: UdpSocket,
-    pub tpu: Vec<UdpSocket>,
-    pub tpu_forwards: Vec<UdpSocket>,
-    pub tpu_vote: Vec<UdpSocket>,
-    pub broadcast: Vec<UdpSocket>,
+    pub tvu_quic: UdpSocket, // MHing -> hold off. no tvu quic support now
+    pub tpu: Vec<UdpSocket>, // MHing -> this is UDP and is off by default
+    pub tpu_forwards: Vec<UdpSocket>, // MHing -> this is UDP and is off by default
+    pub tpu_vote: Vec<UdpSocket>, // MHing -> this is UDP and is off by default
+    pub broadcast: Vec<UdpSocket>, // MHing -> broadcast: Multihomed<AtomicUdpSocket>. send shreds on these sockets
     // Socket sending out local repair requests,
     // and receiving repair responses from the cluster.
     pub repair: UdpSocket, // MHing -> repair: Multihomed<AtomicUdpSocket> -> client repair. need to swap ip address sending from
-    pub repair_quic: UdpSocket,
+    pub repair_quic: UdpSocket, //MHing -> hold off. no repair quic support now
     pub retransmit_sockets: Vec<UdpSocket>, // MHing -> retransmit_sockets: Multihomed<AtomicUdpSocket>
     // Socket receiving remote repair requests from the cluster,
     // and sending back repair responses.
     pub serve_repair: UdpSocket, // MHing -> serve_repair: Multihomed<UdpSocket> send out repair response on interface repair request received from
-    pub serve_repair_quic: UdpSocket,
+    pub serve_repair_quic: UdpSocket, //MHing -> hold off. no serve repair quic support now
     // Socket sending out local RepairProtocol::AncestorHashes,
     // and receiving AncestorHashesResponse from the cluster.
-    pub ancestor_hashes_requests: UdpSocket,
-    pub ancestor_hashes_requests_quic: UdpSocket,
+    pub ancestor_hashes_requests: UdpSocket, //MHing -> ancestor_hashes_requests: Multihomed<AtomicUdpSocket>
+    pub ancestor_hashes_requests_quic: UdpSocket, //MHing -> hold off. no ancestor hashes requests quic support now
     pub tpu_quic: Vec<UdpSocket>,
-    pub tpu_forwards_quic: Vec<UdpSocket>,
-    pub tpu_vote_quic: Vec<UdpSocket>,
+    pub tpu_forwards_quic: Vec<UdpSocket>, //MHing -> tpu_forwards_quic: Multihomed<AtomicUdpSocket>. need to swap ip address sending from
+    pub tpu_vote_quic: Vec<UdpSocket>, //MHing -> tpu_vote_quic: Multihomed<AtomicUdpSocket>. need to swap ip address sending from
 
     /// Client-side socket for ForwardingStage vote transactions
     pub tpu_vote_forwarding_client: UdpSocket,
