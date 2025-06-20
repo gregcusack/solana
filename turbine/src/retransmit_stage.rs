@@ -580,7 +580,7 @@ impl RetransmitStage {
         bank_forks: Arc<RwLock<BankForks>>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         cluster_info: Arc<ClusterInfo>,
-        retransmit_sockets: Arc<Vec<UdpSocket>>,
+        retransmit_sockets: Arc<Vec<UdpSocket>>, // MHing -> retransmit_sockets: Arc<Multihomed<AtomicUdpSocket>>
         quic_endpoint_sender: AsyncSender<(SocketAddr, Bytes)>,
         retransmit_receiver: Receiver<Vec<shred::Payload>>,
         max_slots: Arc<MaxSlots>,

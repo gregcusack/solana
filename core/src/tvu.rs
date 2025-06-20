@@ -81,9 +81,9 @@ pub struct Tvu {
 }
 
 pub struct TvuSockets {
-    pub fetch: Vec<UdpSocket>,
-    pub repair: UdpSocket,
-    pub retransmit: Vec<UdpSocket>,
+    pub fetch: Vec<UdpSocket>, // MHing -> fetch: Vec<UdpSocket> // this can remain the same since we'll bind to all interfaces for ingress
+    pub repair: UdpSocket, // MHing -> repair: Multihomed<AtomicUdpSocket>
+    pub retransmit: Vec<UdpSocket>, // MHing -> retransmit: Multihomed<AtomicUdpSocket>
     pub ancestor_hashes_requests: UdpSocket,
 }
 
@@ -130,7 +130,7 @@ impl Tvu {
         authorized_voter_keypairs: Arc<RwLock<Vec<Arc<Keypair>>>>,
         bank_forks: &Arc<RwLock<BankForks>>,
         cluster_info: &Arc<ClusterInfo>,
-        sockets: TvuSockets,
+        sockets: TvuSockets, // MHing -> sockets: updated TvuSockets
         blockstore: Arc<Blockstore>,
         ledger_signal_receiver: Receiver<bool>,
         rpc_subscriptions: &Arc<RpcSubscriptions>,
@@ -219,7 +219,7 @@ impl Tvu {
             bank_forks.clone(),
             leader_schedule_cache.clone(),
             cluster_info.clone(),
-            Arc::new(retransmit_sockets),
+            Arc::new(retransmit_sockets), // MHing -> retransmit_sockets: Multihomed<AtomicUdpSocket>
             turbine_quic_endpoint_sender,
             retransmit_receiver,
             max_slots.clone(),

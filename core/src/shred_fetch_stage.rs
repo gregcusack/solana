@@ -43,7 +43,7 @@ pub(crate) struct ShredFetchStage {
 
 #[derive(Clone)]
 struct RepairContext {
-    repair_socket: Arc<UdpSocket>,
+    repair_socket: Arc<UdpSocket>, // MHing -> repair_socket: Arc<Multihomed<AtomicUdpSocket>>
     cluster_info: Arc<ClusterInfo>,
     outstanding_repair_requests: Arc<RwLock<OutstandingShredRepairs>>,
 }
@@ -179,7 +179,7 @@ impl ShredFetchStage {
     fn packet_modifier(
         receiver_thread_name: &'static str,
         modifier_thread_name: &'static str,
-        sockets: Vec<Arc<UdpSocket>>,
+        sockets: Vec<Arc<UdpSocket>>, // MHing -> sockets: Arc<Multihomed<AtomicUdpSocket>>. can we get away with not vectoring this?
         exit: Arc<AtomicBool>,
         sender: Sender<PacketBatch>,
         recycler: PacketBatchRecycler,
@@ -197,7 +197,7 @@ impl ShredFetchStage {
             .into_iter()
             .enumerate()
             .map(|(i, socket)| {
-                streamer::receiver(
+                streamer::receiver( // MHing -> use streamer::receiver_atomic
                     format!("{receiver_thread_name}{i:02}"),
                     socket,
                     exit.clone(),
@@ -235,7 +235,7 @@ impl ShredFetchStage {
         sockets: Vec<Arc<UdpSocket>>,
         turbine_quic_endpoint_receiver: Receiver<(Pubkey, SocketAddr, Bytes)>,
         repair_response_quic_receiver: Receiver<(Pubkey, SocketAddr, Bytes)>,
-        repair_socket: Arc<UdpSocket>,
+        repair_socket: Arc<UdpSocket>, // MHing -> repair_socket: Arc<Multihomed<AtomicUdpSocket>>
         sender: Sender<PacketBatch>,
         shred_version: u16,
         bank_forks: Arc<RwLock<BankForks>>,

@@ -2294,11 +2294,18 @@ impl ClusterInfo {
     }
 }
 
+/// MHing
+/// for UdpSocket that get changed to Multihomed<T> where we only need one socket for each interface,
+/// could we change this to something like:
+/// Multihomed<T> {
+///     pub all: HashMap<IpAddr, T>, // note the change from Vec<T> to T in the HashMap value
+///     pub primary: IpAddr,
+/// }
 #[derive(Debug)]
 pub struct Sockets {
-    pub gossip: UdpSocket,
+    pub gossip: UdpSocket, // MHing -> gossip: Multihomed<AtomicUdpSocket>
     pub ip_echo: Option<TcpListener>,
-    pub tvu: Vec<UdpSocket>,
+    pub tvu: Vec<UdpSocket>, // MHing -> tvu: Multihomed<UdpSocket>
     pub tvu_quic: UdpSocket,
     pub tpu: Vec<UdpSocket>,
     pub tpu_forwards: Vec<UdpSocket>,
@@ -2306,12 +2313,12 @@ pub struct Sockets {
     pub broadcast: Vec<UdpSocket>,
     // Socket sending out local repair requests,
     // and receiving repair responses from the cluster.
-    pub repair: UdpSocket,
+    pub repair: UdpSocket, // MHing -> repair: Multihomed<AtomicUdpSocket> -> client repair. need to swap ip address sending from
     pub repair_quic: UdpSocket,
-    pub retransmit_sockets: Vec<UdpSocket>,
+    pub retransmit_sockets: Vec<UdpSocket>, // MHing -> retransmit_sockets: Multihomed<AtomicUdpSocket>
     // Socket receiving remote repair requests from the cluster,
     // and sending back repair responses.
-    pub serve_repair: UdpSocket,
+    pub serve_repair: UdpSocket, // MHing -> serve_repair: Multihomed<UdpSocket> send out repair response on interface repair request received from
     pub serve_repair_quic: UdpSocket,
     // Socket sending out local RepairProtocol::AncestorHashes,
     // and receiving AncestorHashesResponse from the cluster.
