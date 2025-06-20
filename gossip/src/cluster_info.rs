@@ -2324,9 +2324,9 @@ pub struct Sockets {
     // and receiving AncestorHashesResponse from the cluster.
     pub ancestor_hashes_requests: UdpSocket, //MHing -> ancestor_hashes_requests: Multihomed<AtomicUdpSocket>
     pub ancestor_hashes_requests_quic: UdpSocket, //MHing -> hold off. no ancestor hashes requests quic support now
-    pub tpu_quic: Vec<UdpSocket>,
-    pub tpu_forwards_quic: Vec<UdpSocket>, //MHing -> tpu_forwards_quic: Multihomed<AtomicUdpSocket>. need to swap ip address sending from
-    pub tpu_vote_quic: Vec<UdpSocket>, //MHing -> tpu_vote_quic: Multihomed<AtomicUdpSocket>. need to swap ip address sending from
+    pub tpu_quic: Vec<UdpSocket>, //MHing -> can't use atomicudpsocket for quic
+    pub tpu_forwards_quic: Vec<UdpSocket>, //MHing -> can't use atomicudpsocket for quic
+    pub tpu_vote_quic: Vec<UdpSocket>, //MHing -> can't use atomicudpsocket for quic
 
     /// Client-side socket for ForwardingStage vote transactions
     pub tpu_vote_forwarding_client: UdpSocket,
