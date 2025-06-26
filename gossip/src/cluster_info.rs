@@ -28,6 +28,7 @@ use {
         },
         crds_value::{CrdsValue, CrdsValueLabel},
         duplicate_shred::DuplicateShred,
+        egress_socket_select,
         epoch_slots::EpochSlots,
         epoch_specs::EpochSpecs,
         gossip_error::GossipError,
@@ -2516,17 +2517,13 @@ impl Node {
         let tvu_socket_count = num_tvu_receive_sockets.get();
         let mut tvu_sockets = Vec::with_capacity(tvu_socket_count * bind_ip_addrs.len());
         for ip in bind_ip_addrs.iter() {
-            let (_, mut sockets) = multi_bind_in_range_with_config(
-                *ip,
-                port_range,
-                socket_config,
-                tvu_socket_count,
-            )
-            .unwrap_or_else(|e| {
-                panic!(
+            let (_, mut sockets) =
+                multi_bind_in_range_with_config(*ip, port_range, socket_config, tvu_socket_count)
+                    .unwrap_or_else(|e| {
+                        panic!(
                     "tvu multi_bind_in_range_with_config should not fail for interface {ip}: {e}"
                 )
-            });
+                    });
             tvu_sockets.append(&mut sockets);
         }
         // Only advertise primary interface port
@@ -2577,13 +2574,24 @@ impl Node {
             bind_more_with_config(tpu_vote_quic, num_quic_endpoints.get(), socket_config)
                 .expect("tpu_vote_quic multi_bind");
 
-        let (_, retransmit_sockets) = multi_bind_in_range_with_config(
-            bind_ip_addr,
-            port_range,
-            socket_config,
-            num_tvu_retransmit_sockets.get(),
-        )
-        .expect("retransmit multi_bind");
+        let retransmit_socket_count = num_tvu_retransmit_sockets.get();
+        egress_socket_select::init(retransmit_socket_count);
+        let mut retransmit_sockets =
+            Vec::with_capacity(retransmit_socket_count * bind_ip_addrs.len());
+        for ip in bind_ip_addrs.iter() {
+            let (_, mut sockets) = multi_bind_in_range_with_config(
+                *ip,
+                port_range,
+                socket_config,
+                retransmit_socket_count,
+            )
+            .unwrap_or_else(|e| {
+                panic!(
+                    "retransmit_sockets multi_bind_in_range_with_config should not fail for interface {ip}: {e}"
+                )
+            });
+            retransmit_sockets.append(&mut sockets);
+        }
 
         let (_, repair) = bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
             .expect("repair bind");
