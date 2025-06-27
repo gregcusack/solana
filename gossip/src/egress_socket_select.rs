@@ -7,6 +7,7 @@ use std::sync::{
 static TVU_RETRANSMIT_ACTIVE_OFFSET: AtomicUsize = AtomicUsize::new(0);
 
 /// Number of sockets per interface — initialized at startup
+/// todo, could maybe make an arc and pass around... not sure
 static NUM_TVU_RETRANSMIT_SOCKETS: OnceLock<usize> = OnceLock::new();
 
 pub fn init(num_sockets: usize) {

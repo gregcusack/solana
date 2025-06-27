@@ -347,10 +347,18 @@ fn retransmit(
     let retransmit_socket = |index| {
         let socket = xdp_sender.map(RetransmitSocket::Xdp).unwrap_or_else(|| {
             let interface_offset = egress_socket_select::active_offset();
-            RetransmitSocket::Socket(
-                &retransmit_sockets
-                    [(interface_offset + index) % num_retransmit_sockets_per_interface],
-            )
+
+            // greg: todo if we do this we need to make sure our offset index does not exceed the number of retransmit sockets
+            let socket: &UdpSocket = &retransmit_sockets[interface_offset + (index % num_retransmit_sockets_per_interface)];
+            if rand::thread_rng().gen_ratio(1, 5000) {
+                error!("greg: retransmit_socket index: {}, interface_offset: {}", index, interface_offset);
+                info!("greg: retransmit_socket socket: {:?}", socket.local_addr());
+            }
+            RetransmitSocket::Socket(socket)
+            // RetransmitSocket::Socket(
+            //     &retransmit_sockets
+            //         [(interface_offset + index) % num_retransmit_sockets_per_interface],
+            // )
         });
         socket
     };
@@ -446,16 +454,16 @@ fn retransmit_shred(
                 }
                 sent
             }
-            RetransmitSocket::Socket(socket) => match multi_target_send(socket, shred, &addrs) {
-                Ok(()) => num_addrs,
-                Err(SendPktsError::IoError(ioerr, num_failed)) => {
-                    error!(
-                        "retransmit_to multi_target_send error: {ioerr:?}, \
-                         {num_failed}/{num_addrs} packets failed"
-                    );
-                    num_addrs - num_failed
+            RetransmitSocket::Socket(socket) => {
+                info!("greg: retransmit_socket socket: {:?}", socket.local_addr());
+                match multi_target_send(socket, shred, &addrs) {
+                    Ok(()) => num_addrs,
+                    Err(SendPktsError::IoError(ioerr, num_failed)) => {
+                        error!("retransmit_to multi_target_send error: {ioerr:?}, {num_failed}/{} packets failed", num_addrs);
+                        num_addrs - num_failed
+                    }
                 }
-            },
+            }
         },
     };
     retransmit_time.stop();
