@@ -97,7 +97,7 @@ use {
         rc::Rc,
         result::Result,
         sync::{
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
             Arc, Mutex, RwLock, RwLockReadGuard,
         },
         thread::{sleep, Builder, JoinHandle},
@@ -175,6 +175,7 @@ pub struct ClusterInfo {
     contact_save_interval: u64,  // milliseconds, 0 = disabled
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
+    bind_ip_addrs: BindIpAddrs,
 }
 
 impl ClusterInfo {
@@ -203,6 +204,7 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
+            bind_ip_addrs: BindIpAddrs::default(),
         };
         me.refresh_my_gossip_contact_info();
         me
@@ -210,6 +212,10 @@ impl ClusterInfo {
 
     pub fn set_contact_debug_interval(&mut self, new: u64) {
         self.contact_debug_interval = new;
+    }
+
+    pub fn set_bind_ip_addrs(&mut self, ip_addrs: BindIpAddrs) {
+        self.bind_ip_addrs = ip_addrs;
     }
 
     pub fn socket_addr_space(&self) -> &SocketAddrSpace {
@@ -2384,6 +2390,13 @@ pub struct BindIpAddrs {
     /// Index 0 is the primary address
     /// Index 1+ are secondary addresses
     addrs: Vec<IpAddr>,
+    active_index: Arc<AtomicUsize>,
+}
+
+impl Default for BindIpAddrs {
+    fn default() -> Self {
+        Self::new(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]).unwrap()
+    }
 }
 
 impl BindIpAddrs {
@@ -2404,12 +2417,31 @@ impl BindIpAddrs {
             }
         }
 
-        Ok(Self { addrs })
+        Ok(Self {
+            addrs,
+            active_index: Arc::new(AtomicUsize::new(0)),
+        })
     }
 
     #[inline]
-    pub fn primary(&self) -> IpAddr {
-        self.addrs[0]
+    pub fn active(&self) -> IpAddr {
+        self.addrs[self.active_index.load(Ordering::Acquire)]
+    }
+
+    /// Change active to index (0 = primary)
+    pub fn select(&self, index: usize) -> Result<(), String> {
+        if index >= self.addrs.len() {
+            return Err(format!(
+                "Index {index} out of range, only {} IPs available",
+                self.addrs.len()
+            ));
+        }
+        self.active_index.store(index, Ordering::Release);
+        Ok(())
+    }
+
+    pub fn select_backup(&self, backup_index: usize) -> Result<(), String> {
+        self.select(backup_index + 1)
     }
 }
 
@@ -2433,6 +2465,7 @@ impl AsRef<[IpAddr]> for BindIpAddrs {
 pub struct Node {
     pub info: ContactInfo,
     pub sockets: Sockets,
+    pub bind_ip_addrs: BindIpAddrs,
 }
 
 impl Node {
@@ -2448,9 +2481,7 @@ impl Node {
         let port_range = localhost_port_range_for_tests();
         let bind_ip_addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
         let config = NodeConfig {
-            bind_ip_addrs: BindIpAddrs {
-                addrs: vec![bind_ip_addr],
-            },
+            bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr]).unwrap(),
             gossip_port: port_range.0,
             port_range,
             advertised_ip: bind_ip_addr,
@@ -2479,9 +2510,7 @@ impl Node {
         bind_ip_addr: IpAddr,
     ) -> Self {
         let config = NodeConfig {
-            bind_ip_addrs: BindIpAddrs {
-                addrs: vec![bind_ip_addr],
-            },
+            bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr]).unwrap(),
             gossip_port: gossip_addr.port(),
             port_range,
             advertised_ip: bind_ip_addr,
@@ -2515,7 +2544,7 @@ impl Node {
             num_quic_endpoints,
             vortexor_receiver_addr,
         } = config;
-        let bind_ip_addr = bind_ip_addrs.primary();
+        let bind_ip_addr = bind_ip_addrs.active();
 
         let gossip_addr = SocketAddr::new(advertised_ip, gossip_port);
         let (gossip_port, (gossip, ip_echo)) =
@@ -2703,7 +2732,11 @@ impl Node {
             vortexor_receivers,
         };
         info!("Bound all network sockets as follows: {:#?}", &sockets);
-        Node { info, sockets }
+        Node {
+            info,
+            sockets,
+            bind_ip_addrs,
+        }
     }
 }
 
