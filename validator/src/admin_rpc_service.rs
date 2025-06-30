@@ -225,6 +225,13 @@ pub trait AdminRpc {
     #[rpc(meta, name = "setGossipSocket")]
     fn set_gossip_socket(&self, meta: Self::Metadata, ip: String, port: u16) -> Result<()>;
 
+    #[rpc(meta, name = "setTvuIngressAdvertisedAddress")]
+    fn set_tvu_ingress_advertised_address(
+        &self,
+        meta: Self::Metadata,
+        interface_index: usize,
+    ) -> Result<()>;
+
     #[rpc(meta, name = "setRetransmitSocketsInterface")]
     fn set_retransmit_sockets_interface(
         &self,
@@ -580,6 +587,21 @@ impl AdminRpc for AdminRpcImpl {
                         ))
                     })?;
             }
+            Ok(())
+        })
+    }
+
+    fn set_tvu_ingress_advertised_address(
+        &self,
+        meta: Self::Metadata,
+        interface_index: usize,
+    ) -> Result<()> {
+        info!(
+            "greg: set_tvu_ingress_advertised_address interface received: {}",
+            interface_index
+        );
+        meta.with_post_init(|post_init| {
+            // TODO: Implement this
             Ok(())
         })
     }
