@@ -175,7 +175,6 @@ pub struct ClusterInfo {
     contact_save_interval: u64,  // milliseconds, 0 = disabled
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
-    bind_ip_addrs: BindIpAddrs,
 }
 
 impl ClusterInfo {
@@ -204,7 +203,6 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
-            bind_ip_addrs: BindIpAddrs::default(),
         };
         me.refresh_my_gossip_contact_info();
         me
@@ -212,10 +210,6 @@ impl ClusterInfo {
 
     pub fn set_contact_debug_interval(&mut self, new: u64) {
         self.contact_debug_interval = new;
-    }
-
-    pub fn set_bind_ip_addrs(&mut self, ip_addrs: BindIpAddrs) {
-        self.bind_ip_addrs = ip_addrs;
     }
 
     pub fn socket_addr_space(&self) -> &SocketAddrSpace {
@@ -409,8 +403,8 @@ impl ClusterInfo {
         Ok(())
     }
 
-    pub fn set_tvu_socket(&self, interface_index: usize) -> Result<(), ContactInfoError> {
-        
+    /// todo: greg: set tvu socket. but we don't have the port. we just have the ip....
+    pub fn set_tvu_socket(&self, tvu_addr: SocketAddr) -> Result<(), ContactInfoError> {
         self.my_contact_info
             .write()
             .unwrap()
@@ -2327,7 +2321,7 @@ impl ClusterInfo {
 pub struct Sockets {
     pub gossip: AtomicUdpSocket,
     pub ip_echo: Option<TcpListener>,
-    pub tvu: Vec<UdpSocket>,
+    pub tvu: Vec<Arc<UdpSocket>>,
     pub tvu_quic: UdpSocket,
     pub tpu: Vec<UdpSocket>,
     pub tpu_forwards: Vec<UdpSocket>,
@@ -2337,7 +2331,7 @@ pub struct Sockets {
     // and receiving repair responses from the cluster.
     pub repair: UdpSocket,
     pub repair_quic: UdpSocket,
-    pub retransmit_sockets: Vec<UdpSocket>,
+    pub retransmit_sockets: Vec<Arc<UdpSocket>>,
     // Socket receiving remote repair requests from the cluster,
     // and sending back repair responses.
     pub serve_repair: UdpSocket,
@@ -2359,6 +2353,38 @@ pub struct Sockets {
     /// Client-side socket for RPC/SendTransactionService.
     pub rpc_sts_client: UdpSocket,
     pub vortexor_receivers: Option<Vec<UdpSocket>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SocketsMultihomed {
+    pub gossip: AtomicUdpSocket,
+    pub tvu: Vec<Arc<UdpSocket>>,
+    pub retransmit_sockets: Vec<Arc<UdpSocket>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NodeMultihoming {
+    pub sockets: SocketsMultihomed,
+    pub bind_ip_addrs: BindIpAddrs,
+    pub num_tvu_receive_sockets: NonZeroUsize,
+    pub num_tvu_retransmit_sockets: NonZeroUsize,
+    pub num_quic_endpoints: NonZeroUsize,
+}
+
+impl From<&Node> for NodeMultihoming {
+    fn from(node: &Node) -> Self {
+        NodeMultihoming {
+            sockets: SocketsMultihomed {
+                gossip: node.sockets.gossip.clone(),
+                tvu: node.sockets.tvu.clone(),
+                retransmit_sockets: node.sockets.retransmit_sockets.clone(),
+            },
+            bind_ip_addrs: node.bind_ip_addrs.clone(),
+            num_tvu_receive_sockets: node.num_tvu_receive_sockets,
+            num_tvu_retransmit_sockets: node.num_tvu_retransmit_sockets,
+            num_quic_endpoints: node.num_quic_endpoints,
+        }
+    }
 }
 
 pub struct NodeConfig {
@@ -2426,7 +2452,7 @@ impl BindIpAddrs {
     }
 
     /// Change active to index (0 = primary)
-    pub fn select(&self, index: usize) -> Result<(), String> {
+    pub fn set_active(&self, index: usize) -> Result<IpAddr, String> {
         if index >= self.addrs.len() {
             return Err(format!(
                 "Index {index} out of range, only {} IPs available",
@@ -2434,11 +2460,7 @@ impl BindIpAddrs {
             ));
         }
         self.active_index.store(index, Ordering::Release);
-        Ok(())
-    }
-
-    pub fn select_backup(&self, backup_index: usize) -> Result<(), String> {
-        self.select(backup_index + 1)
+        Ok(self.addrs[index])
     }
 }
 
@@ -2463,6 +2485,9 @@ pub struct Node {
     pub info: ContactInfo,
     pub sockets: Sockets,
     pub bind_ip_addrs: BindIpAddrs,
+    pub num_tvu_receive_sockets: NonZeroUsize,
+    pub num_tvu_retransmit_sockets: NonZeroUsize,
+    pub num_quic_endpoints: NonZeroUsize,
 }
 
 impl Node {
@@ -2592,7 +2617,7 @@ impl Node {
             sockets: Sockets {
                 gossip: AtomicUdpSocket::new(gossip),
                 ip_echo: Some(ip_echo),
-                tvu: vec![tvu],
+                tvu: vec![Arc::new(tvu)],
                 tvu_quic,
                 tpu: vec![tpu],
                 tpu_forwards: vec![tpu_forwards],
@@ -2600,7 +2625,7 @@ impl Node {
                 broadcast,
                 repair,
                 repair_quic,
-                retransmit_sockets: vec![retransmit_socket],
+                retransmit_sockets: vec![Arc::new(retransmit_socket)],
                 serve_repair,
                 serve_repair_quic,
                 ancestor_hashes_requests,
@@ -2615,6 +2640,9 @@ impl Node {
                 vortexor_receivers: None,
             },
             bind_ip_addrs: BindIpAddrs::new(vec![localhost_ip_addr]).unwrap(),
+            num_tvu_receive_sockets: NonZeroUsize::new(1).unwrap(),
+            num_tvu_retransmit_sockets: NonZeroUsize::new(1).unwrap(),
+            num_quic_endpoints: NonZeroUsize::new(num_quic_endpoints).unwrap(),
         }
     }
 
@@ -2741,7 +2769,7 @@ impl Node {
             sockets: Sockets {
                 gossip: AtomicUdpSocket::new(gossip),
                 ip_echo: Some(ip_echo),
-                tvu: vec![tvu],
+                tvu: vec![Arc::new(tvu)],
                 tvu_quic,
                 tpu: vec![tpu],
                 tpu_forwards: vec![tpu_forwards],
@@ -2749,7 +2777,7 @@ impl Node {
                 broadcast: vec![broadcast],
                 repair,
                 repair_quic,
-                retransmit_sockets: vec![retransmit_socket],
+                retransmit_sockets: vec![Arc::new(retransmit_socket)],
                 serve_repair,
                 serve_repair_quic,
                 ancestor_hashes_requests,
@@ -2764,6 +2792,9 @@ impl Node {
                 vortexor_receivers: None,
             },
             bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr]).unwrap(),
+            num_tvu_receive_sockets: NonZeroUsize::new(1).unwrap(),
+            num_tvu_retransmit_sockets: NonZeroUsize::new(1).unwrap(),
+            num_quic_endpoints: NonZeroUsize::new(DEFAULT_QUIC_ENDPOINTS).unwrap(),
         }
     }
 
@@ -2934,7 +2965,7 @@ impl Node {
         trace!("new ContactInfo: {:?}", info);
         let sockets = Sockets {
             gossip: AtomicUdpSocket::new(gossip),
-            tvu: tvu_sockets,
+            tvu: tvu_sockets.into_iter().map(Arc::new).collect(),
             tvu_quic,
             tpu: tpu_sockets,
             tpu_forwards: tpu_forwards_sockets,
@@ -2942,7 +2973,7 @@ impl Node {
             broadcast,
             repair,
             repair_quic,
-            retransmit_sockets,
+            retransmit_sockets: retransmit_sockets.into_iter().map(Arc::new).collect(),
             serve_repair,
             serve_repair_quic,
             ip_echo: Some(ip_echo),
@@ -2962,6 +2993,9 @@ impl Node {
             info,
             sockets,
             bind_ip_addrs,
+            num_tvu_receive_sockets,
+            num_tvu_retransmit_sockets,
+            num_quic_endpoints,
         }
     }
 }
@@ -3421,7 +3455,13 @@ mod tests {
         check_socket(&node.sockets.repair, ip, range);
         check_socket(&node.sockets.tvu_quic, ip, range);
 
-        check_sockets(&node.sockets.tvu, ip, range);
+        let tvu_sockets: Vec<UdpSocket> = node
+            .sockets
+            .tvu
+            .iter()
+            .map(|socket| socket.try_clone().unwrap())
+            .collect();
+        check_sockets(&tvu_sockets, ip, range);
         check_sockets(&node.sockets.tpu, ip, range);
     }
 
