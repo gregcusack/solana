@@ -601,7 +601,33 @@ impl AdminRpc for AdminRpcImpl {
             interface_index
         );
         meta.with_post_init(|post_init| {
-            // TODO: Implement this
+            if let Some(node) = &post_init.node {
+                let ip_addr = node.bind_ip_addrs.set_active(interface_index).map_err(|e| {
+                    jsonrpc_core::Error::invalid_params(format!("Invalid interface index: {}", e))
+                })?;
+
+                let sockets_per_interface = node.num_tvu_receive_sockets.get();
+                let offset = interface_index.saturating_mul(sockets_per_interface);
+                if offset >= node.sockets.tvu.len() {
+                    return Err(jsonrpc_core::Error::invalid_params( format!(
+                        "Interface index {interface_index} out of range: tvu has {} sockets but needs offset {offset}",
+                        node.sockets.tvu.len()
+                    )));
+                }
+                let socket_address = node.sockets.tvu[offset]
+                    .local_addr()
+                    .map_err(|e| jsonrpc_core::Error::invalid_params(format!("Failed to get socket address at tvu socket offset {}: {}", offset, e)))?;
+
+                if ip_addr != socket_address.ip() {
+                    return Err(jsonrpc_core::Error::invalid_params(format!("IP address mismatch: expected {} but got {}", ip_addr, socket_address.ip())));
+                }
+
+                post_init.cluster_info.set_tvu_socket(socket_address).map_err(|e| {
+                    jsonrpc_core::Error::invalid_params(format!("Failed to set TVU socket: {}", e))
+                })?;
+
+                info!("greg: set_tvu_ingress_advertised_address success.");
+            }
             Ok(())
         })
     }
@@ -1086,6 +1112,7 @@ mod tests {
                     ),
                     gossip_socket: None,
                     retransmit_socket_selector: None,
+                    node: None,
                 }))),
                 staked_nodes_overrides: Arc::new(RwLock::new(HashMap::new())),
                 rpc_to_plugin_manager_sender: None,
