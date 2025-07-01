@@ -606,10 +606,6 @@ impl AdminRpc for AdminRpcImpl {
         );
         meta.with_post_init(|post_init| {
             if let Some(node) = &post_init.node {
-                let ip_addr = node.bind_ip_addrs.set_active(interface_index).map_err(|e| {
-                    jsonrpc_core::Error::invalid_params(format!("Invalid interface index: {}", e))
-                })?;
-
                 let sockets_per_interface = node.num_tvu_receive_sockets.get();
                 let offset = interface_index.saturating_mul(sockets_per_interface);
                 if offset >= node.sockets.tvu.len() {
@@ -621,6 +617,10 @@ impl AdminRpc for AdminRpcImpl {
                 let socket_address = node.sockets.tvu[offset]
                     .local_addr()
                     .map_err(|e| jsonrpc_core::Error::invalid_params(format!("Failed to get socket address at tvu socket offset {}: {}", offset, e)))?;
+
+                let ip_addr = node.bind_ip_addrs.set_active(interface_index).map_err(|e| {
+                    jsonrpc_core::Error::invalid_params(format!("Invalid interface index: {}", e))
+                })?;
 
                 if ip_addr != socket_address.ip() {
                     return Err(jsonrpc_core::Error::invalid_params(format!("IP address mismatch: expected {} but got {}", ip_addr, socket_address.ip())));
@@ -647,11 +647,6 @@ impl AdminRpc for AdminRpcImpl {
         );
         meta.with_post_init(|post_init| {
             if let Some(node) = &post_init.node {
-                // Validate the interface index
-                let ip_addr = node.bind_ip_addrs.set_active(interface_index).map_err(|e| {
-                    jsonrpc_core::Error::invalid_params(format!("Invalid interface index: {}", e))
-                })?;
-
                 let sockets_per_interface = node.num_tvu_retransmit_sockets.get();
                 let offset = interface_index.saturating_mul(sockets_per_interface);
                 if offset >= node.sockets.retransmit_sockets.len() {
@@ -666,6 +661,10 @@ impl AdminRpc for AdminRpcImpl {
                     .map_err(|e| jsonrpc_core::Error::invalid_params(format!(
                         "Failed to get socket address at retransmit_sockets offset {}: {}", offset, e
                     )))?;
+
+                let ip_addr = node.bind_ip_addrs.set_active(interface_index).map_err(|e| {
+                    jsonrpc_core::Error::invalid_params(format!("Invalid interface index: {}", e))
+                })?;
 
                 if ip_addr != socket_address.ip() {
                     return Err(jsonrpc_core::Error::invalid_params(format!(
