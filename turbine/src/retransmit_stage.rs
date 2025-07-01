@@ -352,7 +352,7 @@ fn retransmit(
             let socket: &UdpSocket = retransmit_sockets
                 [interface_offset + (index % num_retransmit_sockets_per_interface)]
                 .as_ref();
-            if rand::thread_rng().gen_ratio(1, 10000) {
+            if rand::thread_rng().gen_ratio(1, 5000) {
                 error!(
                     "greg: retransmit_socket index: {}, interface_offset: {}",
                     index, interface_offset
@@ -459,16 +459,13 @@ fn retransmit_shred(
                 }
                 sent
             }
-            RetransmitSocket::Socket(socket) => {
-                info!("greg: retransmit_socket socket: {:?}", socket.local_addr());
-                match multi_target_send(socket, shred, &addrs) {
-                    Ok(()) => num_addrs,
-                    Err(SendPktsError::IoError(ioerr, num_failed)) => {
-                        error!("retransmit_to multi_target_send error: {ioerr:?}, {num_failed}/{} packets failed", num_addrs);
-                        num_addrs - num_failed
-                    }
+            RetransmitSocket::Socket(socket) => match multi_target_send(socket, shred, &addrs) {
+                Ok(()) => num_addrs,
+                Err(SendPktsError::IoError(ioerr, num_failed)) => {
+                    error!("retransmit_to multi_target_send error: {ioerr:?}, {num_failed}/{} packets failed", num_addrs);
+                    num_addrs - num_failed
                 }
-            }
+            },
         },
     };
     retransmit_time.stop();
