@@ -7,7 +7,6 @@ use {
     solana_pubkey::Pubkey,
     solana_quic_definitions::NotifyKeyUpdate,
     solana_runtime::bank_forks::BankForks,
-    solana_streamer::atomic_udp_socket::AtomicUdpSocket,
     std::{
         collections::{HashMap, HashSet},
         net::UdpSocket,
@@ -79,7 +78,5 @@ pub struct AdminRpcRequestMetadataPostInit {
     pub repair_socket: Arc<UdpSocket>,
     pub outstanding_repair_requests: Arc<RwLock<OutstandingRequests<ShredRepairType>>>,
     pub cluster_slots: Arc<ClusterSlots>,
-    pub gossip_socket: Option<AtomicUdpSocket>,
-    pub retransmit_socket_selector: Option<Arc<dyn Fn(usize) + Send + Sync>>,
     pub node: Option<Arc<NodeMultihoming>>,
 }
