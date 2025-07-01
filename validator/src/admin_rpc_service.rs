@@ -16,7 +16,10 @@ use {
         validator::ValidatorStartProgress,
     },
     solana_geyser_plugin_manager::GeyserPluginManagerRequest,
-    solana_gossip::contact_info::{ContactInfo, Protocol, SOCKET_ADDR_UNSPECIFIED},
+    solana_gossip::{
+        contact_info::{ContactInfo, Protocol, SOCKET_ADDR_UNSPECIFIED},
+        egress_socket_select,
+    },
     solana_keypair::{read_keypair_file, Keypair},
     solana_net_utils::sockets::bind_to,
     solana_pubkey::Pubkey,
@@ -559,7 +562,8 @@ impl AdminRpc for AdminRpcImpl {
         let new_addr = SocketAddr::new(ip, port);
 
         meta.with_post_init(|post_init| {
-            if let Some(socket) = &post_init.gossip_socket {
+            if let Some(node) = &post_init.node {
+                let socket = &node.sockets.gossip;
                 let new_socket = bind_to(new_addr.ip(), new_addr.port()).map_err(|e| {
                     jsonrpc_core::Error::invalid_params(format!("Gossip socket rebind failed: {e}"))
                 })?;
@@ -632,9 +636,38 @@ impl AdminRpc for AdminRpcImpl {
             interface_index
         );
         meta.with_post_init(|post_init| {
-            if let Some(selector) = &post_init.retransmit_socket_selector {
-                info!("greg: setting interface index to {}", interface_index);
-                selector(interface_index);
+            if let Some(node) = &post_init.node {
+                // Validate the interface index
+                let ip_addr = node.bind_ip_addrs.set_active(interface_index).map_err(|e| {
+                    jsonrpc_core::Error::invalid_params(format!("Invalid interface index: {}", e))
+                })?;
+
+                let sockets_per_interface = node.num_tvu_retransmit_sockets.get();
+                let offset = interface_index.saturating_mul(sockets_per_interface);
+                if offset >= node.sockets.retransmit_sockets.len() {
+                    return Err(jsonrpc_core::Error::invalid_params(format!(
+                        "Interface index {interface_index} out of range: retransmit_sockets has {} sockets but needs offset {offset}",
+                        node.sockets.retransmit_sockets.len()
+                    )));
+                }
+
+                let socket_address = node.sockets.retransmit_sockets[offset]
+                    .local_addr()
+                    .map_err(|e| jsonrpc_core::Error::invalid_params(format!(
+                        "Failed to get socket address at retransmit_sockets offset {}: {}", offset, e
+                    )))?;
+
+                if ip_addr != socket_address.ip() {
+                    return Err(jsonrpc_core::Error::invalid_params(format!(
+                        "IP address mismatch: expected {} but got {}",
+                        ip_addr,
+                        socket_address.ip()
+                    )));
+                }
+
+                egress_socket_select::select_interface(interface_index);
+
+                info!("greg: set_retransmit_sockets_interface success.");
             }
             Ok(())
         })
@@ -1100,8 +1133,6 @@ mod tests {
                     cluster_slots: Arc::new(
                         solana_core::cluster_slots_service::cluster_slots::ClusterSlots::default(),
                     ),
-                    gossip_socket: None,
-                    retransmit_socket_selector: None,
                     node: None,
                 }))),
                 staked_nodes_overrides: Arc::new(RwLock::new(HashMap::new())),
