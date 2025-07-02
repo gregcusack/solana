@@ -2370,7 +2370,7 @@ pub struct BindIpAddrs {
     /// Index 0 is the primary address
     /// Index 1+ are secondary addresses
     addrs: Vec<IpAddr>,
-    active_index: AtomicUsize,
+    active_index: Arc<AtomicUsize>,
 }
 
 impl BindIpAddrs {
@@ -2391,12 +2391,26 @@ impl BindIpAddrs {
             }
         }
 
-        Ok(Self { addrs })
+        Ok(Self {
+            addrs,
+            active_index: Arc::new(AtomicUsize::new(0)),
+        })
     }
 
     #[inline]
-    pub fn primary(&self) -> IpAddr {
-        self.addrs[0]
+    pub fn active(&self) -> IpAddr {
+        self.addrs[self.active_index.load(Ordering::Acquire)]
+    }
+
+    pub fn set_active(&self, index: usize) -> Result<IpAddr, String> {
+        if index >= self.addrs.len() {
+            return Err(format!(
+                "Index {index} out of range, only {} IPs available",
+                self.addrs.len()
+            ));
+        }
+        self.active_index.store(index, Ordering::Release);
+        Ok(self.addrs[index])
     }
 }
 
@@ -2735,7 +2749,7 @@ impl Node {
             num_quic_endpoints,
             vortexor_receiver_addr,
         } = config;
-        let bind_ip_addr = bind_ip_addrs.primary();
+        let bind_ip_addr = bind_ip_addrs.active();
 
         let gossip_addr = SocketAddr::new(advertised_ip, gossip_port);
         let (gossip_port, (gossip, ip_echo)) =
