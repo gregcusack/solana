@@ -242,6 +242,9 @@ pub trait AdminRpc {
         interface_index: usize,
     ) -> Result<()>;
 
+    #[rpc(meta, name = "getActiveInterface")]
+    fn active_interface(&self, meta: Self::Metadata) -> Result<String>;
+
     #[rpc(meta, name = "repairShredFromPeer")]
     fn repair_shred_from_peer(
         &self,
@@ -679,6 +682,25 @@ impl AdminRpc for AdminRpcImpl {
                 info!("greg: set_retransmit_sockets_interface success.");
             }
             Ok(())
+        })
+    }
+
+    fn active_interface(&self, meta: Self::Metadata) -> Result<String> {
+        meta.with_post_init(|post_init| {
+            if let Some(node) = &post_init.node {
+                let interface_ip = node.bind_ip_addrs.active().to_string();
+
+                info!(
+                    "greg: active_interface queried. Current interface: {}",
+                    interface_ip
+                );
+
+                Ok(interface_ip)
+            } else {
+                Err(jsonrpc_core::Error::invalid_params(
+                    "`Node` not initialized in `post_init`",
+                ))
+            }
         })
     }
 
