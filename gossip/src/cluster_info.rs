@@ -28,7 +28,6 @@ use {
         },
         crds_value::{CrdsValue, CrdsValueLabel},
         duplicate_shred::DuplicateShred,
-        egress_socket_select,
         epoch_slots::EpochSlots,
         epoch_specs::EpochSpecs,
         gossip_error::GossipError,
@@ -2877,7 +2876,6 @@ impl Node {
             bind_more_with_config(tpu_vote_quic, num_quic_endpoints.get(), socket_config).unwrap();
 
         let retransmit_socket_count = num_tvu_retransmit_sockets.get();
-        egress_socket_select::init(retransmit_socket_count);
         let mut retransmit_sockets =
             Vec::with_capacity(retransmit_socket_count * bind_ip_addrs.len());
         for ip in bind_ip_addrs.iter() {
