@@ -170,6 +170,12 @@ impl<T> ClusterNodes<T> {
         let mut num_nodes_stale = 0;
         let mut stake_dead = 0;
         let mut stake_stale = 0;
+        let mut report = false;
+        let mut stale_nodes: Vec<String> = Vec::new();
+        let mut dead_nodes: Vec<String> = Vec::new();
+        if rand::thread_rng().gen_ratio(1, 5) {
+            report = true;
+        }
         for node in &self.nodes {
             epoch_stakes += node.stake;
             if node.stake != 0u64 {
@@ -179,15 +185,21 @@ impl<T> ClusterNodes<T> {
                 None => {
                     num_nodes_dead += 1;
                     stake_dead += node.stake;
+                    dead_nodes.push(node.pubkey().to_string());
                 }
                 Some(wallclock) => {
                     let age = now.saturating_sub(wallclock);
                     if age > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS {
                         num_nodes_stale += 1;
                         stake_stale += node.stake;
+                        stale_nodes.push(node.pubkey().to_string());
                     }
                 }
             }
+        }
+        if report {
+            error!("greg: stale_nodes: {:?}", stale_nodes);
+            error!("greg: dead_nodes: {:?}", dead_nodes);
         }
         num_nodes_stale += num_nodes_dead;
         stake_stale += stake_dead;
