@@ -96,7 +96,7 @@ use {
         rc::Rc,
         result::Result,
         sync::{
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
             Arc, Mutex, RwLock, RwLockReadGuard,
         },
         thread::{sleep, Builder, JoinHandle},
@@ -2370,6 +2370,7 @@ pub struct BindIpAddrs {
     /// Index 0 is the primary address
     /// Index 1+ are secondary addresses
     addrs: Vec<IpAddr>,
+    active_index: AtomicUsize,
 }
 
 impl BindIpAddrs {
