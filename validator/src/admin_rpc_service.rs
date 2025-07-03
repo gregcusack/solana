@@ -545,7 +545,8 @@ impl AdminRpc for AdminRpcImpl {
         let new_addr = SocketAddr::new(ip, port);
 
         meta.with_post_init(|post_init| {
-            if let Some(socket) = &post_init.gossip_socket {
+            if let Some(node) = &post_init.node {
+                let socket = &node.sockets.gossip;
                 let new_socket = bind_to(new_addr.ip(), new_addr.port()).map_err(|e| {
                     jsonrpc_core::Error::invalid_params(format!("Gossip socket rebind failed: {e}"))
                 })?;
@@ -1027,7 +1028,7 @@ mod tests {
                     cluster_slots: Arc::new(
                         solana_core::cluster_slots_service::cluster_slots::ClusterSlots::default(),
                     ),
-                    gossip_socket: None,
+                    node: None,
                 }))),
                 staked_nodes_overrides: Arc::new(RwLock::new(HashMap::new())),
                 rpc_to_plugin_manager_sender: None,

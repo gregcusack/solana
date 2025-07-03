@@ -26,6 +26,7 @@ pub mod gossip_service;
 mod tlv;
 #[macro_use]
 mod legacy_contact_info;
+pub mod multihoming;
 pub mod ping_pong;
 mod protocol;
 mod push_active_set;
