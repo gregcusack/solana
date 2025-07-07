@@ -60,7 +60,10 @@ use {
         packet::{Packet, PacketBatch, PacketBatchRecycler, PACKET_DATA_SIZE},
     },
     solana_rayon_threadlimit::get_thread_count,
-    solana_runtime::bank_forks::BankForks,
+    solana_runtime::{
+        bank::Bank,
+        bank_forks::BankForks,
+    },
     solana_sanitize::Sanitize,
     solana_sdk::{
         clock::{Slot, DEFAULT_MS_PER_SLOT, DEFAULT_SLOTS_PER_EPOCH},
@@ -1458,11 +1461,12 @@ impl ClusterInfo {
             .thread_name(|i| format!("solRunGossip{i:02}"))
             .build()
             .unwrap();
-        let mut epoch_specs = bank_forks.map(EpochSpecs::from);
+        let mut epoch_specs = bank_forks.as_ref().map(|bf| EpochSpecs::from(bf.clone()));
         Builder::new()
             .name("solGossip".to_string())
             .spawn(move || {
                 let mut last_push = 0;
+                let mut stake_last_push = 0;
                 let mut last_contact_info_trace = timestamp();
                 let mut last_contact_info_save = timestamp();
                 let mut entrypoints_processed = false;
@@ -1470,6 +1474,7 @@ impl ClusterInfo {
                 let mut generate_pull_requests = true;
                 while !exit.load(Ordering::Relaxed) {
                     let start = timestamp();
+                    let stake_start = timestamp();
                     if self.contact_debug_interval != 0
                         && start - last_contact_info_trace > self.contact_debug_interval
                     {
@@ -1518,6 +1523,14 @@ impl ClusterInfo {
                             &sender,
                         );
                         last_push = timestamp();
+                    }
+                    if stake_start - stake_last_push > 5000 {
+                        if let Some(ref bank_forks) = bank_forks {
+                            let bank = bank_forks.read().unwrap().working_bank();
+                            let stake_percent = self.get_stake_percent_in_gossip(&bank);
+                            info!("Stake percent in gossip: {}", stake_percent);
+                        }
+                        stake_last_push = timestamp();
                     }
                     let elapsed = timestamp() - start;
                     if GOSSIP_SLEEP_MILLIS > elapsed {
@@ -2371,6 +2384,100 @@ impl ClusterInfo {
             shred_version,
         );
         (contact_info, gossip_socket, None)
+    }
+
+    // Get the activated stake percentage (based on the provided bank) that is visible in gossip
+    fn get_stake_percent_in_gossip(&self, bank: &Bank) -> u64 {
+        let mut online_stake = 0;
+        let mut wrong_shred_stake = 0;
+        let mut wrong_shred_nodes = vec![];
+        let mut offline_stake = 0;
+        let mut offline_nodes = vec![];
+
+        let mut total_activated_stake = 0;
+        let now = timestamp();
+        // Nodes contact infos are saved to disk and restored on validator startup.
+        // Staked nodes entries will not expire until an epoch after. So it
+        // is necessary here to filter for recent entries to establish liveness.
+        let peers: HashMap<_, _> = self
+            .tvu_peers(|q| q.clone())
+            .into_iter()
+            .filter(|node| {
+                let age = now.saturating_sub(node.wallclock());
+                // Contact infos are refreshed twice during this period.
+                age < CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+            })
+            .map(|node| (*node.pubkey(), node))
+            .collect();
+        let my_shred_version = self.my_shred_version();
+        let my_id = self.id();
+
+        for (activated_stake, vote_account) in bank.vote_accounts().values() {
+            let activated_stake = *activated_stake;
+            total_activated_stake += activated_stake;
+
+            if activated_stake == 0 {
+                continue;
+            }
+            let vote_state_node_pubkey = *vote_account.node_pubkey();
+
+            if let Some(peer) = peers.get(&vote_state_node_pubkey) {
+                if peer.shred_version() == my_shred_version {
+                    info!(
+                        "greg: observed {} in gossip, (activated_stake={})",
+                        vote_state_node_pubkey,
+                        activated_stake
+                    );
+                    online_stake += activated_stake;
+                } else {
+                    wrong_shred_stake += activated_stake;
+                    wrong_shred_nodes.push((activated_stake, vote_state_node_pubkey));
+                }
+            } else if vote_state_node_pubkey == my_id {
+                online_stake += activated_stake; // This node is online
+            } else {
+                offline_stake += activated_stake;
+                offline_nodes.push((activated_stake, vote_state_node_pubkey));
+            }
+        }
+
+        let online_stake_percentage = (online_stake as f64 / total_activated_stake as f64) * 100.;
+        info!(
+            "greg: {:.3}% of active stake visible in gossip",
+            online_stake_percentage
+        );
+
+        if !wrong_shred_nodes.is_empty() {
+            info!(
+                "greg: {:.3}% of active stake has the wrong shred version in gossip",
+                (wrong_shred_stake as f64 / total_activated_stake as f64) * 100.,
+            );
+            wrong_shred_nodes.sort_by(|b, a| a.0.cmp(&b.0)); // sort by reverse stake weight
+            for (stake, identity) in wrong_shred_nodes {
+                info!(
+                    "greg:     {:.3}% - {}",
+                    (stake as f64 / total_activated_stake as f64) * 100.,
+                    identity
+                );
+            }
+        }
+
+        if !offline_nodes.is_empty() {
+            info!(
+                "greg: {:.3}% of active stake is not visible in gossip",
+                (offline_stake as f64 / total_activated_stake as f64) * 100.
+            );
+            offline_nodes.sort_by(|b, a| a.0.cmp(&b.0)); // sort by reverse stake weight
+            for (stake, identity) in offline_nodes {
+                info!(
+                    "greg:     {:.3}% - {}",
+                    (stake as f64 / total_activated_stake as f64) * 100.,
+                    identity
+                );
+            }
+        }
+
+        online_stake_percentage as u64
     }
 }
 
