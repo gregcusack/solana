@@ -2219,7 +2219,7 @@ impl ClusterInfo {
     }
 
     /// Process messages from the network
-    fn run_listen(
+    fn _run_listen(
         &self,
         recycler: &PacketBatchRecycler,
         epoch_specs: Option<&mut EpochSpecs>,
@@ -2368,7 +2368,7 @@ impl ClusterInfo {
             .unwrap();
         let mut epoch_specs = bank_forks.map(EpochSpecs::from);
         if !custom_stakes.is_empty() {
-            epoch_specs = Some(EpochSpecs::with_custom_stakes(custom_stakes));
+            epoch_specs = Some(EpochSpecs::with_custom_stakes(custom_stakes.clone()));
         }
         Builder::new()
             .name("solGossipListen".to_string())
@@ -2382,7 +2382,7 @@ impl ClusterInfo {
                         &thread_pool,
                         &mut last_print,
                         should_check_duplicate_instance,
-                        custom_stakes
+                        custom_stakes.clone()
                     ) {
                         match err {
                             GossipError::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,

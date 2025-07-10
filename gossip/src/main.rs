@@ -13,10 +13,11 @@ use {
         input_validators::{is_keypair_or_ask_keyword, is_port, is_pubkey},
     },
     solana_gossip::{contact_info::ContactInfo, gossip_service::{discover, discover_with_stakes}},
-    solana_keypair::{Keypair, read_keypair_file},
+    solana_sdk::{
+        pubkey::Pubkey,
+        signature::{Keypair, read_keypair_file, Signer},
+    },
     solana_metrics::{self},
-    solana_pubkey::Pubkey,
-    solana_signer::Signer,
     solana_streamer::socket::SocketAddrSpace,
     std::{
         collections::HashMap,
@@ -156,6 +157,20 @@ fn parse_matches() -> ArgMatches<'static> {
                 .arg(&shred_version_arg)
                 .arg(&gossip_port_arg)
                 .arg(&gossip_host_arg)
+                .arg(
+                    Arg::with_name("stakes_file")
+                        .long("stakes-file")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("Path to YAML file containing pubkey: stake mappings"),
+                )
+                .arg(
+                    Arg::with_name("keypair_file")
+                        .long("keypair-file")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("Path to keypair file (e.g., id_x.json) to use as identity"),
+                )
                 .arg(
                     Arg::with_name("stakes_file")
                         .long("stakes-file")
