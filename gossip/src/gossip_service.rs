@@ -19,7 +19,7 @@ use {
     },
     solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
     std::{
-        collections::HashSet,
+        collections::{HashMap, HashSet},
         net::{SocketAddr, TcpListener, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -43,6 +43,28 @@ impl GossipService {
         should_check_duplicate_instance: bool,
         stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
         exit: Arc<AtomicBool>,
+    ) -> Self {
+        Self::new_with_custom_stakes(
+            cluster_info,
+            bank_forks,
+            gossip_socket,
+            gossip_validators,
+            should_check_duplicate_instance,
+            stats_reporter_sender,
+            exit,
+            None, // custom stakes
+        )
+    }
+
+    pub fn new_with_custom_stakes(
+        cluster_info: &Arc<ClusterInfo>,
+        bank_forks: Option<Arc<RwLock<BankForks>>>,
+        gossip_socket: UdpSocket,
+        gossip_validators: Option<HashSet<Pubkey>>,
+        should_check_duplicate_instance: bool,
+        stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
+        exit: Arc<AtomicBool>,
+        custom_stakes: Option<HashMap<Pubkey, u64>>,
     ) -> Self {
         let (request_sender, request_receiver) = unbounded();
         let gossip_socket = Arc::new(gossip_socket);
@@ -72,17 +94,40 @@ impl GossipService {
             exit.clone(),
         );
         let (response_sender, response_receiver) = unbounded();
-        let t_listen = cluster_info.clone().listen(
-            bank_forks.clone(),
-            listen_receiver,
-            response_sender.clone(),
-            should_check_duplicate_instance,
-            exit.clone(),
-        );
-        let t_gossip =
-            cluster_info
-                .clone()
-                .gossip(bank_forks, response_sender, gossip_validators, exit);
+        let t_listen = if let Some(stakes) = custom_stakes.as_ref().cloned() {
+            cluster_info.clone().listen_with_stakes(
+                bank_forks.clone(),
+                listen_receiver,
+                response_sender.clone(),
+                should_check_duplicate_instance,
+                exit.clone(),
+                stakes,
+            )
+        } else {
+            cluster_info.clone().listen(
+                bank_forks.clone(),
+                listen_receiver,
+                response_sender.clone(),
+                should_check_duplicate_instance,
+                exit.clone(),
+            )
+        };
+        let t_gossip = if let Some(stakes) = custom_stakes.as_ref().cloned() {
+            cluster_info.clone().gossip_with_stakes(
+                bank_forks.clone(),
+                response_sender,
+                gossip_validators,
+                exit.clone(),
+                stakes,
+            )
+        } else {
+            cluster_info.clone().gossip(
+                bank_forks.clone(),
+                response_sender,
+                gossip_validators,
+                exit.clone(),
+            )
+        };
         let t_responder = streamer::responder(
             "Gossip",
             gossip_socket,
@@ -143,9 +188,38 @@ pub fn discover(
     Vec<ContactInfo>, // all gossip peers
     Vec<ContactInfo>, // tvu peers (validators)
 )> {
+    discover_with_stakes(
+        keypair,
+        entrypoint,
+        num_nodes,
+        timeout,
+        find_nodes_by_pubkey,
+        find_node_by_gossip_addr,
+        my_gossip_addr,
+        my_shred_version,
+        socket_addr_space,
+        None, // custom stakes
+    )
+}
+
+pub fn discover_with_stakes(
+    keypair: Option<Keypair>,
+    entrypoint: Option<&SocketAddr>,
+    num_nodes: Option<usize>, // num_nodes only counts validators, excludes spy nodes
+    timeout: Duration,
+    find_nodes_by_pubkey: Option<&[Pubkey]>,
+    find_node_by_gossip_addr: Option<&SocketAddr>,
+    my_gossip_addr: Option<&SocketAddr>,
+    my_shred_version: u16,
+    socket_addr_space: SocketAddrSpace,
+    custom_stakes: Option<HashMap<Pubkey, u64>>,
+) -> std::io::Result<(
+    Vec<ContactInfo>, // all gossip peers
+    Vec<ContactInfo>, // tvu peers (validators)
+)> {
     let keypair = keypair.unwrap_or_else(Keypair::new);
     let exit = Arc::new(AtomicBool::new(false));
-    let (gossip_service, ip_echo, spy_ref) = make_gossip_node(
+    let (gossip_service, ip_echo, spy_ref) = make_gossip_node_with_stakes(
         keypair,
         entrypoint,
         exit.clone(),
@@ -153,6 +227,7 @@ pub fn discover(
         my_shred_version,
         true, // should_check_duplicate_instance,
         socket_addr_space,
+        custom_stakes,
     );
 
     let id = spy_ref.id();
@@ -321,6 +396,29 @@ pub fn make_gossip_node(
     should_check_duplicate_instance: bool,
     socket_addr_space: SocketAddrSpace,
 ) -> (GossipService, Option<TcpListener>, Arc<ClusterInfo>) {
+    make_gossip_node_with_stakes(
+        keypair,
+        entrypoint,
+        exit,
+        gossip_addr,
+        shred_version,
+        should_check_duplicate_instance,
+        socket_addr_space,
+        None, // custom stakes
+    )
+}
+
+/// Makes a spy or gossip node with custom stakes
+pub fn make_gossip_node_with_stakes(
+    keypair: Keypair,
+    entrypoint: Option<&SocketAddr>,
+    exit: Arc<AtomicBool>,
+    gossip_addr: Option<&SocketAddr>,
+    shred_version: u16,
+    should_check_duplicate_instance: bool,
+    socket_addr_space: SocketAddrSpace,
+    custom_stakes: Option<HashMap<Pubkey, u64>>,
+) -> (GossipService, Option<TcpListener>, Arc<ClusterInfo>) {
     let (node, gossip_socket, ip_echo) = if let Some(gossip_addr) = gossip_addr {
         ClusterInfo::gossip_node(keypair.pubkey(), gossip_addr, shred_version)
     } else {
@@ -331,7 +429,7 @@ pub fn make_gossip_node(
         cluster_info.set_entrypoint(ContactInfo::new_gossip_entry_point(entrypoint));
     }
     let cluster_info = Arc::new(cluster_info);
-    let gossip_service = GossipService::new(
+    let gossip_service = GossipService::new_with_custom_stakes(
         &cluster_info,
         None,
         gossip_socket,
@@ -339,6 +437,7 @@ pub fn make_gossip_node(
         should_check_duplicate_instance,
         None,
         exit,
+        custom_stakes,
     );
     (gossip_service, ip_echo, cluster_info)
 }

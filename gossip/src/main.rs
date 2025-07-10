@@ -6,18 +6,25 @@ use {
         SubCommand,
     },
     log::{error, info},
+    serde_yaml,
     solana_clap_utils::{
         hidden_unless_forced,
         input_parsers::{keypair_of, pubkeys_of},
         input_validators::{is_keypair_or_ask_keyword, is_port, is_pubkey},
     },
-    solana_gossip::{contact_info::ContactInfo, gossip_service::discover},
+    solana_gossip::{contact_info::ContactInfo, gossip_service::{discover, discover_with_stakes}},
+    solana_keypair::{Keypair, read_keypair_file},
+    solana_metrics::{self},
     solana_pubkey::Pubkey,
+    solana_signer::Signer,
     solana_streamer::socket::SocketAddrSpace,
     std::{
+        collections::HashMap,
         error,
+        fs,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         process::exit,
+        str::FromStr,
         time::Duration,
     },
 };
@@ -150,6 +157,20 @@ fn parse_matches() -> ArgMatches<'static> {
                 .arg(&gossip_port_arg)
                 .arg(&gossip_host_arg)
                 .arg(
+                    Arg::with_name("stakes_file")
+                        .long("stakes-file")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("Path to YAML file containing pubkey: stake mappings"),
+                )
+                .arg(
+                    Arg::with_name("keypair_file")
+                        .long("keypair-file")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("Path to keypair file (e.g., id_x.json) to use as identity"),
+                )
+                .arg(
                     Arg::with_name("timeout")
                         .long("timeout")
                         .value_name("SECONDS")
@@ -250,9 +271,43 @@ fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std:
         .value_of("timeout")
         .map(|secs| secs.to_string().parse().unwrap());
     let pubkeys = pubkeys_of(matches, "node_pubkey");
-    let identity_keypair = keypair_of(matches, "identity");
     let entrypoint_addr = parse_entrypoint(matches);
     let gossip_addr = get_gossip_address(matches, entrypoint_addr);
+
+    // Parse custom stakes if provided
+    let custom_stakes = if let Some(stakes_file) = matches.value_of("stakes_file") {
+        match read_stakes_from_yaml(stakes_file) {
+            Ok(stakes) => {
+                info!("Loaded {} custom stakes from {}", stakes.len(), stakes_file);
+                Some(stakes)
+            }
+            Err(err) => {
+                eprintln!("Failed to read stakes file {}: {}", stakes_file, err);
+                exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
+    // Load keypair if provided
+    let identity_keypair = if let Some(keypair_file) = matches.value_of("keypair_file") {
+        match read_keypair_file(keypair_file) {
+            Ok(keypair) => {
+                info!("Using keypair from {} (pubkey: {})", keypair_file, keypair.pubkey());
+                keypair
+            }
+            Err(err) => {
+                eprintln!("Failed to load keypair from {}: {}", keypair_file, err);
+                exit(1);
+            }
+        }
+    } else {
+        // Fall back to identity argument or generate new keypair
+        keypair_of(matches, "identity").unwrap_or_else(Keypair::new)
+    };
+    solana_metrics::set_host_id(identity_keypair.pubkey().to_string());
+    solana_metrics::set_panic_hook("solana-gossip", None);
 
     let mut shred_version = value_t_or_exit!(matches, "shred_version", u16);
     if shred_version == 0 {
@@ -261,8 +316,8 @@ fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std:
     }
 
     let discover_timeout = Duration::from_secs(timeout.unwrap_or(u64::MAX));
-    let (_all_peers, validators) = discover(
-        identity_keypair,
+    let (_all_peers, validators) = discover_with_stakes(
+        Some(identity_keypair),
         entrypoint_addr.as_ref(),
         num_nodes,
         discover_timeout,
@@ -271,6 +326,7 @@ fn process_spy(matches: &ArgMatches, socket_addr_space: SocketAddrSpace) -> std:
         Some(&gossip_addr), // my_gossip_addr
         shred_version,
         socket_addr_space,
+        custom_stakes,
     )?;
 
     process_spy_results(
@@ -349,6 +405,19 @@ fn process_rpc_url(
     Ok(())
 }
 
+fn read_stakes_from_yaml(file_path: &str) -> Result<HashMap<Pubkey, u64>, Box<dyn error::Error>> {
+    let content = fs::read_to_string(file_path)?;
+    let stakes_map: HashMap<String, u64> = serde_yaml::from_str(&content)?;
+    
+    let mut stakes = HashMap::new();
+    for (pubkey_str, stake) in stakes_map {
+        let pubkey = Pubkey::from_str(&pubkey_str)?;
+        stakes.insert(pubkey, stake);
+    }
+    
+    Ok(stakes)
+}
+
 fn get_gossip_address(matches: &ArgMatches, entrypoint_addr: Option<SocketAddr>) -> SocketAddr {
     let gossip_host = parse_gossip_host(matches, entrypoint_addr);
     SocketAddr::new(
@@ -365,6 +434,9 @@ fn get_gossip_address(matches: &ArgMatches, entrypoint_addr: Option<SocketAddr>)
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     solana_logger::setup_with_default_filter();
+    if std::env::var("SOLANA_METRICS_CONFIGasd").is_ok() {
+        solana_metrics::set_panic_hook("solana-gossip", None);
+    }
 
     let matches = parse_matches();
     let socket_addr_space = SocketAddrSpace::new(matches.is_present("allow_private_addr"));

@@ -1453,12 +1453,32 @@ impl ClusterInfo {
         gossip_validators: Option<HashSet<Pubkey>>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        self.gossip_with_stakes(
+            bank_forks,
+            sender,
+            gossip_validators,
+            exit,
+            HashMap::new(),
+        )
+    }
+
+    pub fn gossip_with_stakes(
+        self: Arc<Self>,
+        bank_forks: Option<Arc<RwLock<BankForks>>>,
+        sender: PacketBatchSender,
+        gossip_validators: Option<HashSet<Pubkey>>,
+        exit: Arc<AtomicBool>,
+        custom_stakes: HashMap<Pubkey, u64>,
+    ) -> JoinHandle<()> {
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(std::cmp::min(get_thread_count(), 8))
             .thread_name(|i| format!("solRunGossip{i:02}"))
             .build()
             .unwrap();
         let mut epoch_specs = bank_forks.map(EpochSpecs::from);
+        if !custom_stakes.is_empty() {
+            epoch_specs = Some(EpochSpecs::with_custom_stakes(custom_stakes.clone()));
+        }
         Builder::new()
             .name("solGossip".to_string())
             .spawn(move || {
@@ -1488,11 +1508,16 @@ impl ClusterInfo {
                         self.save_contact_info();
                         last_contact_info_save = start;
                     }
-                    let stakes = epoch_specs
-                        .as_mut()
-                        .map(EpochSpecs::current_epoch_staked_nodes)
-                        .cloned()
-                        .unwrap_or_default();
+                    let stakes = if !custom_stakes.is_empty() {
+                        Arc::new(custom_stakes.clone())
+                    } else {
+                        epoch_specs
+                            .as_mut()
+                            .map(EpochSpecs::current_epoch_staked_nodes)
+                            .cloned()
+                            .unwrap_or_default()
+                    };
+
                     let _ = self.run_gossip(
                         &thread_pool,
                         gossip_validators.as_ref(),
@@ -2197,12 +2222,35 @@ impl ClusterInfo {
     fn run_listen(
         &self,
         recycler: &PacketBatchRecycler,
+        epoch_specs: Option<&mut EpochSpecs>,
+        receiver: &Receiver<Vec<(/*from:*/ SocketAddr, Protocol)>>,
+        response_sender: &PacketBatchSender,
+        thread_pool: &ThreadPool,
+        should_check_duplicate_instance: bool,
+    ) -> Result<(), GossipError> {
+        let mut last_print = Instant::now();
+        self.run_listen_with_stakes(
+            recycler,
+            epoch_specs,
+            receiver,
+            response_sender,
+            thread_pool,
+            &mut last_print,
+            should_check_duplicate_instance,
+            HashMap::new(),
+        )
+    }
+
+    fn run_listen_with_stakes(
+        &self,
+        recycler: &PacketBatchRecycler,
         mut epoch_specs: Option<&mut EpochSpecs>,
         receiver: &Receiver<Vec<(/*from:*/ SocketAddr, Protocol)>>,
         response_sender: &PacketBatchSender,
         thread_pool: &ThreadPool,
         last_print: &mut Instant,
         should_check_duplicate_instance: bool,
+        custom_stakes: HashMap<Pubkey, u64>,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_listen_loop_time);
         const RECV_TIMEOUT: Duration = Duration::from_secs(1);
@@ -2218,11 +2266,15 @@ impl ClusterInfo {
                     .add_relaxed(excess_count as u64);
             }
         }
-        let stakes = epoch_specs
-            .as_mut()
-            .map(|epoch_specs| epoch_specs.current_epoch_staked_nodes())
-            .cloned()
-            .unwrap_or_default();
+        let stakes = if !custom_stakes.is_empty() {
+            Arc::new(custom_stakes)
+        } else {
+            epoch_specs
+                .as_mut()
+                .map(|epoch_specs| epoch_specs.current_epoch_staked_nodes())
+                .cloned()
+                .unwrap_or_default()
+        };
         let epoch_duration = epoch_specs
             .map(EpochSpecs::epoch_duration)
             .unwrap_or(DEFAULT_EPOCH_DURATION);
@@ -2288,6 +2340,25 @@ impl ClusterInfo {
         should_check_duplicate_instance: bool,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        self.listen_with_stakes(
+            bank_forks,
+            requests_receiver,
+            response_sender,
+            should_check_duplicate_instance,
+            exit,
+            HashMap::new(),
+        )
+    }
+
+    pub(crate) fn listen_with_stakes(
+        self: Arc<Self>,
+        bank_forks: Option<Arc<RwLock<BankForks>>>,
+        requests_receiver: Receiver<Vec<(/*from:*/ SocketAddr, Protocol)>>,
+        response_sender: PacketBatchSender,
+        should_check_duplicate_instance: bool,
+        exit: Arc<AtomicBool>,
+        custom_stakes: HashMap<Pubkey, u64>,
+    ) -> JoinHandle<()> {
         let mut last_print = Instant::now();
         let recycler = PacketBatchRecycler::default();
         let thread_pool = ThreadPoolBuilder::new()
@@ -2296,11 +2367,14 @@ impl ClusterInfo {
             .build()
             .unwrap();
         let mut epoch_specs = bank_forks.map(EpochSpecs::from);
+        if !custom_stakes.is_empty() {
+            epoch_specs = Some(EpochSpecs::with_custom_stakes(custom_stakes));
+        }
         Builder::new()
             .name("solGossipListen".to_string())
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
-                    if let Err(err) = self.run_listen(
+                    if let Err(err) = self.run_listen_with_stakes(
                         &recycler,
                         epoch_specs.as_mut(),
                         &requests_receiver,
@@ -2308,6 +2382,7 @@ impl ClusterInfo {
                         &thread_pool,
                         &mut last_print,
                         should_check_duplicate_instance,
+                        custom_stakes
                     ) {
                         match err {
                             GossipError::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,

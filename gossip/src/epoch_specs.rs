@@ -54,6 +54,23 @@ impl EpochSpecs {
         self.current_epoch_staked_nodes = root_bank.current_epoch_staked_nodes();
         self.epoch_duration = get_epoch_duration(&root_bank);
     }
+
+    /// Create EpochSpecs with custom stakes for testing or spy mode
+    pub fn with_custom_stakes(stakes: HashMap<Pubkey, u64>) -> Self {
+        let bank_forks = BankForks::new_rw_arc(
+            Bank::new_for_tests(&solana_runtime::genesis_utils::create_genesis_config(1000).genesis_config)
+        );
+        let root = bank_forks.read().unwrap().get_atomic_root();
+        let epoch_duration = get_epoch_duration(&bank_forks.read().unwrap().root_bank());
+        Self {
+            epoch: 0,
+            epoch_schedule: EpochSchedule::default(),
+            root,
+            bank_forks,
+            current_epoch_staked_nodes: Arc::new(stakes),
+            epoch_duration,
+        }
+    }
 }
 
 impl From<Arc<RwLock<BankForks>>> for EpochSpecs {
