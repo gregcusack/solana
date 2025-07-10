@@ -1418,12 +1418,32 @@ impl ClusterInfo {
         gossip_validators: Option<HashSet<Pubkey>>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        self.gossip_with_stakes(
+            bank_forks,
+            sender,
+            gossip_validators,
+            exit,
+            HashMap::new(),
+        )
+    }
+
+    pub fn gossip_with_stakes(
+        self: Arc<Self>,
+        bank_forks: Option<Arc<RwLock<BankForks>>>,
+        sender: impl ChannelSend<PacketBatch>,
+        gossip_validators: Option<HashSet<Pubkey>>,
+        exit: Arc<AtomicBool>,
+        custom_stakes: HashMap<Pubkey, u64>,
+    ) -> JoinHandle<()> {
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(std::cmp::min(get_thread_count(), 8))
             .thread_name(|i| format!("solRunGossip{i:02}"))
             .build()
             .unwrap();
         let mut epoch_specs = bank_forks.map(EpochSpecs::from);
+        if !custom_stakes.is_empty() {
+            epoch_specs = Some(EpochSpecs::with_custom_stakes(custom_stakes.clone()));
+        }
         Builder::new()
             .name("solGossip".to_string())
             .spawn(move || {
@@ -1456,11 +1476,15 @@ impl ClusterInfo {
                         self.save_contact_info();
                         last_contact_info_save = start;
                     }
-                    let stakes = epoch_specs
-                        .as_mut()
-                        .map(EpochSpecs::current_epoch_staked_nodes)
-                        .cloned()
-                        .unwrap_or_default();
+                    let stakes = if !custom_stakes.is_empty() {
+                        Arc::new(custom_stakes.clone())
+                    } else {
+                        epoch_specs
+                            .as_mut()
+                            .map(EpochSpecs::current_epoch_staked_nodes)
+                            .cloned()
+                            .unwrap_or_default()
+                    };
 
                     let _ = self.run_gossip(
                         &thread_pool,
@@ -2138,7 +2162,29 @@ impl ClusterInfo {
     }
 
     /// Process messages from the network
-    fn run_listen(
+    fn _run_listen(
+        &self,
+        recycler: &PacketBatchRecycler,
+        epoch_specs: Option<&mut EpochSpecs>,
+        receiver: &Receiver<Vec<(/*from:*/ SocketAddr, Protocol)>>,
+        response_sender: &impl ChannelSend<PacketBatch>,
+        thread_pool: &ThreadPool,
+        should_check_duplicate_instance: bool,
+        packet_buf: &mut Vec<Vec<(/*from:*/ SocketAddr, Protocol)>>,
+    ) -> Result<(), GossipError> {
+        self.run_listen_with_stakes(
+            recycler,
+            epoch_specs,
+            receiver,
+            response_sender,
+            thread_pool,
+            should_check_duplicate_instance,
+            packet_buf,
+            HashMap::new(),
+        )
+    }
+
+    fn run_listen_with_stakes(
         &self,
         recycler: &PacketBatchRecycler,
         mut epoch_specs: Option<&mut EpochSpecs>,
@@ -2147,6 +2193,7 @@ impl ClusterInfo {
         thread_pool: &ThreadPool,
         should_check_duplicate_instance: bool,
         packet_buf: &mut Vec<Vec<(/*from:*/ SocketAddr, Protocol)>>,
+        custom_stakes: HashMap<Pubkey, u64>,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_listen_loop_time);
         for pkts in receiver
@@ -2159,11 +2206,15 @@ impl ClusterInfo {
                 break;
             }
         }
-        let stakes = epoch_specs
-            .as_mut()
-            .map(|epoch_specs| epoch_specs.current_epoch_staked_nodes())
-            .cloned()
-            .unwrap_or_default();
+        let stakes = if !custom_stakes.is_empty() {
+            Arc::new(custom_stakes)
+        } else {
+            epoch_specs
+                .as_mut()
+                .map(|epoch_specs| epoch_specs.current_epoch_staked_nodes())
+                .cloned()
+                .unwrap_or_default()
+        };
         let epoch_duration = epoch_specs
             .map(EpochSpecs::epoch_duration)
             .unwrap_or(DEFAULT_EPOCH_DURATION);
@@ -2230,6 +2281,25 @@ impl ClusterInfo {
         should_check_duplicate_instance: bool,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        self.listen_with_stakes(
+            bank_forks,
+            requests_receiver,
+            response_sender,
+            should_check_duplicate_instance,
+            exit,
+            HashMap::new(),
+        )
+    }
+
+    pub(crate) fn listen_with_stakes(
+        self: Arc<Self>,
+        bank_forks: Option<Arc<RwLock<BankForks>>>,
+        requests_receiver: Receiver<Vec<(/*from:*/ SocketAddr, Protocol)>>,
+        response_sender: impl ChannelSend<PacketBatch>,
+        should_check_duplicate_instance: bool,
+        exit: Arc<AtomicBool>,
+        custom_stakes: HashMap<Pubkey, u64>,
+    ) -> JoinHandle<()> {
         let recycler = PacketBatchRecycler::default();
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(get_thread_count().min(8))
@@ -2237,12 +2307,15 @@ impl ClusterInfo {
             .build()
             .unwrap();
         let mut epoch_specs = bank_forks.map(EpochSpecs::from);
+        if !custom_stakes.is_empty() {
+            epoch_specs = Some(EpochSpecs::with_custom_stakes(custom_stakes.clone()));
+        }
         let mut packet_buf = Vec::with_capacity(CHANNEL_CONSUME_CAPACITY);
         Builder::new()
             .name("solGossipListen".to_string())
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
-                    let result = self.run_listen(
+                    let result = self.run_listen_with_stakes(
                         &recycler,
                         epoch_specs.as_mut(),
                         &requests_receiver,
@@ -2250,6 +2323,7 @@ impl ClusterInfo {
                         &thread_pool,
                         should_check_duplicate_instance,
                         &mut packet_buf,
+                        custom_stakes.clone()
                     );
                     if let Err(err) = result {
                         match err {
