@@ -408,10 +408,11 @@ impl ClusterInfo {
     pub fn check_ping(&self, target: Pubkey, target_addr: SocketAddr) -> (bool, Option<Packet>) {
         let mut rng = rand::thread_rng();
         let (state, maybe_ping) = {
+            let keypair = self.keypair.read().unwrap();
             let mut pingcache = self.ping_cache.lock().unwrap();
             pingcache.check(
                 &mut rng,
-                &self.keypair.read().unwrap(),
+                &keypair,
                 Instant::now(),
                 (target, target_addr),
             )
@@ -1616,9 +1617,10 @@ impl ClusterInfo {
         R: Rng + CryptoRng,
     {
         let mut cache = HashMap::<(Pubkey, SocketAddr), bool>::new();
+        let keypair = self.keypair();
         let mut ping_cache = self.ping_cache.lock().unwrap();
         let mut hard_check = move |node| {
-            let (check, ping) = ping_cache.check(rng, &self.keypair(), now, node);
+            let (check, ping) = ping_cache.check(rng, &keypair, now, node);
             if let Some(ping) = ping {
                 let ping = Protocol::PingMessage(ping);
                 if let Some(pkt) = make_gossip_packet(node.1, &ping, &self.stats) {
