@@ -30,7 +30,7 @@ pub(crate) fn recv_from(
     batch: &mut PinnedPacketBatch,
     socket: &UdpSocket,
     // If max_wait is None, reads from the socket until either:
-    //   * 64 packets are read (NUM_RCVMMSGS == PACKETS_PER_BATCH == 64), or
+    //   * 64 packets are read (PACKETS_PER_BATCH == 64), or
     //   * There are no more data available to read from the socket.
     max_wait: Option<Duration>,
 ) -> Result<usize> {
@@ -46,10 +46,7 @@ pub(crate) fn recv_from(
     let should_wait = max_wait.is_some();
     let start = should_wait.then(Instant::now);
     loop {
-        batch.resize(
-            std::cmp::min(i + NUM_RCVMMSGS, PACKETS_PER_BATCH),
-            Packet::default(),
-        );
+        batch.resize(PACKETS_PER_BATCH, Packet::default());
         match recv_mmsg(socket, &mut batch[i..]) {
             Err(err) if i > 0 => {
                 if !should_wait && err.kind() == ErrorKind::WouldBlock {
