@@ -1436,7 +1436,7 @@ impl ClusterInfo {
         custom_stakes: HashMap<Pubkey, u64>,
     ) -> JoinHandle<()> {
         let thread_pool = ThreadPoolBuilder::new()
-            .num_threads(std::cmp::min(get_thread_count(), 8))
+            .num_threads(std::cmp::min(get_thread_count(), 4))
             .thread_name(|i| format!("solRunGossip{i:02}"))
             .build()
             .unwrap();
@@ -2243,7 +2243,7 @@ impl ClusterInfo {
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let thread_pool = ThreadPoolBuilder::new()
-            .num_threads(get_thread_count().min(8))
+            .num_threads(get_thread_count().min(4))
             .thread_name(|i| format!("solGossipCons{i:02}"))
             .build()
             .unwrap();
