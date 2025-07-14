@@ -101,9 +101,10 @@ impl CrdsValueLabel {
 }
 
 impl CrdsValue {
-    pub fn new(data: CrdsData, keypair: &Keypair) -> Self {
+    pub fn new(data: CrdsData, _keypair: &Keypair) -> Self {
         let bincode_serialized_data = bincode::serialize(&data).unwrap();
-        let signature = keypair.sign_message(&bincode_serialized_data);
+        // let signature = keypair.sign_message(&bincode_serialized_data);\
+        let signature = Signature::default();
         let hash = solana_sha256_hasher::hashv(&[signature.as_ref(), &bincode_serialized_data]);
         Self {
             signature,

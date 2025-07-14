@@ -2124,10 +2124,11 @@ impl ClusterInfo {
                     return None;
                 }
             }
-            protocol.verify().then(|| {
-                stats.packets_received_verified_count.add_relaxed(1);
-                (packet.meta().socket_addr(), protocol)
-            })
+            // protocol.verify().then(|| {
+            //     stats.packets_received_verified_count.add_relaxed(1);
+            //     (packet.meta().socket_addr(), protocol)
+            // })
+            Some((packet.meta().socket_addr(), protocol))
         }
         let stakes = epoch_specs
             .map(EpochSpecs::current_epoch_staked_nodes)
