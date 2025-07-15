@@ -858,6 +858,7 @@ impl Validator {
         cluster_info.set_contact_debug_interval(config.contact_debug_interval);
         cluster_info.set_entrypoints(cluster_entrypoints);
         cluster_info.restore_contact_info(ledger_path, config.contact_save_interval);
+        cluster_info.set_bind_ip_addrs(node.bind_ip_addrs.clone());
         let cluster_info = Arc::new(cluster_info);
         let node_multihoming = NodeMultihoming::from(&node);
 
@@ -1734,8 +1735,8 @@ impl Validator {
     fn print_node_info(node: &Node) {
         info!("{:?}", node.info);
         info!(
-            "local gossip address: {}",
-            node.sockets.gossip.local_addr().unwrap()
+            "local primary gossip address: {}",
+            node.sockets.gossip[0].local_addr().unwrap()
         );
         info!(
             "local broadcast address: {}",
