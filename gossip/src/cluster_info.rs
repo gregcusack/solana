@@ -53,6 +53,7 @@ use {
     solana_ledger::shred::Shred,
     solana_net_utils::{
         bind_in_range, bind_to_localhost, bind_to_unspecified, find_available_ports_in_range,
+        multihomed_sockets::BindIpAddrs,
         sockets::{
             bind_common_in_range_with_config, bind_gossip_port_in_range, bind_in_range_with_config,
             bind_more_with_config, bind_to_with_config, bind_two_in_range_with_offset_and_config,
@@ -73,7 +74,6 @@ use {
     solana_signature::Signature,
     solana_signer::Signer,
     solana_streamer::{
-        atomic_udp_socket::AtomicUdpSocket,
         packet,
         quic::DEFAULT_QUIC_ENDPOINTS,
         socket::SocketAddrSpace,
@@ -96,7 +96,7 @@ use {
         rc::Rc,
         result::Result,
         sync::{
-            atomic::{AtomicBool, AtomicUsize, Ordering},
+            atomic::{AtomicBool, Ordering},
             Arc, Mutex, RwLock, RwLockReadGuard,
         },
         thread::{sleep, Builder, JoinHandle},
@@ -174,6 +174,7 @@ pub struct ClusterInfo {
     contact_save_interval: u64,  // milliseconds, 0 = disabled
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
+    bind_ip_addrs: Arc<BindIpAddrs>,
 }
 
 impl ClusterInfo {
@@ -202,6 +203,7 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
+            bind_ip_addrs: Arc::new(BindIpAddrs::default()),
         };
         me.refresh_my_gossip_contact_info();
         me
@@ -213,6 +215,14 @@ impl ClusterInfo {
 
     pub fn socket_addr_space(&self) -> &SocketAddrSpace {
         &self.socket_addr_space
+    }
+
+    pub fn set_bind_ip_addrs(&mut self, ip_addrs: Arc<BindIpAddrs>) {
+        self.bind_ip_addrs = ip_addrs;
+    }
+
+    pub fn bind_ip_addrs(&self) -> Arc<BindIpAddrs> {
+        self.bind_ip_addrs.clone()
     }
 
     fn refresh_push_active_set(
@@ -393,22 +403,31 @@ impl ClusterInfo {
         self.refresh_my_gossip_contact_info();
     }
 
-    pub fn set_gossip_socket(&self, gossip_addr: SocketAddr) -> Result<(), ContactInfoError> {
-        self.my_contact_info
-            .write()
-            .unwrap()
-            .set_gossip(gossip_addr)?;
+    pub fn refresh_sockets(
+        &self,
+        gossip_addr: SocketAddr,
+        tvu_addr: SocketAddr,
+    ) -> Result<(), ContactInfoError> {
+        self.set_gossip_socket(gossip_addr)?;
+        self.set_tvu_socket(tvu_addr)?;
         self.refresh_my_gossip_contact_info();
         Ok(())
     }
 
+    fn set_gossip_socket(&self, gossip_addr: SocketAddr) -> Result<(), ContactInfoError> {
+        self.my_contact_info
+            .write()
+            .unwrap()
+            .set_gossip(gossip_addr)?;
+        Ok(())
+    }
+
     /// todo: greg: set tvu socket. but we don't have the port. we just have the ip....
-    pub fn set_tvu_socket(&self, tvu_addr: SocketAddr) -> Result<(), ContactInfoError> {
+    fn set_tvu_socket(&self, tvu_addr: SocketAddr) -> Result<(), ContactInfoError> {
         self.my_contact_info
             .write()
             .unwrap()
             .set_tvu(contact_info::Protocol::UDP, tvu_addr)?;
-        self.refresh_my_gossip_contact_info();
         Ok(())
     }
 
@@ -2318,7 +2337,8 @@ impl ClusterInfo {
 
 #[derive(Debug)]
 pub struct Sockets {
-    pub gossip: AtomicUdpSocket,
+    // pub gossip: AtomicUdpSocket,
+    pub gossip: Vec<Arc<UdpSocket>>,
     pub ip_echo: Option<TcpListener>,
     pub tvu: Vec<Arc<UdpSocket>>,
     pub tvu_quic: UdpSocket,
@@ -2356,7 +2376,7 @@ pub struct Sockets {
 
 #[derive(Debug, Clone)]
 pub struct SocketsMultihomed {
-    pub gossip: AtomicUdpSocket,
+    pub gossip: Vec<Arc<UdpSocket>>,
     pub tvu: Vec<Arc<UdpSocket>>,
     pub retransmit_sockets: Vec<Arc<UdpSocket>>,
 }
@@ -2364,7 +2384,7 @@ pub struct SocketsMultihomed {
 #[derive(Debug, Clone)]
 pub struct NodeMultihoming {
     pub sockets: SocketsMultihomed,
-    pub bind_ip_addrs: BindIpAddrs,
+    pub bind_ip_addrs: Arc<BindIpAddrs>,
     pub num_tvu_receive_sockets: NonZeroUsize,
     pub num_tvu_retransmit_sockets: NonZeroUsize,
     pub num_quic_endpoints: NonZeroUsize,
@@ -2393,7 +2413,7 @@ pub struct NodeConfig {
     pub gossip_port: u16,
     pub port_range: PortRange,
     /// Multihoming: The IP addresses the node can bind to
-    pub bind_ip_addrs: BindIpAddrs,
+    pub bind_ip_addrs: Arc<BindIpAddrs>,
     pub public_tpu_addr: Option<SocketAddr>,
     pub public_tpu_forwards_addr: Option<SocketAddr>,
     pub vortexor_receiver_addr: Option<SocketAddr>,
@@ -2406,84 +2426,11 @@ pub struct NodeConfig {
     pub num_quic_endpoints: NonZeroUsize,
 }
 
-#[derive(Debug, Clone)]
-pub struct BindIpAddrs {
-    /// The IP addresses this node may bind to
-    /// Index 0 is the primary address
-    /// Index 1+ are secondary addresses
-    addrs: Vec<IpAddr>,
-    active_index: Arc<AtomicUsize>,
-}
-
-impl Default for BindIpAddrs {
-    fn default() -> Self {
-        Self::new(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]).unwrap()
-    }
-}
-
-impl BindIpAddrs {
-    pub fn new(addrs: Vec<IpAddr>) -> Result<Self, String> {
-        if addrs.is_empty() {
-            return Err(
-                "BindIpAddrs requires at least one IP address (--bind-address)".to_string(),
-            );
-        }
-        if addrs.len() > 1 {
-            for ip in &addrs {
-                if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
-                    return Err(format!(
-                        "Invalid configuration: {:?} is not allowed with multiple --bind-address values (loopback, unspecified, or multicast)",
-                        ip
-                    ));
-                }
-            }
-        }
-
-        Ok(Self {
-            addrs,
-            active_index: Arc::new(AtomicUsize::new(0)),
-        })
-    }
-
-    #[inline]
-    pub fn active(&self) -> IpAddr {
-        self.addrs[self.active_index.load(Ordering::Acquire)]
-    }
-
-    /// Change active to index (0 = primary)
-    pub fn set_active(&self, index: usize) -> Result<IpAddr, String> {
-        if index >= self.addrs.len() {
-            return Err(format!(
-                "Index {index} out of range, only {} IPs available",
-                self.addrs.len()
-            ));
-        }
-        self.active_index.store(index, Ordering::Release);
-        Ok(self.addrs[index])
-    }
-}
-
-// Makes BindIpAddrs behave like &[IpAddr]
-impl Deref for BindIpAddrs {
-    type Target = [IpAddr];
-
-    fn deref(&self) -> &Self::Target {
-        &self.addrs
-    }
-}
-
-// For generic APIs expecting something like AsRef<[IpAddr]>
-impl AsRef<[IpAddr]> for BindIpAddrs {
-    fn as_ref(&self) -> &[IpAddr] {
-        &self.addrs
-    }
-}
-
 #[derive(Debug)]
 pub struct Node {
     pub info: ContactInfo,
     pub sockets: Sockets,
-    pub bind_ip_addrs: BindIpAddrs,
+    pub bind_ip_addrs: Arc<BindIpAddrs>,
     pub num_tvu_receive_sockets: NonZeroUsize,
     pub num_tvu_retransmit_sockets: NonZeroUsize,
     pub num_quic_endpoints: NonZeroUsize,
@@ -2614,7 +2561,7 @@ impl Node {
         Node {
             info,
             sockets: Sockets {
-                gossip: AtomicUdpSocket::new(gossip),
+                gossip: vec![Arc::new(gossip)],
                 ip_echo: Some(ip_echo),
                 tvu: vec![Arc::new(tvu)],
                 tvu_quic,
@@ -2638,7 +2585,7 @@ impl Node {
                 rpc_sts_client,
                 vortexor_receivers: None,
             },
-            bind_ip_addrs: BindIpAddrs::new(vec![localhost_ip_addr]).unwrap(),
+            bind_ip_addrs: Arc::new(BindIpAddrs::new(vec![localhost_ip_addr]).unwrap()),
             num_tvu_receive_sockets: NonZeroUsize::new(1).unwrap(),
             num_tvu_retransmit_sockets: NonZeroUsize::new(1).unwrap(),
             num_quic_endpoints: NonZeroUsize::new(num_quic_endpoints).unwrap(),
@@ -2766,7 +2713,7 @@ impl Node {
         Node {
             info,
             sockets: Sockets {
-                gossip: AtomicUdpSocket::new(gossip),
+                gossip: vec![Arc::new(gossip)],
                 ip_echo: Some(ip_echo),
                 tvu: vec![Arc::new(tvu)],
                 tvu_quic,
@@ -2790,7 +2737,7 @@ impl Node {
                 rpc_sts_client,
                 vortexor_receivers: None,
             },
-            bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr]).unwrap(),
+            bind_ip_addrs: Arc::new(BindIpAddrs::new(vec![bind_ip_addr]).unwrap()),
             num_tvu_receive_sockets: NonZeroUsize::new(1).unwrap(),
             num_tvu_retransmit_sockets: NonZeroUsize::new(1).unwrap(),
             num_quic_endpoints: NonZeroUsize::new(DEFAULT_QUIC_ENDPOINTS).unwrap(),
@@ -2812,10 +2759,17 @@ impl Node {
         } = config;
         let bind_ip_addr = bind_ip_addrs.active();
 
-        let gossip_addr = SocketAddr::new(advertised_ip, gossip_port);
-        let (gossip_port, (gossip, ip_echo)) =
-            bind_gossip_port_in_range(&gossip_addr, port_range, bind_ip_addr);
-
+        let mut gossip_sockets = Vec::with_capacity(bind_ip_addrs.len());
+        let mut gossip_ports = Vec::with_capacity(bind_ip_addrs.len());
+        let mut ip_echo_sockets = Vec::with_capacity(bind_ip_addrs.len());
+        for ip in bind_ip_addrs.iter() {
+            let gossip_addr = SocketAddr::new(*ip, gossip_port);
+            let (port, (gossip, ip_echo)) =
+                bind_gossip_port_in_range(&gossip_addr, port_range, *ip);
+            gossip_sockets.push(gossip);
+            gossip_ports.push(port);
+            ip_echo_sockets.push(ip_echo);
+        }
         let socket_config = SocketConfig::default();
 
         // For each interface, bind the tvu receive socket group.
@@ -2924,7 +2878,7 @@ impl Node {
             0u16,        // shred_version
         );
         use contact_info::Protocol::{QUIC, UDP};
-        info.set_gossip((advertised_ip, gossip_port)).unwrap();
+        info.set_gossip((advertised_ip, gossip_ports[0])).unwrap();
         info.set_tvu(UDP, (advertised_ip, tvu_port)).unwrap();
         info.set_tvu(QUIC, (advertised_ip, tvu_quic_port)).unwrap();
         info.set_tpu(public_tpu_addr.unwrap_or_else(|| SocketAddr::new(advertised_ip, tpu_port)))
@@ -2962,7 +2916,7 @@ impl Node {
         info!("vortexor_receivers is {vortexor_receivers:?}");
         trace!("new ContactInfo: {:?}", info);
         let sockets = Sockets {
-            gossip: AtomicUdpSocket::new(gossip),
+            gossip: gossip_sockets.into_iter().map(Arc::new).collect(),
             tvu: tvu_sockets.into_iter().map(Arc::new).collect(),
             tvu_quic,
             tpu: tpu_sockets,
@@ -2974,7 +2928,7 @@ impl Node {
             retransmit_sockets: retransmit_sockets.into_iter().map(Arc::new).collect(),
             serve_repair,
             serve_repair_quic,
-            ip_echo: Some(ip_echo),
+            ip_echo: ip_echo_sockets.into_iter().next(),
             ancestor_hashes_requests,
             ancestor_hashes_requests_quic,
             tpu_quic,
@@ -3449,9 +3403,16 @@ mod tests {
     }
 
     fn check_node_sockets(node: &Node, ip: IpAddr, range: (u16, u16)) {
-        check_socket(&node.sockets.gossip.load(), ip, range);
         check_socket(&node.sockets.repair, ip, range);
         check_socket(&node.sockets.tvu_quic, ip, range);
+
+        let gossip_sockets: Vec<UdpSocket> = node
+            .sockets
+            .gossip
+            .iter()
+            .map(|socket| socket.try_clone().unwrap())
+            .collect();
+        check_sockets(&gossip_sockets, ip, range);
 
         let tvu_sockets: Vec<UdpSocket> = node
             .sockets
@@ -3471,7 +3432,7 @@ mod tests {
             advertised_ip: IpAddr::V4(ip),
             gossip_port: 0,
             port_range,
-            bind_ip_addrs: BindIpAddrs::new(vec![IpAddr::V4(ip)]).unwrap(),
+            bind_ip_addrs: Arc::new(BindIpAddrs::new(vec![IpAddr::V4(ip)]).unwrap()),
             public_tpu_addr: None,
             public_tpu_forwards_addr: None,
             num_tvu_receive_sockets: MINIMUM_NUM_TVU_RECEIVE_SOCKETS,
@@ -3496,7 +3457,7 @@ mod tests {
             advertised_ip: ip,
             gossip_port: port,
             port_range,
-            bind_ip_addrs: BindIpAddrs::new(vec![ip]).unwrap(),
+            bind_ip_addrs: Arc::new(BindIpAddrs::new(vec![ip]).unwrap()),
             public_tpu_addr: None,
             public_tpu_forwards_addr: None,
             num_tvu_receive_sockets: MINIMUM_NUM_TVU_RECEIVE_SOCKETS,
@@ -3509,7 +3470,15 @@ mod tests {
 
         check_node_sockets(&node, ip, port_range);
 
-        assert_eq!(node.sockets.gossip.local_addr().unwrap().port(), port);
+        let gossip_sockets: Vec<UdpSocket> = node
+            .sockets
+            .gossip
+            .iter()
+            .map(|socket| socket.try_clone().unwrap())
+            .collect();
+        for socket in gossip_sockets.iter() {
+            assert_eq!(socket.local_addr().unwrap().port(), port);
+        }
     }
 
     //test that all cluster_info objects only generate signed messages
