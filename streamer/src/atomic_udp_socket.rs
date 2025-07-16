@@ -109,7 +109,8 @@ impl SocketProvider for AtomicSocketProvider {
 
     #[inline]
     fn current_socket_ref(&self) -> Arc<UdpSocket> {
-        // clone the already‑cached pointer; no atomic load
-        self.current.borrow().clone()
+        match self.current_socket() {
+            CurrentSocket::Same(s) | CurrentSocket::Changed(s) => s,
+        }
     }
 }
