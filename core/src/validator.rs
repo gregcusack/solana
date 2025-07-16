@@ -52,6 +52,7 @@ use {
         cluster_info::{
             ClusterInfo, Node, DEFAULT_CONTACT_DEBUG_INTERVAL_MILLIS,
             DEFAULT_CONTACT_SAVE_INTERVAL_MILLIS,
+            NodeMultihoming,
         },
         contact_info::ContactInfo,
         crds_gossip_pull::CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
@@ -859,6 +860,7 @@ impl Validator {
         cluster_info.set_entrypoints(cluster_entrypoints);
         cluster_info.restore_contact_info(ledger_path, config.contact_save_interval);
         let cluster_info = Arc::new(cluster_info);
+        let node_multihoming = NodeMultihoming::from(&node);
 
         assert!(is_snapshot_config_valid(&config.snapshot_config));
 
@@ -1677,7 +1679,7 @@ impl Validator {
             repair_socket: Arc::new(node.sockets.repair),
             outstanding_repair_requests,
             cluster_slots,
-            gossip_socket: Some(node.sockets.gossip.clone()),
+            node: Some(node_multihoming),
         });
 
         Ok(Self {

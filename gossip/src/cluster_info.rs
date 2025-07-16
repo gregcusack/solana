@@ -2358,6 +2358,29 @@ pub struct Sockets {
     pub vortexor_receivers: Option<Vec<UdpSocket>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SocketsMultihomed {
+    pub gossip: AtomicUdpSocket,
+    // TODO: Add other multihomed sockets here
+}
+
+#[derive(Debug, Clone)]
+pub struct NodeMultihoming {
+    pub sockets: SocketsMultihomed,
+    pub bind_ip_addrs: Arc<BindIpAddrs>,
+}
+
+impl From<&Node> for NodeMultihoming {
+    fn from(node: &Node) -> Self {
+        NodeMultihoming {
+            sockets: SocketsMultihomed {
+                gossip: node.sockets.gossip.clone(),
+            },
+            bind_ip_addrs: node.bind_ip_addrs.clone(),
+        }
+    }
+}
+
 pub struct NodeConfig {
     /// The IP address advertised to the cluster in gossip
     pub advertised_ip: IpAddr,
@@ -2433,6 +2456,7 @@ impl AsRef<[IpAddr]> for BindIpAddrs {
 pub struct Node {
     pub info: ContactInfo,
     pub sockets: Sockets,
+    pub bind_ip_addrs: Arc<BindIpAddrs>,
 }
 
 impl Node {
@@ -2448,9 +2472,7 @@ impl Node {
         let port_range = localhost_port_range_for_tests();
         let bind_ip_addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
         let config = NodeConfig {
-            bind_ip_addrs: BindIpAddrs {
-                addrs: vec![bind_ip_addr],
-            },
+            bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr]).unwrap(),
             gossip_port: port_range.0,
             port_range,
             advertised_ip: bind_ip_addr,
@@ -2479,9 +2501,7 @@ impl Node {
         bind_ip_addr: IpAddr,
     ) -> Self {
         let config = NodeConfig {
-            bind_ip_addrs: BindIpAddrs {
-                addrs: vec![bind_ip_addr],
-            },
+            bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr]).unwrap(),
             gossip_port: gossip_addr.port(),
             port_range,
             advertised_ip: bind_ip_addr,
@@ -2683,7 +2703,11 @@ impl Node {
             vortexor_receivers,
         };
         info!("Bound all network sockets as follows: {:#?}", &sockets);
-        Node { info, sockets }
+        Node {
+            info,
+            sockets,
+            bind_ip_addrs: Arc::new(bind_ip_addrs),
+        }
     }
 }
 
