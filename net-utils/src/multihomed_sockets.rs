@@ -148,5 +148,3 @@ impl AsRef<[IpAddr]> for BindIpAddrs {
         &self.addrs
     }
 }
-
-

@@ -52,12 +52,8 @@ use {
     solana_keypair::{signable::Signable, Keypair},
     solana_ledger::shred::Shred,
     solana_net_utils::{
-<<<<<<< HEAD
         bind_in_range, bind_to_unspecified, find_available_ports_in_range,
-=======
-        bind_in_range, bind_to_localhost, bind_to_unspecified, find_available_ports_in_range,
         multihomed_sockets::BindIpAddrs,
->>>>>>> 994212394b (remove adtomic udp socket to match tvu sockets)
         sockets::{
             bind_gossip_port_in_range, bind_in_range_with_config, bind_more_with_config,
             bind_to_with_config, bind_two_in_range_with_offset_and_config,
@@ -95,7 +91,7 @@ use {
         iter::repeat,
         net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket},
         num::{NonZero, NonZeroUsize},
-        ops::{Deref, Div},
+        ops::Div,
         path::{Path, PathBuf},
         rc::Rc,
         result::Result,
@@ -2456,7 +2452,7 @@ impl Node {
         let port_range = localhost_port_range_for_tests();
         let bind_ip_addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
         let config = NodeConfig {
-            bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr]).unwrap(),
+            bind_ip_addrs: Arc::new(BindIpAddrs::new(vec![bind_ip_addr]).unwrap()),
             gossip_port: port_range.0,
             port_range,
             advertised_ip: bind_ip_addr,
@@ -2485,7 +2481,7 @@ impl Node {
         bind_ip_addr: IpAddr,
     ) -> Self {
         let config = NodeConfig {
-            bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr]).unwrap(),
+            bind_ip_addrs: Arc::new(BindIpAddrs::new(vec![bind_ip_addr]).unwrap()),
             gossip_port: gossip_addr.port(),
             port_range,
             advertised_ip: bind_ip_addr,
@@ -2515,6 +2511,144 @@ impl Node {
             public_tpu_addr,
             public_tpu_forwards_addr,
             num_tvu_receive_sockets,
+            num_tvu_retransmit_sockets,
+            num_quic_endpoints,
+            vortexor_receiver_addr,
+        } = config;
+        let bind_ip_addr = bind_ip_addrs.active();
+
+        let mut gossip_sockets = Vec::with_capacity(bind_ip_addrs.len());
+        let mut gossip_ports = Vec::with_capacity(bind_ip_addrs.len());
+        let mut ip_echo_sockets = Vec::with_capacity(bind_ip_addrs.len());
+        for ip in bind_ip_addrs.iter() {
+            let gossip_addr = SocketAddr::new(*ip, gossip_port);
+            let (port, (gossip, ip_echo)) =
+                bind_gossip_port_in_range(&gossip_addr, port_range, *ip);
+            gossip_sockets.push(gossip);
+            gossip_ports.push(port);
+            ip_echo_sockets.push(ip_echo);
+        }
+        let socket_config = SocketConfig::default();
+
+        // For each interface, bind the tvu receive socket group.
+        let tvu_socket_count = num_tvu_receive_sockets.get();
+        let mut tvu_sockets = Vec::with_capacity(tvu_socket_count * bind_ip_addrs.len());
+        for ip in bind_ip_addrs.iter() {
+            let (_, mut sockets) =
+                multi_bind_in_range_with_config(*ip, port_range, socket_config, tvu_socket_count)
+                    .unwrap_or_else(|e| {
+                        panic!(
+                    "tvu multi_bind_in_range_with_config should not fail for interface {ip}: {e}"
+                )
+                    });
+            tvu_sockets.append(&mut sockets);
+        }
+        // Only advertise primary interface port
+        let tvu_port = tvu_sockets[0].local_addr().unwrap().port();
+
+        let (tvu_quic_port, tvu_quic) =
+            bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
+                .expect("tvu_quic bind");
+
+        let ((tpu_port, tpu_socket), (_tpu_port_quic, tpu_quic)) =
+            bind_two_in_range_with_offset_and_config(
+                bind_ip_addr,
+                port_range,
+                QUIC_PORT_OFFSET,
+                socket_config,
+                socket_config,
+            )
+            .expect("tpu_socket primary bind");
+        let tpu_sockets =
+            bind_more_with_config(tpu_socket, 32, socket_config).expect("tpu_sockets multi_bind");
+
+        let tpu_quic = bind_more_with_config(tpu_quic, num_quic_endpoints.get(), socket_config)
+            .expect("tpu_quic bind");
+
+        let ((tpu_forwards_port, tpu_forwards_socket), (_, tpu_forwards_quic)) =
+            bind_two_in_range_with_offset_and_config(
+                bind_ip_addr,
+                port_range,
+                QUIC_PORT_OFFSET,
+                socket_config,
+                socket_config,
+            )
+            .expect("tpu_forwards primary bind");
+        let tpu_forwards_sockets = bind_more_with_config(tpu_forwards_socket, 8, socket_config)
+            .expect("tpu_forwards multi_bind");
+        let tpu_forwards_quic =
+            bind_more_with_config(tpu_forwards_quic, num_quic_endpoints.get(), socket_config)
+                .expect("tpu_forwards_quic multi_bind");
+
+        let (tpu_vote_port, tpu_vote_sockets) =
+            multi_bind_in_range_with_config(bind_ip_addr, port_range, socket_config, 1)
+                .expect("tpu_vote multi_bind");
+
+        let (tpu_vote_quic_port, tpu_vote_quic) =
+            bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
+                .expect("tpu_vote_quic");
+        let tpu_vote_quic =
+            bind_more_with_config(tpu_vote_quic, num_quic_endpoints.get(), socket_config)
+                .expect("tpu_vote_quic multi_bind");
+
+        let retransmit_socket_count = num_tvu_retransmit_sockets.get();
+        let mut retransmit_sockets =
+            Vec::with_capacity(retransmit_socket_count * bind_ip_addrs.len());
+        for ip in bind_ip_addrs.iter() {
+            let (_, mut sockets) = multi_bind_in_range_with_config(
+                *ip,
+                port_range,
+                socket_config,
+                retransmit_socket_count,
+            )
+            .unwrap_or_else(|e| {
+                panic!(
+                    "retransmit_sockets multi_bind_in_range_with_config should not fail for interface {ip}: {e}"
+                )
+            });
+            retransmit_sockets.append(&mut sockets);
+        }
+
+        let (_, repair) = bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
+            .expect("repair bind");
+        let (_, repair_quic) = bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
+            .expect("repair_quic bind");
+
+        let (serve_repair_port, serve_repair) =
+            bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
+                .expect("serve_repair");
+        let (serve_repair_quic_port, serve_repair_quic) =
+            bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
+                .expect("serve_repair_quic");
+
+        let (_, broadcast) =
+            multi_bind_in_range_with_config(bind_ip_addr, port_range, socket_config, 4)
+                .expect("broadcast multi_bind");
+
+        let (_, ancestor_hashes_requests) =
+            bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
+                .expect("ancestor_hashes_requests bind");
+        let (_, ancestor_hashes_requests_quic) =
+            bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
+                .expect("ancestor_hashes_requests QUIC bind should succeed");
+
+        // These are client sockets, so the port is set to be 0 because it must be ephimeral.
+        let tpu_vote_forwarding_client =
+            bind_to_with_config(bind_ip_addr, 0, socket_config).unwrap();
+        let tpu_transaction_forwarding_client =
+            bind_to_with_config(bind_ip_addr, 0, socket_config).unwrap();
+        let quic_vote_client = bind_to_with_config(bind_ip_addr, 0, socket_config).unwrap();
+        let rpc_sts_client = bind_to_with_config(bind_ip_addr, 0, socket_config).unwrap();
+
+        let mut info = ContactInfo::new(
+            *pubkey,
+            timestamp(), // wallclock
+            0u16,        // shred_version
+        );
+        use contact_info::Protocol::{QUIC, UDP};
+        info.set_gossip((advertised_ip, gossip_ports[0])).unwrap();
+        info.set_tvu(UDP, (advertised_ip, tvu_port)).unwrap();
+        info.set_tvu(QUIC, (advertised_ip, tvu_quic_port)).unwrap();
         info.set_tpu(public_tpu_addr.unwrap_or_else(|| SocketAddr::new(advertised_ip, tpu_port)))
             .unwrap();
         info.set_tpu_forwards(
@@ -2783,6 +2917,7 @@ mod tests {
         std::{
             iter::repeat_with,
             net::{IpAddr, Ipv4Addr},
+            ops::Deref,
             panic,
             sync::Arc,
         },
