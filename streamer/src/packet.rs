@@ -1,7 +1,7 @@
 //! The `packet` module defines data structures and methods to pull data from the network.
 use {
     crate::{
-        recvmmsg::{recv_mmsg, NUM_RCVMMSGS},
+        recvmmsg::recv_mmsg,
         socket::SocketAddrSpace,
     },
     std::{
