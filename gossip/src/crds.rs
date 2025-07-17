@@ -27,7 +27,7 @@
 
 use {
     crate::{
-        cluster_info_metrics::{last_four_chars, should_report_message_signature},
+        // cluster_info_metrics::{last_four_chars, should_report_message_signature},
         contact_info::ContactInfo,
         crds_data::CrdsData,
         crds_entry::CrdsEntry,
@@ -61,7 +61,7 @@ const VOTE_SLOTS_METRICS_CAP: usize = 100;
 //      testnet/mainnet: ~680k as of 2025-06-06
 // target: 1 signature reported per minute
 // log2(680k) = ~19.375.
-pub(crate) const SIGNATURE_SAMPLE_LEADING_ZEROS: u32 = 19;
+// pub(crate) const SIGNATURE_SAMPLE_LEADING_ZEROS: u32 = 19;
 
 pub struct Crds {
     /// Stores the map of labels and values
@@ -703,7 +703,7 @@ impl Default for CrdsDataStats {
 }
 
 impl CrdsDataStats {
-    fn record_insert(&mut self, entry: &VersionedCrdsValue, route: GossipRoute) {
+    fn record_insert(&mut self, entry: &VersionedCrdsValue, _route: GossipRoute) {
         self.counts[Self::ordinal(entry)] += 1;
         if let CrdsData::Vote(_, vote) = entry.value.data() {
             if let Some(slot) = vote.slot() {
@@ -712,31 +712,31 @@ impl CrdsDataStats {
             }
         }
 
-        let GossipRoute::PushMessage(from) = route else {
-            return;
-        };
+        // let GossipRoute::PushMessage(from) = route else {
+        //     return;
+        // };
 
-        if should_report_message_signature(entry.value.signature(), SIGNATURE_SAMPLE_LEADING_ZEROS)
-        {
-            datapoint_info!(
-                "gossip_crds_sample",
-                (
-                    "origin",
-                    last_four_chars(&entry.value.pubkey().to_string()),
-                    Option<String>
-                ),
-                (
-                    "signature",
-                    last_four_chars(&entry.value.signature().to_string()),
-                    Option<String>
-                ),
-                (
-                    "from",
-                    last_four_chars(&from.to_string()),
-                    Option<String>
-                )
-            );
-        }
+        // if should_report_message_signature(entry.value.signature(), SIGNATURE_SAMPLE_LEADING_ZEROS)
+        // {
+        //     datapoint_info!(
+        //         "gossip_crds_sample",
+        //         (
+        //             "origin",
+        //             last_four_chars(&entry.value.pubkey().to_string()),
+        //             Option<String>
+        //         ),
+        //         (
+        //             "signature",
+        //             last_four_chars(&entry.value.signature().to_string()),
+        //             Option<String>
+        //         ),
+        //         (
+        //             "from",
+        //             last_four_chars(&from.to_string()),
+        //             Option<String>
+        //         )
+        //     );
+        // }
     }
 
     fn record_fail(&mut self, entry: &VersionedCrdsValue) {

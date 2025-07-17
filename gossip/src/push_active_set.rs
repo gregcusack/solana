@@ -9,7 +9,9 @@ use {
 };
 
 const NUM_PUSH_ACTIVE_SET_ENTRIES: usize = 25;
-
+// const ALPHA:  f64 = 2.0;     // linear stake bias = 1, quadratic = 2
+// const BETA:   f64 = 30.0;   // chosen as above. prev: 270.0
+// const K:      f64 = 24.0;
 // Each entry corresponds to a stake bucket for
 //     min stake of { this node, crds value owner }
 // The entry represents set of gossip nodes to actively
@@ -81,6 +83,7 @@ impl PushActiveSet {
         //     min stake of {this node, crds value owner}
         // is equal to `k`. The `entry` maintains set of gossip nodes to
         // actively push to for crds values belonging to this bucket.
+
         for (k, entry) in self.0.iter_mut().enumerate() {
             let weights: Vec<u64> = buckets
                 .iter()
@@ -93,8 +96,17 @@ impl PushActiveSet {
                     // the link, and tries to mirror similar logic on the
                     // receiving end when pruning incoming links:
                     // https://github.com/solana-labs/solana/blob/81394cf92/gossip/src/received_cache.rs#L100-L105
+                    // bucket.min(k) as u64
+                    // 10
+                    // bucket.saturating_add(1) as u64
                     let bucket = bucket.min(k) as u64;
-                    bucket.saturating_add(1).saturating_pow(2)
+                    bucket + 1
+                    // bucket.saturating_add(1).saturating_pow(2)
+                    // let k_f = k as f64;
+                    // let b_f = bucket.min(k) as f64;
+                    // let floor = BETA * (1.0 - k_f / K);        // decays linearly with k
+                    // let weight = floor + (b_f + 1.0).powf(ALPHA);
+                    // weight as u64
                 })
                 .collect();
             entry.rotate(rng, size, num_bloom_filter_items, nodes, &weights);
@@ -176,6 +188,8 @@ impl PushActiveSetEntry {
 
 // Maps stake to bucket index.
 fn get_stake_bucket(stake: Option<&u64>) -> usize {
+    // let stake = stake.copied().unwrap_or_default().max(1000 * LAMPORTS_PER_SOL);
+    // let stake = stake / LAMPORTS_PER_SOL;
     let stake = stake.copied().unwrap_or_default() / LAMPORTS_PER_SOL;
     let bucket = u64::BITS - stake.leading_zeros();
     (bucket as usize).min(NUM_PUSH_ACTIVE_SET_ENTRIES - 1)

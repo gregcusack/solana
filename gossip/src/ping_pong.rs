@@ -1,5 +1,5 @@
 use {
-    crate::cluster_info_metrics::should_report_message_signature,
+    // crate::cluster_info_metrics::should_report_message_signature,
     lru::LruCache,
     rand::{CryptoRng, Rng},
     serde_big_array::BigArray,
@@ -20,7 +20,7 @@ use {
 
 const KEY_REFRESH_CADENCE: Duration = Duration::from_secs(60);
 const PING_PONG_HASH_PREFIX: &[u8] = "SOLANA_PING_PONG".as_bytes();
-const PONG_SIGNATURE_SAMPLE_LEADING_ZEROS: u32 = 5;
+// const PONG_SIGNATURE_SAMPLE_LEADING_ZEROS: u32 = 5;
 
 // For backward compatibility we are using a const generic parameter here.
 // N should always be >= 8 and only the first 8 bytes are used. So the new code
@@ -121,9 +121,9 @@ impl Pong {
         &self.from
     }
 
-    pub(crate) fn signature(&self) -> &Signature {
-        &self.signature
-    }
+    // pub(crate) fn signature(&self) -> &Signature {
+    //     &self.signature
+    // }
 }
 
 impl Sanitize for Pong {
@@ -186,19 +186,19 @@ impl<const N: usize> PingCache<N> {
             return false;
         };
         self.pongs.put(remote_node, now);
-        if let Some(sent_time) = self.ping_times.pop(&socket.ip()) {
-            if should_report_message_signature(
-                pong.signature(),
-                PONG_SIGNATURE_SAMPLE_LEADING_ZEROS,
-            ) {
-                let rtt = now.saturating_duration_since(sent_time);
-                datapoint_info!(
-                    "ping_rtt",
-                    ("peer_ip", socket.ip().to_string(), String),
-                    ("rtt_us", rtt.as_micros() as i64, i64),
-                );
-            }
-        }
+        // if let Some(sent_time) = self.ping_times.pop(&socket.ip()) {
+        //     if should_report_message_signature(
+        //         pong.signature(),
+        //         PONG_SIGNATURE_SAMPLE_LEADING_ZEROS,
+        //     ) {
+        //         let rtt = now.saturating_duration_since(sent_time);
+        //         datapoint_info!(
+        //             "ping_rtt",
+        //             ("peer_ip", socket.ip().to_string(), String),
+        //             ("rtt_us", rtt.as_micros() as i64, i64),
+        //         );
+        //     }
+        // }
         true
     }
 

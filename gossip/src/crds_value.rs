@@ -140,10 +140,10 @@ impl CrdsValue {
         }
     }
 
-    #[inline]
-    pub(crate) fn signature(&self) -> &Signature {
-        &self.signature
-    }
+    // #[inline]
+    // pub(crate) fn signature(&self) -> &Signature {
+    //     &self.signature
+    // }
 
     #[inline]
     pub(crate) fn data(&self) -> &CrdsData {
