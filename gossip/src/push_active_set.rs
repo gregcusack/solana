@@ -9,13 +9,13 @@ use {
 };
 
 const NUM_PUSH_ACTIVE_SET_ENTRIES: usize = 25;
-const FS: f64 = 1.0 / 7.5; //Rotate called once every 7.5 seconds. 
-const TC: f64 = 30.333; // 30 sec convergence
-const K: f64 = {
-    const FC: f64 = 1.0 / TC;
-    const W_C: f64 = 2.0 * std::f64::consts::PI * FC / FS;
-    W_C / (1.0 + W_C)
-};
+// const FS: f64 = 1.0 / 7.5; //Rotate called once every 7.5 seconds. 
+// const TC: f64 = 30.333; // 30 sec convergence
+// const K: f64 = {
+//     const FC: f64 = 1.0 / TC;
+//     const W_C: f64 = 2.0 * std::f64::consts::PI * FC / FS;
+//     W_C / (1.0 + W_C)
+// };
 // Each entry corresponds to a stake bucket for
 //     min stake of { this node, crds value owner }
 // The entry represents set of gossip nodes to actively
@@ -24,14 +24,14 @@ const K: f64 = {
 // pub(crate) struct PushActiveSet([PushActiveSetEntry; NUM_PUSH_ACTIVE_SET_ENTRIES]);
 pub(crate) struct PushActiveSet {
     entries: [PushActiveSetEntry; NUM_PUSH_ACTIVE_SET_ENTRIES],
-    alpha: f64,
+    _alpha: f64,
 }
 
 impl Default for PushActiveSet {
     fn default() -> Self {
         Self {
             entries: Default::default(),
-            alpha: 1.82, // current mainnet unstaked distribution
+            _alpha: 1.82, // current mainnet unstaked distribution
         }
     }
 }
@@ -98,14 +98,14 @@ impl PushActiveSet {
             .collect();
 
         // --- Compute fraction unstaked ---
-        let num_unstaked = buckets.iter().filter(|&&b| b == 0).count();
-        let fraction_unstaked = num_unstaked as f64 / buckets.len().max(1) as f64;
-        let target_alpha = 1.0 + fraction_unstaked;
+        // let num_unstaked = buckets.iter().filter(|&&b| b == 0).count();
+        // let fraction_unstaked = num_unstaked as f64 / buckets.len().max(1) as f64;
+        // let target_alpha = 1.0 + fraction_unstaked;
 
-        let old_alpha = self.alpha;
-        // --- Update alpha using exponential smoothing ---
-        self.alpha = K * target_alpha + (1.0 - K) * self.alpha;
-        info!("total unstaked: {}, fraction unstaked: {}, alpha: {}, old_alpha: {}", num_unstaked, fraction_unstaked, self.alpha, old_alpha);
+        // let old_alpha = self.alpha;
+        // // --- Update alpha using exponential smoothing ---
+        // self.alpha = K * target_alpha + (1.0 - K) * self.alpha;
+        // info!("total unstaked: {}, fraction unstaked: {}, alpha: {}, old_alpha: {}", num_unstaked, fraction_unstaked, self.alpha, old_alpha);
         // (k, entry) represents push active set where the stake bucket of
         //     min stake of {this node, crds value owner}
         // is equal to `k`. The `entry` maintains set of gossip nodes to
@@ -124,8 +124,9 @@ impl PushActiveSet {
                     // https://github.com/solana-labs/solana/blob/81394cf92/gossip/src/received_cache.rs#L100-L105
                     // bucket.min(k) as u64
                     let bucket = bucket.min(k) as u64;
-                    let weight = (bucket.saturating_add(1) as f64).powf(self.alpha) as u64;
-                    weight.max(1)
+                    (bucket.saturating_add(1) as u64).saturating_pow(2)
+                    // let weight = (bucket.saturating_add(1) as f64).powf(self.alpha) as u64;
+                    // weight.max(1)
                 })
                 .collect();
             entry.rotate(rng, size, num_bloom_filter_items, nodes, &weights);
