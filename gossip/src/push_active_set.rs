@@ -9,15 +9,32 @@ use {
 };
 
 const NUM_PUSH_ACTIVE_SET_ENTRIES: usize = 25;
-// const ALPHA:  f64 = 2.0;     // linear stake bias = 1, quadratic = 2
-// const BETA:   f64 = 30.0;   // chosen as above. prev: 270.0
-// const K:      f64 = 24.0;
+const FS: f64 = 1.0 / 7.5; //Rotate called once every 7.5 seconds. 
+const TC: f64 = 30.333; // 30 sec convergence
+const K: f64 = {
+    const FC: f64 = 1.0 / TC;
+    const W_C: f64 = 2.0 * std::f64::consts::PI * FC / FS;
+    W_C / (1.0 + W_C)
+};
 // Each entry corresponds to a stake bucket for
 //     min stake of { this node, crds value owner }
 // The entry represents set of gossip nodes to actively
 // push to for crds values belonging to the bucket.
-#[derive(Default)]
-pub(crate) struct PushActiveSet([PushActiveSetEntry; NUM_PUSH_ACTIVE_SET_ENTRIES]);
+// #[derive(Default)]
+// pub(crate) struct PushActiveSet([PushActiveSetEntry; NUM_PUSH_ACTIVE_SET_ENTRIES]);
+pub(crate) struct PushActiveSet {
+    entries: [PushActiveSetEntry; NUM_PUSH_ACTIVE_SET_ENTRIES],
+    alpha: f64,
+}
+
+impl Default for PushActiveSet {
+    fn default() -> Self {
+        Self {
+            entries: Default::default(),
+            alpha: 1.82, // current mainnet unstaked distribution
+        }
+    }
+}
 
 // Keys are gossip nodes to push messages to.
 // Values are which origins the node has pruned.
@@ -79,12 +96,21 @@ impl PushActiveSet {
             .iter()
             .map(|node| get_stake_bucket(stakes.get(node)))
             .collect();
+
+        // --- Compute fraction unstaked ---
+        let num_unstaked = buckets.iter().filter(|&&b| b == 0).count();
+        let fraction_unstaked = num_unstaked as f64 / buckets.len().max(1) as f64;
+        let target_alpha = 1.0 + fraction_unstaked;
+
+        let old_alpha = self.alpha;
+        // --- Update alpha using exponential smoothing ---
+        self.alpha = K * target_alpha + (1.0 - K) * self.alpha;
+        info!("total unstaked: {}, fraction unstaked: {}, alpha: {}, old_alpha: {}", num_unstaked, fraction_unstaked, self.alpha, old_alpha);
         // (k, entry) represents push active set where the stake bucket of
         //     min stake of {this node, crds value owner}
         // is equal to `k`. The `entry` maintains set of gossip nodes to
         // actively push to for crds values belonging to this bucket.
-
-        for (k, entry) in self.0.iter_mut().enumerate() {
+        for (k, entry) in self.entries.iter_mut().enumerate() {
             let weights: Vec<u64> = buckets
                 .iter()
                 .map(|&bucket| {
@@ -97,16 +123,9 @@ impl PushActiveSet {
                     // receiving end when pruning incoming links:
                     // https://github.com/solana-labs/solana/blob/81394cf92/gossip/src/received_cache.rs#L100-L105
                     // bucket.min(k) as u64
-                    // 10
-                    // bucket.saturating_add(1) as u64
                     let bucket = bucket.min(k) as u64;
-                    bucket + 1
-                    // bucket.saturating_add(1).saturating_pow(2)
-                    // let k_f = k as f64;
-                    // let b_f = bucket.min(k) as f64;
-                    // let floor = BETA * (1.0 - k_f / K);        // decays linearly with k
-                    // let weight = floor + (b_f + 1.0).powf(ALPHA);
-                    // weight as u64
+                    let weight = (bucket.saturating_add(1) as f64).powf(self.alpha) as u64;
+                    weight.max(1)
                 })
                 .collect();
             entry.rotate(rng, size, num_bloom_filter_items, nodes, &weights);
@@ -114,7 +133,7 @@ impl PushActiveSet {
     }
 
     fn get_entry(&self, stake: Option<&u64>) -> &PushActiveSetEntry {
-        &self.0[get_stake_bucket(stake)]
+        &self.entries[get_stake_bucket(stake)]
     }
 }
 
@@ -236,11 +255,11 @@ mod tests {
         let mut stakes: HashMap<_, _> = nodes.iter().copied().zip(stakes).collect();
         stakes.insert(pubkey, rng.gen_range(1..MAX_STAKE));
         let mut active_set = PushActiveSet::default();
-        assert!(active_set.0.iter().all(|entry| entry.0.is_empty()));
+        assert!(active_set.entries.iter().all(|entry| entry.0.is_empty()));
         active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes);
-        assert!(active_set.0.iter().all(|entry| entry.0.len() == 5));
+        assert!(active_set.entries.iter().all(|entry| entry.0.len() == 5));
         // Assert that for all entries, each filter already prunes the key.
-        for entry in &active_set.0 {
+        for entry in &active_set.entries {
             for (node, filter) in entry.0.iter() {
                 assert!(filter.contains(node));
             }
@@ -263,7 +282,7 @@ mod tests {
             .get_nodes(&pubkey, other, |_| false, &stakes)
             .eq([13, 18, 16, 0].into_iter().map(|k| &nodes[k])));
         active_set.rotate(&mut rng, 7, CLUSTER_SIZE, &nodes, &stakes);
-        assert!(active_set.0.iter().all(|entry| entry.0.len() == 7));
+        assert!(active_set.entries.iter().all(|entry| entry.0.len() == 7));
         assert!(active_set
             .get_nodes(&pubkey, origin, |_| false, &stakes)
             .eq([18, 0, 7, 15, 11].into_iter().map(|k| &nodes[k])));
