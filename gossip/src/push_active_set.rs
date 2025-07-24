@@ -27,7 +27,11 @@ pub enum WeightingMode {
     // alpha = 2.0 -> Quadratic
     Static,
     // alpha in [1.0, 2.0], smoothed over time, scaled up by 1000 to avoid floating-point math
-    Dynamic,
+    Dynamic {
+        alpha: u64,    // current alpha (fixed-point, 1000–2000)
+        filter_k: u64, // default: 611
+        tc_ms: u64,    // IIR time-constant (ms)
+    },
 }
 
 #[inline]
@@ -43,10 +47,7 @@ fn get_weight(bucket: u64, alpha: u64) -> u64 {
 // push to for crds values belonging to the bucket.
 pub(crate) struct PushActiveSet {
     entries: [PushActiveSetEntry; NUM_PUSH_ACTIVE_SET_ENTRIES],
-    alpha: u64, // current alpha (fixed-point, 1000–2000)
     mode: WeightingMode,
-    filter_k: u64,
-    tc_ms: u64,
 }
 
 impl Default for PushActiveSet {
@@ -54,10 +55,11 @@ impl Default for PushActiveSet {
         let filter_k = lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, DEFAULT_TC_MS);
         Self {
             entries: Default::default(),
-            alpha: DEFAULT_ALPHA,
-            mode: WeightingMode::Dynamic,
-            filter_k, // default: 611
-            tc_ms: DEFAULT_TC_MS,
+            mode: WeightingMode::Dynamic {
+                alpha: DEFAULT_ALPHA,
+                filter_k, // default: 611
+                tc_ms: DEFAULT_TC_MS,
+            },
         }
     }
 }
@@ -67,10 +69,7 @@ impl PushActiveSet {
     fn new_static() -> Self {
         Self {
             entries: Default::default(),
-            alpha: DEFAULT_ALPHA,
             mode: WeightingMode::Static,
-            filter_k: lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, DEFAULT_TC_MS),
-            tc_ms: DEFAULT_TC_MS,
         }
     }
 
@@ -81,33 +80,44 @@ impl PushActiveSet {
                     info!("Switching mode: {:?} -> Static", self.mode);
                     self.mode = WeightingMode::Static;
                 }
-                return;
             }
             1 => {
-                if self.mode != WeightingMode::Dynamic {
-                    info!("Switching mode: {:?} -> Dynamic", self.mode);
-                    self.mode = WeightingMode::Dynamic;
+                let new_tc_ms = if cfg.tc_ms != 0 {
+                    cfg.tc_ms
+                } else {
+                    DEFAULT_TC_MS
+                };
+
+                match self.mode {
+                    WeightingMode::Dynamic {
+                        ref mut filter_k,
+                        ref mut tc_ms,
+                        ..
+                    } => {
+                        if *tc_ms != new_tc_ms {
+                            *filter_k =
+                                lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, new_tc_ms);
+                            *tc_ms = new_tc_ms;
+                            info!("Recomputed filter K = {} (tc_ms = {})", *filter_k, *tc_ms);
+                        }
+                    }
+                    WeightingMode::Static => {
+                        info!("Switching mode: Static -> Dynamic");
+                        let filter_k =
+                            lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, new_tc_ms);
+                        self.mode = WeightingMode::Dynamic {
+                            alpha: DEFAULT_ALPHA,
+                            filter_k,
+                            tc_ms: new_tc_ms,
+                        };
+                        info!(
+                            "Initialized filter K = {} (tc_ms = {})",
+                            filter_k, new_tc_ms
+                        );
+                    }
                 }
             }
-            _ => {
-                error!("Invalid weighting mode: {}", cfg.weighting_mode);
-                return;
-            }
-        }
-
-        // Only recompute K if tc_ms changed
-        let new_tc_ms = if cfg.tc_ms != 0 {
-            cfg.tc_ms
-        } else {
-            DEFAULT_TC_MS
-        };
-        if new_tc_ms != self.tc_ms {
-            self.filter_k = lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, new_tc_ms);
-            self.tc_ms = new_tc_ms;
-            info!(
-                "Recomputed filter K = {} (tc_ms = {})",
-                self.filter_k, new_tc_ms
-            );
+            _ => error!("Invalid weighting mode: {}", cfg.weighting_mode),
         }
     }
 }
@@ -208,25 +218,23 @@ impl PushActiveSet {
                     entry.rotate(rng, size, num_bloom_filter_items, nodes, &weights);
                 }
             }
-            WeightingMode::Dynamic => {
+            WeightingMode::Dynamic {
+                ref mut alpha,
+                filter_k,
+                tc_ms: _,
+            } => {
                 let num_unstaked = buckets.iter().filter(|&&b| b == 0).count();
                 let f_scaled =
                     ((num_unstaked * lpf::SCALE.get() as usize) + nodes.len() / 2) / nodes.len();
                 let alpha_target = ALPHA_MIN.saturating_add(f_scaled as u64);
-                self.alpha = lpf::filter_alpha(
-                    self.alpha,
-                    alpha_target,
-                    self.filter_k,
-                    ALPHA_MIN,
-                    ALPHA_MAX,
-                );
+                *alpha = lpf::filter_alpha(*alpha, alpha_target, filter_k, ALPHA_MIN, ALPHA_MAX);
 
                 for (k, entry) in self.entries.iter_mut().enumerate() {
                     let weights: Vec<u64> = buckets
                         .iter()
                         .map(|&bucket| {
                             let bucket = bucket.min(k) as u64;
-                            get_weight(bucket, self.alpha)
+                            get_weight(bucket, *alpha)
                         })
                         .collect();
                     entry.rotate(rng, size, num_bloom_filter_items, nodes, &weights);
@@ -542,6 +550,13 @@ mod tests {
         assert!(entry.0.keys().eq(keys));
     }
 
+    fn alpha_of(pas: &PushActiveSet) -> u64 {
+        match pas.mode {
+            WeightingMode::Dynamic { alpha, .. } => alpha,
+            WeightingMode::Static => panic!("test assumed Dynamic mode but found Static"),
+        }
+    }
+
     #[test]
     fn test_alpha_converges_to_expected_target() {
         const CLUSTER_SIZE: usize = 415;
@@ -565,7 +580,7 @@ mod tests {
             active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, None);
         }
 
-        let actual_alpha = active_set.alpha;
+        let actual_alpha = alpha_of(&active_set);
         assert!(
             (actual_alpha as i32 - expected_alpha_milli as i32).abs() <= TOLERANCE_MILLI as i32,
             "alpha={} did not converge to expected alpha={}",
@@ -583,7 +598,7 @@ mod tests {
             active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, None);
         }
 
-        let actual_alpha = active_set.alpha;
+        let actual_alpha = alpha_of(&active_set);
         assert!(
             (actual_alpha as i32 - expected_alpha_milli as i32).abs() <= TOLERANCE_MILLI as i32,
             "alpha={} did not reconverge to expected alpha={}",
@@ -610,7 +625,7 @@ mod tests {
         for _ in 0..ROTATE_CALLS {
             active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, None);
         }
-        let alpha = active_set.alpha;
+        let alpha = alpha_of(&active_set);
         assert!(
             (alpha as i32 - expected_alpha_0).abs() <= TOLERANCE_MILLI as i32,
             "alpha={} did not converge to alpha_0={}",
@@ -625,7 +640,7 @@ mod tests {
         for _ in 0..ROTATE_CALLS {
             active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, None);
         }
-        let alpha = active_set.alpha;
+        let alpha = alpha_of(&active_set);
         assert!(
             (alpha as i32 - expected_alpha_100).abs() <= TOLERANCE_MILLI as i32,
             "alpha={} did not converge to alpha_100={}",
@@ -639,7 +654,7 @@ mod tests {
         for _ in 0..ROTATE_CALLS {
             active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, None);
         }
-        let alpha = active_set.alpha;
+        let alpha = alpha_of(&active_set);
         assert!(
             (alpha as i32 - expected_alpha_0).abs() <= TOLERANCE_MILLI as i32,
             "alpha={} did not reconverge to alpha_0={}",

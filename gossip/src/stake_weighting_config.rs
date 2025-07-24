@@ -1,10 +1,6 @@
-use {
-    serde::{Deserialize, Serialize},
-    solana_account::ReadableAccount,
-    solana_runtime::bank::Bank,
-};
+use {serde::Deserialize, solana_account::ReadableAccount, solana_runtime::bank::Bank};
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[derive(Deserialize)]
 #[repr(C)]
 pub struct WeightingConfig {
     /// 0 = Static, 1 = Dynamic
