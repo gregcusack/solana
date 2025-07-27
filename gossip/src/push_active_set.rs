@@ -23,9 +23,9 @@ const DEFAULT_TC_MS: u64 = 30_000;
 pub enum WeightingMode {
     // alpha = 2.0 -> Quadratic
     Static,
-    // alpha in [1.0, 2.0], smoothed over time, scaled up by 1000 to avoid floating-point math
+    // alpha in [1.0, 2.0], smoothed over time, scaled up by 1,000,000 to avoid floating-point math
     Dynamic {
-        alpha: u64,    // current alpha (fixed-point, 1000–2000)
+        alpha: u64,    // current alpha (fixed-point, 1,000,000–2,000,000)
         filter_k: u64, // default: 611
         tc_ms: u64,    // IIR time-constant (ms)
     },
@@ -475,20 +475,20 @@ mod tests {
         assert!(active_set.entries.iter().all(|entry| entry.0.len() == 7));
         assert!(active_set
             .get_nodes(&pubkey, origin, |_| false, &stakes)
-            .eq([2, 12, 16, 9, 14].into_iter().map(|k| &nodes[k])));
+            .eq([2, 12, 15, 14, 16].into_iter().map(|k| &nodes[k])));
         assert!(active_set
             .get_nodes(&pubkey, other, |_| false, &stakes)
-            .eq([2, 4, 12, 16, 9, 14].into_iter().map(|k| &nodes[k])));
+            .eq([2, 4, 12, 15, 14, 16].into_iter().map(|k| &nodes[k])));
         let origins = [*origin, *other];
         active_set.prune(&pubkey, &nodes[2], &origins, &stakes);
         active_set.prune(&pubkey, &nodes[12], &origins, &stakes);
-        active_set.prune(&pubkey, &nodes[9], &origins, &stakes);
+        active_set.prune(&pubkey, &nodes[14], &origins, &stakes);
         assert!(active_set
             .get_nodes(&pubkey, origin, |_| false, &stakes)
-            .eq([16, 14].into_iter().map(|k| &nodes[k])));
+            .eq([15, 16].into_iter().map(|k| &nodes[k])));
         assert!(active_set
             .get_nodes(&pubkey, other, |_| false, &stakes)
-            .eq([4, 16, 14].into_iter().map(|k| &nodes[k])));
+            .eq([4, 15, 16].into_iter().map(|k| &nodes[k])));
     }
 
     #[test]
@@ -563,15 +563,15 @@ mod tests {
     #[test]
     fn test_alpha_converges_to_expected_target() {
         const CLUSTER_SIZE: usize = 415;
-        const TOLERANCE_MILLI: u16 = 10; // ±1% of alpha
+        const TOLERANCE_MILLI: u64 = 10_000; // ±1% of alpha
 
         let mut rng = ChaChaRng::from_seed([77u8; 32]);
         let mut nodes: Vec<Pubkey> = repeat_with(Pubkey::new_unique).take(CLUSTER_SIZE).collect();
 
-        // 39% unstaked → alpha_target = 1000 + 39 * 10 = 1390
+        // 39% unstaked → alpha_target = 1,000,000 + 39 * 10000 = 1,390,000
         let percent_unstaked = 39;
         let num_unstaked = (CLUSTER_SIZE * percent_unstaked + 50) / 100;
-        let expected_alpha_milli = 1000 + (percent_unstaked as u16 * 10);
+        let expected_alpha_milli = 1_000_000 + (percent_unstaked as u64 * 10_000);
 
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         let my_pubkey = nodes.pop().unwrap();
@@ -593,10 +593,10 @@ mod tests {
             expected_alpha_milli
         );
 
-        // 93% unstaked → alpha_target = 1000 + 93 * 10 = 1930
+        // 93% unstaked → alpha_target = 1,000,000 + 93 * 10000 = 1,930,000
         let percent_unstaked = 93;
         let num_unstaked = (CLUSTER_SIZE * percent_unstaked + 50) / 100;
-        let expected_alpha_milli = 1000 + (percent_unstaked as u16 * 10);
+        let expected_alpha_milli = 1_000_000 + (percent_unstaked as u64 * 10_000);
 
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         for _ in 0..8 {
@@ -615,7 +615,7 @@ mod tests {
     #[test]
     fn test_alpha_converges_up_and_down() {
         const CLUSTER_SIZE: usize = 415;
-        const TOLERANCE_MILLI: u16 = 10; // ±1% of alpha
+        const TOLERANCE_MILLI: u64 = 10_000; // ±1% of alpha
         const ROTATE_CALLS: usize = 8;
 
         let mut rng = ChaChaRng::from_seed([99u8; 32]);
@@ -623,9 +623,9 @@ mod tests {
 
         let mut active_set = PushActiveSet::default();
 
-        // 0% unstaked → alpha_target = 1000
+        // 0% unstaked → alpha_target = 1,000,000
         let num_unstaked = 0;
-        let expected_alpha_0 = 1000;
+        let expected_alpha_0 = 1_000_000;
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         let my_pubkey = nodes.pop().unwrap();
 
@@ -640,9 +640,9 @@ mod tests {
             expected_alpha_0
         );
 
-        // 100% unstaked → alpha_target = 2000
+        // 100% unstaked → alpha_target = 2,000,000
         let num_unstaked = CLUSTER_SIZE;
-        let expected_alpha_100 = 2000;
+        let expected_alpha_100 = 2_000_000;
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         for _ in 0..ROTATE_CALLS {
             active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &my_pubkey);
@@ -655,7 +655,7 @@ mod tests {
             expected_alpha_100
         );
 
-        // back to 0% unstaked → alpha_target = 1000
+        // back to 0% unstaked → alpha_target = 1,000,000
         let num_unstaked = 0;
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         for _ in 0..ROTATE_CALLS {
@@ -677,8 +677,10 @@ mod tests {
         let target_up = ALPHA_MAX;
         let filter_k = lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, DEFAULT_TC_MS);
 
-        // Expected values from rotating to 1000 from 2000
-        let expected_down = [1389, 1151, 1058, 1022, 1008, 1003, 1001, 1000];
+        // Expected values from rotating to 1,000,000 from 2,000,000
+        let expected_down = [
+            1_388_985, 1_151_309, 1_058_856, 1_022_894, 1_008_905, 1_003_463, 1_001_347, 1_000_523,
+        ];
 
         for (i, expected) in expected_down.iter().enumerate() {
             alpha = lpf::filter_alpha(alpha, target_down, filter_k, ALPHA_MIN, ALPHA_MAX);
@@ -689,8 +691,10 @@ mod tests {
             );
         }
 
-        // Rotate upward from current alpha (1000) to 2000
-        let expected_up = [1611, 1848, 1940, 1976, 1990, 1996, 1998, 1999];
+        // Rotate upward from current alpha (1,000,000) to 2,000,000
+        let expected_up = [
+            1_611_218, 1_848_769, 1_941_173, 1_977_117, 1_991_098, 1_996_537, 1_998_652, 1_999_475,
+        ];
         for (i, expected) in expected_up.iter().enumerate() {
             alpha = lpf::filter_alpha(alpha, target_up, filter_k, ALPHA_MIN, ALPHA_MAX);
             assert_eq!(
@@ -700,8 +704,10 @@ mod tests {
             );
         }
 
-        // Rotate downward again from current alpha (1999) to 1000
-        let expected_down2 = [1388, 1150, 1058, 1022, 1008, 1003, 1001, 1000];
+        // Rotate downward again from current alpha (1,999,000) to 1,000,000
+        let expected_down2 = [
+            1_388_780, 1_151_229, 1_058_825, 1_022_882, 1_008_900, 1_003_461, 1_001_346, 1_000_523,
+        ];
         for (i, expected) in expected_down2.iter().enumerate() {
             alpha = lpf::filter_alpha(alpha, target_down, filter_k, ALPHA_MIN, ALPHA_MAX);
             assert_eq!(

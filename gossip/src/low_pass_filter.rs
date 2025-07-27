@@ -4,7 +4,7 @@
 //! Implements:
 //!   alpha_new = K * target + (1 - K) * previous
 //!
-//! All math is unsigned integer fixed-point with `SCALE = 1000`
+//! All math is unsigned integer fixed-point with `SCALE = 1,000,000`
 //!
 //! The filter constant K is derived from:
 //!     K = W_C / (1 + W_C), where Wc = 2π * Fs / Tc
@@ -13,14 +13,14 @@
 use std::num::NonZeroU64;
 
 // Fixed point scale for K and `alpha` calculation
-pub const SCALE: NonZeroU64 = NonZeroU64::new(1000).unwrap();
+pub const SCALE: NonZeroU64 = NonZeroU64::new(1_000_000).unwrap();
 // 2 * pi * SCALE
-const TWO_PI_SCALED: u64 = 6_283;
+const TWO_PI_SCALED: u64 = 6_283_185;
 
 /// Computes the filter constant `K` for a given sample period and
 /// time‑constant, both in **milliseconds**.
 ///
-/// Returns `K` scaled by `SCALE` (0–1000).
+/// Returns `K` scaled by `SCALE` (0–1,000,000).
 pub fn compute_k(fs_ms: u64, tc_ms: u64) -> u64 {
     if tc_ms == 0 {
         return 0;
