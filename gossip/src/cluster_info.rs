@@ -1501,6 +1501,7 @@ impl ClusterInfo {
                             .map(|forks| forks.root_bank());
                         let maybe_bank_ref = maybe_bank.as_deref();
                         self.refresh_my_gossip_contact_info();
+                        info!("greg: stakes: {:?}", stakes);
                         self.refresh_push_active_set(
                             &recycler,
                             &stakes,

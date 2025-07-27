@@ -1,5 +1,6 @@
 //! Fixed-point IIR filter for smoothing `alpha` updates.
 //!
+//! This is equivalent to a discrete-time Butterworth filter of order 1
 //! Implements:
 //!   alpha_new = K * target + (1 - K) * previous
 //!
@@ -14,7 +15,7 @@ use std::num::NonZeroU64;
 // Fixed point scale for K and `alpha` calculation
 pub const SCALE: NonZeroU64 = NonZeroU64::new(1000).unwrap();
 // 2 * pi * SCALE
-const TWO_PI_SCALED: u64 = 6_283;
+const TWO_PI_SCALED: u64 = (std::f64::consts::PI * 2.0 * 1000.0) as u64;
 
 /// Computes the filter constant `K` for a given sample period and
 /// time‑constant, both in **milliseconds**.
