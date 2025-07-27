@@ -15,7 +15,7 @@ use std::num::NonZeroU64;
 // Fixed point scale for K and `alpha` calculation
 pub const SCALE: NonZeroU64 = NonZeroU64::new(1000).unwrap();
 // 2 * pi * SCALE
-const TWO_PI_SCALED: u64 = (std::f64::consts::PI * 2.0 * 1000.0) as u64;
+const TWO_PI_SCALED: u64 = 6_283;
 
 /// Computes the filter constant `K` for a given sample period and
 /// time‑constant, both in **milliseconds**.
@@ -24,11 +24,15 @@ const TWO_PI_SCALED: u64 = (std::f64::consts::PI * 2.0 * 1000.0) as u64;
 pub fn compute_k(fs_ms: u64, tc_ms: u64) -> u64 {
     if tc_ms == 0 {
         return 0;
-    } // disabled / passthrough
+    }
     let scale = SCALE.get();
-    let wc_scaled = (TWO_PI_SCALED * fs_ms) / tc_ms;
-    // round to nearest integer
-    ((wc_scaled * scale + scale / 2) / (scale + wc_scaled)).min(scale)
+    let wc_scaled = (TWO_PI_SCALED.saturating_mul(fs_ms)).saturating_div(tc_ms);
+    // ((wc_scaled * scale + scale / 2) / (scale + wc_scaled)).min(scale) rounded to nearest integer
+    ((wc_scaled
+        .saturating_mul(scale)
+        .saturating_add(scale.saturating_div(2)))
+    .saturating_div(scale.saturating_add(wc_scaled)))
+    .min(scale)
 }
 
 /// Updates alpha with a first-order low-pass filter.
@@ -48,7 +52,10 @@ pub fn compute_k(fs_ms: u64, tc_ms: u64) -> u64 {
 /// Returns `alpha_new = K * target + (1 - K) * prev`, rounded and clamped.
 pub fn filter_alpha(prev: u64, target: u64, k: u64, min: u64, max: u64) -> u64 {
     let scale = SCALE.get();
-    let next = (k * target + (scale - k) * prev) / scale;
+    // (k * target + (scale - k) * prev) / scale
+    let next = (k.saturating_mul(target))
+        .saturating_add((scale.saturating_sub(k)).saturating_mul(prev))
+        .saturating_div(scale);
     next.clamp(min, max)
 }
 
@@ -59,5 +66,8 @@ pub fn interpolate(base: u64, t: u64) -> u64 {
     let scale = SCALE.get();
     debug_assert!(t <= scale, "interpolation t={} > SCALE={}", t, scale);
     let base_squared = base.saturating_mul(base);
-    ((base * (scale - t) + base_squared * t) + scale / 2) / scale
+    // ((base * (scale - t) + base_squared * t) + scale / 2) / scale
+    ((base.saturating_mul(scale.saturating_sub(t))).saturating_add(base_squared.saturating_mul(t)))
+        .saturating_add(scale.saturating_div(2))
+        .saturating_div(scale)
 }

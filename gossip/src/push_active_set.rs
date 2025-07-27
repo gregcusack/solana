@@ -170,6 +170,7 @@ impl PushActiveSet {
         // Gossip nodes to be sampled for each push active set.
         nodes: &[Pubkey],
         stakes: &HashMap<Pubkey, u64>,
+        self_pubkey: &Pubkey,
     ) {
         if nodes.is_empty() {
             return;
@@ -215,9 +216,18 @@ impl PushActiveSet {
                 filter_k,
                 tc_ms: _,
             } => {
-                let num_unstaked = buckets.iter().filter(|&&b| b == 0).count();
-                let f_scaled =
-                    ((num_unstaked * lpf::SCALE.get() as usize) + nodes.len() / 2) / nodes.len();
+                // Need to take into account this node's stake bucket when calculating fraction of unstaked nodes.
+                let self_bucket = get_stake_bucket(stakes.get(self_pubkey));
+                let num_unstaked = buckets
+                    .iter()
+                    .filter(|&&b| b == 0)
+                    .count()
+                    .saturating_add(if self_bucket == 0 { 1 } else { 0 });
+                let total_nodes = nodes.len().saturating_add(1);
+
+                let f_scaled = ((num_unstaked.saturating_mul(lpf::SCALE.get() as usize))
+                    .saturating_add(total_nodes.saturating_div(2)))
+                .saturating_div(total_nodes);
                 let alpha_target = ALPHA_MIN.saturating_add(f_scaled as u64);
                 *alpha = lpf::filter_alpha(*alpha, alpha_target, filter_k, ALPHA_MIN, ALPHA_MAX);
                 info!("greg: alpha = {}", *alpha);
@@ -379,7 +389,7 @@ mod tests {
         stakes.insert(pubkey, rng.gen_range(1..MAX_STAKE));
         let mut active_set = PushActiveSet::new_static();
         assert!(active_set.entries.iter().all(|entry| entry.0.is_empty()));
-        active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes);
+        active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &pubkey);
         assert!(active_set.entries.iter().all(|entry| entry.0.len() == 5));
         // Assert that for all entries, each filter already prunes the key.
         for entry in &active_set.entries {
@@ -404,7 +414,7 @@ mod tests {
         assert!(active_set
             .get_nodes(&pubkey, other, |_| false, &stakes)
             .eq([13, 18, 16, 0].into_iter().map(|k| &nodes[k])));
-        active_set.rotate(&mut rng, 7, CLUSTER_SIZE, &nodes, &stakes);
+        active_set.rotate(&mut rng, 7, CLUSTER_SIZE, &nodes, &stakes, &pubkey);
         assert!(active_set.entries.iter().all(|entry| entry.0.len() == 7));
         assert!(active_set
             .get_nodes(&pubkey, origin, |_| false, &stakes)
@@ -435,7 +445,7 @@ mod tests {
         stakes.insert(pubkey, rng.gen_range(1..MAX_STAKE));
         let mut active_set = PushActiveSet::default();
         assert!(active_set.entries.iter().all(|entry| entry.0.is_empty()));
-        active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes);
+        active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &pubkey);
         assert!(active_set.entries.iter().all(|entry| entry.0.len() == 5));
         // Assert that for all entries, each filter already prunes the key.
         for entry in &active_set.entries {
@@ -461,7 +471,7 @@ mod tests {
         assert!(active_set
             .get_nodes(&pubkey, other, |_| false, &stakes)
             .eq([7, 2, 4, 12].into_iter().map(|k| &nodes[k])));
-        active_set.rotate(&mut rng, 7, CLUSTER_SIZE, &nodes, &stakes);
+        active_set.rotate(&mut rng, 7, CLUSTER_SIZE, &nodes, &stakes, &pubkey);
         assert!(active_set.entries.iter().all(|entry| entry.0.len() == 7));
         assert!(active_set
             .get_nodes(&pubkey, origin, |_| false, &stakes)
@@ -556,7 +566,7 @@ mod tests {
         const TOLERANCE_MILLI: u16 = 10; // ±1% of alpha
 
         let mut rng = ChaChaRng::from_seed([77u8; 32]);
-        let nodes: Vec<Pubkey> = repeat_with(Pubkey::new_unique).take(CLUSTER_SIZE).collect();
+        let mut nodes: Vec<Pubkey> = repeat_with(Pubkey::new_unique).take(CLUSTER_SIZE).collect();
 
         // 39% unstaked → alpha_target = 1000 + 39 * 10 = 1390
         let percent_unstaked = 39;
@@ -564,13 +574,15 @@ mod tests {
         let expected_alpha_milli = 1000 + (percent_unstaked as u16 * 10);
 
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
+        let my_pubkey = nodes.pop().unwrap();
+
         let mut active_set = PushActiveSet::default();
 
         // Simulate repeated calls to `rotate()` (as would happen every 7.5s)
         // 8 calls (60s) should be enough to converge to the expected target alpha.
         // We converge in about 4 calls (30s).
         for _ in 0..8 {
-            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes);
+            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &my_pubkey);
         }
 
         let actual_alpha = alpha_of(&active_set);
@@ -588,7 +600,7 @@ mod tests {
 
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         for _ in 0..8 {
-            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes);
+            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &my_pubkey);
         }
 
         let actual_alpha = alpha_of(&active_set);
@@ -607,7 +619,7 @@ mod tests {
         const ROTATE_CALLS: usize = 8;
 
         let mut rng = ChaChaRng::from_seed([99u8; 32]);
-        let nodes: Vec<Pubkey> = repeat_with(Pubkey::new_unique).take(CLUSTER_SIZE).collect();
+        let mut nodes: Vec<Pubkey> = repeat_with(Pubkey::new_unique).take(CLUSTER_SIZE).collect();
 
         let mut active_set = PushActiveSet::default();
 
@@ -615,8 +627,10 @@ mod tests {
         let num_unstaked = 0;
         let expected_alpha_0 = 1000;
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
+        let my_pubkey = nodes.pop().unwrap();
+
         for _ in 0..ROTATE_CALLS {
-            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes);
+            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &my_pubkey);
         }
         let alpha = alpha_of(&active_set);
         assert!(
@@ -631,7 +645,7 @@ mod tests {
         let expected_alpha_100 = 2000;
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         for _ in 0..ROTATE_CALLS {
-            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes);
+            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &my_pubkey);
         }
         let alpha = alpha_of(&active_set);
         assert!(
@@ -645,7 +659,7 @@ mod tests {
         let num_unstaked = 0;
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         for _ in 0..ROTATE_CALLS {
-            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes);
+            active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &my_pubkey);
         }
         let alpha = alpha_of(&active_set);
         assert!(

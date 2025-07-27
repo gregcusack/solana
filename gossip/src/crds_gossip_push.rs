@@ -307,12 +307,18 @@ impl CrdsGossipPush {
         if let Some(cfg) = maybe_cfg {
             active_set.apply_cfg(cfg);
         }
+        for (pk, stake) in stakes.iter() {
+            if pk == &self_keypair.pubkey() {
+                info!("greg: stake: {}", stake);
+            }
+        }
         active_set.rotate(
             &mut rng,
             CRDS_GOSSIP_PUSH_ACTIVE_SET_SIZE,
             cluster_size,
             &nodes,
             stakes,
+            &self_keypair.pubkey(),
         )
     }
 }
