@@ -1,7 +1,9 @@
+#[cfg(feature = "agave-unstable-api")]
+use solana_low_pass_filter::api as lpf;
 use {
     crate::{
-        cluster_info::REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, low_pass_filter as lpf,
-        stake_weighting_config::WeightingConfig, weighted_shuffle::WeightedShuffle,
+        cluster_info::REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, stake_weighting_config::WeightingConfig,
+        weighted_shuffle::WeightedShuffle,
     },
     indexmap::IndexMap,
     log::error,
@@ -49,14 +51,26 @@ pub(crate) struct PushActiveSet {
 
 impl Default for PushActiveSet {
     fn default() -> Self {
-        let filter_k = lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, DEFAULT_TC_MS);
+        let mode = {
+            #[cfg(feature = "agave-unstable-api")]
+            {
+                let filter_k = lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, DEFAULT_TC_MS);
+                WeightingMode::Dynamic {
+                    alpha: DEFAULT_ALPHA,
+                    filter_k,
+                    tc_ms: DEFAULT_TC_MS,
+                }
+            }
+
+            #[cfg(not(feature = "agave-unstable-api"))]
+            {
+                WeightingMode::Static
+            }
+        };
+
         Self {
             entries: Default::default(),
-            mode: WeightingMode::Dynamic {
-                alpha: DEFAULT_ALPHA,
-                filter_k, // default: 611
-                tc_ms: DEFAULT_TC_MS,
-            },
+            mode,
         }
     }
 }
@@ -251,6 +265,20 @@ impl PushActiveSet {
     }
 }
 
+#[cfg(not(feature = "agave-unstable-api"))]
+mod lpf {
+    pub const SCALE: std::num::NonZeroU64 = std::num::NonZeroU64::new(1000000).unwrap();
+    pub fn compute_k(_: u64, _: u64) -> u64 {
+        0
+    }
+    pub fn filter_alpha(alpha: u64, _: u64, _: u64, min: u64, max: u64) -> u64 {
+        alpha.clamp(min, max)
+    }
+    pub fn interpolate(_: u64, _: u64) -> u64 {
+        0
+    }
+}
+
 impl PushActiveSetEntry {
     const BLOOM_FALSE_RATE: f64 = 0.1;
     const BLOOM_MAX_BITS: usize = 1024 * 8 * 4;
@@ -336,6 +364,7 @@ mod tests {
     const MAX_STAKE: u64 = (1 << 20) * LAMPORTS_PER_SOL;
 
     // Helper to generate a stake map given unstaked count
+    #[cfg(feature = "agave-unstable-api")]
     fn make_stakes(
         nodes: &[Pubkey],
         num_unstaked: usize,
@@ -553,6 +582,7 @@ mod tests {
         assert!(entry.0.keys().eq(keys));
     }
 
+    #[cfg(feature = "agave-unstable-api")]
     fn alpha_of(pas: &PushActiveSet) -> u64 {
         match pas.mode {
             WeightingMode::Dynamic { alpha, .. } => alpha,
@@ -560,6 +590,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "agave-unstable-api")]
     #[test]
     fn test_alpha_converges_to_expected_target() {
         const CLUSTER_SIZE: usize = 415;
@@ -612,6 +643,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "agave-unstable-api")]
     #[test]
     fn test_alpha_converges_up_and_down() {
         const CLUSTER_SIZE: usize = 415;
@@ -670,6 +702,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "agave-unstable-api")]
     #[test]
     fn test_alpha_progression_matches_expected() {
         let mut alpha = ALPHA_MAX;
