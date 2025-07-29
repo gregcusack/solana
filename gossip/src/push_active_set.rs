@@ -2,11 +2,11 @@
 use solana_low_pass_filter::api as lpf;
 use {
     crate::{
-        cluster_info::REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, stake_weighting_config::WeightingConfig,
+        cluster_info::REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS,
+        stake_weighting_config::{TimeConstant, WeightingConfig, WeightingKind},
         weighted_shuffle::WeightedShuffle,
     },
     indexmap::IndexMap,
-    log::error,
     rand::Rng,
     solana_bloom::bloom::{Bloom, ConcurrentBloom},
     solana_native_token::LAMPORTS_PER_SOL,
@@ -85,18 +85,17 @@ impl PushActiveSet {
     }
 
     pub(crate) fn apply_cfg(&mut self, cfg: WeightingConfig) {
-        match cfg.weighting_mode {
-            0 => {
+        match cfg.weighting_kind {
+            WeightingKind::Static => {
                 if self.mode != WeightingMode::Static {
                     info!("Switching mode: {:?} -> Static", self.mode);
                     self.mode = WeightingMode::Static;
                 }
             }
-            1 => {
-                let new_tc_ms = if cfg.tc_ms != 0 {
-                    cfg.tc_ms
-                } else {
-                    DEFAULT_TC_MS
+            WeightingKind::Dynamic => {
+                let new_tc_ms = match cfg.tc {
+                    TimeConstant::Value(tc_ms) => tc_ms,
+                    TimeConstant::Default => DEFAULT_TC_MS,
                 };
 
                 match self.mode {
@@ -128,7 +127,6 @@ impl PushActiveSet {
                     }
                 }
             }
-            _ => error!("Invalid weighting mode: {}", cfg.weighting_mode),
         }
     }
 }
@@ -731,7 +729,14 @@ mod tests {
         ];
 
         for (i, expected) in expected_down.iter().enumerate() {
-            alpha = lpf::filter_alpha(alpha, target_down, filter_k, ALPHA_MIN, ALPHA_MAX);
+            alpha = lpf::filter_alpha(
+                alpha,
+                target_down,
+                lpf::FilterConfig {
+                    output_range: ALPHA_MIN..ALPHA_MAX,
+                    k: filter_k,
+                },
+            );
             assert_eq!(
                 alpha, *expected as u64,
                 "step {}: alpha did not match expected during convergence down",
@@ -744,7 +749,14 @@ mod tests {
             1_611_218, 1_848_769, 1_941_173, 1_977_117, 1_991_098, 1_996_537, 1_998_652, 1_999_475,
         ];
         for (i, expected) in expected_up.iter().enumerate() {
-            alpha = lpf::filter_alpha(alpha, target_up, filter_k, ALPHA_MIN, ALPHA_MAX);
+            alpha = lpf::filter_alpha(
+                alpha,
+                target_up,
+                lpf::FilterConfig {
+                    output_range: ALPHA_MIN..ALPHA_MAX,
+                    k: filter_k,
+                },
+            );
             assert_eq!(
                 alpha, *expected as u64,
                 "step {}: alpha did not match expected during convergence up",
@@ -757,7 +769,14 @@ mod tests {
             1_388_780, 1_151_229, 1_058_825, 1_022_882, 1_008_900, 1_003_461, 1_001_346, 1_000_523,
         ];
         for (i, expected) in expected_down2.iter().enumerate() {
-            alpha = lpf::filter_alpha(alpha, target_down, filter_k, ALPHA_MIN, ALPHA_MAX);
+            alpha = lpf::filter_alpha(
+                alpha,
+                target_down,
+                lpf::FilterConfig {
+                    output_range: ALPHA_MIN..ALPHA_MAX,
+                    k: filter_k,
+                },
+            );
             assert_eq!(
                 alpha, *expected as u64,
                 "step {}: alpha did not match expected during final convergence down",
