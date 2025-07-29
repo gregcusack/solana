@@ -243,7 +243,14 @@ impl PushActiveSet {
                     .saturating_add(total_nodes.saturating_div(2)))
                 .saturating_div(total_nodes);
                 let alpha_target = ALPHA_MIN.saturating_add(f_scaled as u64);
-                *alpha = lpf::filter_alpha(*alpha, alpha_target, filter_k, ALPHA_MIN, ALPHA_MAX);
+                *alpha = lpf::filter_alpha(
+                    *alpha,
+                    alpha_target,
+                    lpf::FilterConfig {
+                        output_range: ALPHA_MIN..ALPHA_MAX,
+                        k: filter_k,
+                    },
+                );
                 info!("greg: alpha = {}", *alpha);
 
                 for (k, entry) in self.entries.iter_mut().enumerate() {
@@ -268,11 +275,19 @@ impl PushActiveSet {
 #[cfg(not(feature = "agave-unstable-api"))]
 mod lpf {
     pub const SCALE: std::num::NonZeroU64 = std::num::NonZeroU64::new(1000000).unwrap();
+    pub struct FilterConfig {
+        pub output_range: std::ops::Range<u64>,
+        #[allow(dead_code)]
+        pub k: u64,
+    }
     pub fn compute_k(_: u64, _: u64) -> u64 {
         0
     }
-    pub fn filter_alpha(alpha: u64, _: u64, _: u64, min: u64, max: u64) -> u64 {
-        alpha.clamp(min, max)
+    pub fn filter_alpha(alpha: u64, _: u64, filter_config: FilterConfig) -> u64 {
+        alpha.clamp(
+            filter_config.output_range.start,
+            filter_config.output_range.end,
+        )
     }
     pub fn interpolate(_: u64, _: u64) -> u64 {
         0

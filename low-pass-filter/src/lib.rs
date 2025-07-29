@@ -20,6 +20,11 @@ pub mod api {
     // 2 * pi * SCALE
     const TWO_PI_SCALED: u64 = 6_283_185;
 
+    pub struct FilterConfig {
+        pub output_range: std::ops::Range<u64>,
+        pub k: u64,
+    }
+
     /// Computes the filter constant `K` for a given sample period and
     /// time‑constant, both in **milliseconds**.
     ///
@@ -53,13 +58,16 @@ pub mod api {
     /// If future code changes make `alpha_target` jump larger, we must retune
     /// `TC`/`K` or use a higher‑order filter to avoid lag/overshoot.
     /// Returns `alpha_new = K * target + (1 - K) * prev`, rounded and clamped.
-    pub fn filter_alpha(prev: u64, target: u64, k: u64, min: u64, max: u64) -> u64 {
+    pub fn filter_alpha(prev: u64, target: u64, filter_config: FilterConfig) -> u64 {
         let scale = SCALE.get();
         // (k * target + (scale - k) * prev) / scale
-        let next = (k.saturating_mul(target))
-            .saturating_add((scale.saturating_sub(k)).saturating_mul(prev))
+        let next = (filter_config.k.saturating_mul(target))
+            .saturating_add((scale.saturating_sub(filter_config.k)).saturating_mul(prev))
             .saturating_div(scale);
-        next.clamp(min, max)
+        next.clamp(
+            filter_config.output_range.start,
+            filter_config.output_range.end,
+        )
     }
 
     /// Approximates `base^alpha` rounded to nearest integer using
