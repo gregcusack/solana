@@ -315,7 +315,7 @@ impl CrdsGossipPush {
         let maybe_cfg = self.maybe_refresh_weighting_config(maybe_bank_ref, timestamp());
         let mut active_set = self.active_set.write().unwrap();
         if let Some(cfg) = maybe_cfg {
-            active_set.apply_cfg(cfg);
+            active_set.apply_cfg(&cfg);
         }
         for (pk, stake) in stakes.iter() {
             if pk == &self_keypair.pubkey() {

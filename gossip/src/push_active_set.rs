@@ -3,7 +3,7 @@ use solana_low_pass_filter::api as lpf;
 use {
     crate::{
         cluster_info::REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS,
-        stake_weighting_config::{TimeConstant, WeightingConfig, WeightingKind},
+        stake_weighting_config::{TimeConstant, WeightingConfig},
         weighted_shuffle::WeightedShuffle,
     },
     indexmap::IndexMap,
@@ -31,6 +31,26 @@ pub enum WeightingMode {
         filter_k: u64, // default: 611,000
         tc_ms: u64,    // IIR time-constant (ms)
     },
+}
+
+impl From<&WeightingConfig> for WeightingMode {
+    fn from(cfg: &WeightingConfig) -> Self {
+        match cfg {
+            WeightingConfig::Static => WeightingMode::Static,
+            WeightingConfig::Dynamic { tc } => {
+                let tc_ms = match tc {
+                    TimeConstant::Value(tc_ms) => *tc_ms,
+                    TimeConstant::Default => DEFAULT_TC_MS,
+                };
+                let filter_k = lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, tc_ms);
+                WeightingMode::Dynamic {
+                    alpha: DEFAULT_ALPHA,
+                    filter_k,
+                    tc_ms,
+                }
+            }
+        }
+    }
 }
 
 #[inline]
@@ -71,17 +91,17 @@ impl PushActiveSet {
         }
     }
 
-    pub(crate) fn apply_cfg(&mut self, cfg: WeightingConfig) {
-        match cfg.weighting_kind {
-            WeightingKind::Static => {
+    pub(crate) fn apply_cfg(&mut self, cfg: &WeightingConfig) {
+        match cfg {
+            WeightingConfig::Static => {
                 if self.mode != WeightingMode::Static {
                     info!("Switching mode: {:?} -> Static", self.mode);
                     self.mode = WeightingMode::Static;
                 }
             }
-            WeightingKind::Dynamic => {
-                let new_tc_ms = match cfg.tc {
-                    TimeConstant::Value(tc_ms) => tc_ms,
+            WeightingConfig::Dynamic { tc } => {
+                let new_tc_ms = match tc {
+                    TimeConstant::Value(tc_ms) => *tc_ms,
                     TimeConstant::Default => DEFAULT_TC_MS,
                 };
 
@@ -106,15 +126,14 @@ impl PushActiveSet {
                         }
                         WeightingMode::Static => {
                             info!("Switching mode: Static -> Dynamic");
-                            self.mode = WeightingMode::Dynamic {
-                                alpha: DEFAULT_ALPHA,
-                                filter_k: new_filter_k,
-                                tc_ms: new_tc_ms,
-                            };
-                            info!(
-                                "Initialized filter K = {} (tc_ms = {})",
-                                new_filter_k, new_tc_ms
-                            );
+                            // Use From implementation for clean conversion
+                            self.mode = WeightingMode::from(cfg);
+                            if let WeightingMode::Dynamic {
+                                filter_k, tc_ms, ..
+                            } = self.mode
+                            {
+                                info!("Initialized filter K = {} (tc_ms = {})", filter_k, tc_ms);
+                            }
                         }
                     }
                 }

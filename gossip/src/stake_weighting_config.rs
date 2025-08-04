@@ -1,13 +1,6 @@
 use {serde::Deserialize, solana_account::ReadableAccount, solana_runtime::bank::Bank};
 
 #[derive(Deserialize, Debug)]
-#[repr(u8)]
-pub enum WeightingKind {
-    Static,
-    Dynamic,
-}
-
-#[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum TimeConstant {
     /// IIR time-constant (ms)
@@ -17,10 +10,11 @@ pub enum TimeConstant {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(tag = "type")]
 #[repr(C)]
-pub struct WeightingConfig {
-    pub weighting_kind: WeightingKind,
-    pub tc: TimeConstant,
+pub enum WeightingConfig {
+    Static,
+    Dynamic { tc: TimeConstant },
 }
 
 mod weighting_config_control_pubkey {
