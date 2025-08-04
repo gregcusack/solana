@@ -85,32 +85,37 @@ impl PushActiveSet {
                     TimeConstant::Default => DEFAULT_TC_MS,
                 };
 
-                match self.mode {
-                    WeightingMode::Dynamic {
-                        ref mut filter_k,
-                        ref mut tc_ms,
-                        ..
-                    } => {
-                        if *tc_ms != new_tc_ms {
-                            *filter_k =
-                                lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, new_tc_ms);
+                let should_update_filter = match self.mode {
+                    WeightingMode::Dynamic { tc_ms, .. } => tc_ms != new_tc_ms,
+                    WeightingMode::Static => true,
+                };
+
+                if should_update_filter {
+                    let new_filter_k =
+                        lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, new_tc_ms);
+
+                    match self.mode {
+                        WeightingMode::Dynamic {
+                            ref mut filter_k,
+                            ref mut tc_ms,
+                            ..
+                        } => {
+                            *filter_k = new_filter_k;
                             *tc_ms = new_tc_ms;
                             info!("Recomputed filter K = {} (tc_ms = {})", *filter_k, *tc_ms);
                         }
-                    }
-                    WeightingMode::Static => {
-                        info!("Switching mode: Static -> Dynamic");
-                        let filter_k =
-                            lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, new_tc_ms);
-                        self.mode = WeightingMode::Dynamic {
-                            alpha: DEFAULT_ALPHA,
-                            filter_k,
-                            tc_ms: new_tc_ms,
-                        };
-                        info!(
-                            "Initialized filter K = {} (tc_ms = {})",
-                            filter_k, new_tc_ms
-                        );
+                        WeightingMode::Static => {
+                            info!("Switching mode: Static -> Dynamic");
+                            self.mode = WeightingMode::Dynamic {
+                                alpha: DEFAULT_ALPHA,
+                                filter_k: new_filter_k,
+                                tc_ms: new_tc_ms,
+                            };
+                            info!(
+                                "Initialized filter K = {} (tc_ms = {})",
+                                new_filter_k, new_tc_ms
+                            );
+                        }
                     }
                 }
             }
