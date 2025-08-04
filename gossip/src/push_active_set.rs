@@ -28,7 +28,7 @@ pub enum WeightingMode {
     // alpha in [1.0, 2.0], smoothed over time, scaled up by 1,000,000 to avoid floating-point math
     Dynamic {
         alpha: u64,    // current alpha (fixed-point, 1,000,000–2,000,000)
-        filter_k: u64, // default: 611
+        filter_k: u64, // default: 611,000
         tc_ms: u64,    // IIR time-constant (ms)
     },
 }
@@ -49,38 +49,25 @@ pub(crate) struct PushActiveSet {
     mode: WeightingMode,
 }
 
-impl Default for PushActiveSet {
-    fn default() -> Self {
-        let mode = {
-            #[cfg(feature = "agave-unstable-api")]
-            {
-                let filter_k = lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, DEFAULT_TC_MS);
-                WeightingMode::Dynamic {
-                    alpha: DEFAULT_ALPHA,
-                    filter_k,
-                    tc_ms: DEFAULT_TC_MS,
-                }
-            }
-
-            #[cfg(not(feature = "agave-unstable-api"))]
-            {
-                WeightingMode::Static
-            }
-        };
-
-        Self {
-            entries: Default::default(),
-            mode,
-        }
-    }
-}
-
 impl PushActiveSet {
-    #[cfg(test)]
-    fn new_static() -> Self {
+    #[cfg(any(test, not(feature = "agave-unstable-api")))]
+    pub(crate) fn new_static() -> Self {
         Self {
             entries: Default::default(),
             mode: WeightingMode::Static,
+        }
+    }
+
+    #[cfg(feature = "agave-unstable-api")]
+    pub(crate) fn new_dynamic() -> Self {
+        let filter_k = lpf::compute_k(REFRESH_PUSH_ACTIVE_SET_INTERVAL_MS, DEFAULT_TC_MS);
+        Self {
+            entries: Default::default(),
+            mode: WeightingMode::Dynamic {
+                alpha: DEFAULT_ALPHA,
+                filter_k,
+                tc_ms: DEFAULT_TC_MS,
+            },
         }
     }
 
@@ -476,6 +463,7 @@ mod tests {
             .eq([16, 7, 11].into_iter().map(|k| &nodes[k])));
     }
 
+    #[cfg(feature = "agave-unstable-api")]
     #[test]
     fn test_push_active_set_dynamic_weighting() {
         const CLUSTER_SIZE: usize = 117;
@@ -485,7 +473,7 @@ mod tests {
         let stakes = repeat_with(|| rng.gen_range(1..MAX_STAKE));
         let mut stakes: HashMap<_, _> = nodes.iter().copied().zip(stakes).collect();
         stakes.insert(pubkey, rng.gen_range(1..MAX_STAKE));
-        let mut active_set = PushActiveSet::default();
+        let mut active_set = PushActiveSet::new_dynamic();
         assert!(active_set.entries.iter().all(|entry| entry.0.is_empty()));
         active_set.rotate(&mut rng, 5, CLUSTER_SIZE, &nodes, &stakes, &pubkey);
         assert!(active_set.entries.iter().all(|entry| entry.0.len() == 5));
@@ -620,7 +608,7 @@ mod tests {
         let stakes = make_stakes(&nodes, num_unstaked, &mut rng);
         let my_pubkey = nodes.pop().unwrap();
 
-        let mut active_set = PushActiveSet::default();
+        let mut active_set = PushActiveSet::new_dynamic();
 
         // Simulate repeated calls to `rotate()` (as would happen every 7.5s)
         // 8 calls (60s) should be enough to converge to the expected target alpha.
@@ -666,7 +654,7 @@ mod tests {
         let mut rng = ChaChaRng::from_seed([99u8; 32]);
         let mut nodes: Vec<Pubkey> = repeat_with(Pubkey::new_unique).take(CLUSTER_SIZE).collect();
 
-        let mut active_set = PushActiveSet::default();
+        let mut active_set = PushActiveSet::new_dynamic();
 
         // 0% unstaked → alpha_target = 1,000,000
         let num_unstaked = 0;
