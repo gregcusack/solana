@@ -216,6 +216,7 @@ impl<const K: usize> ShredDeduper<K> {
 
 enum RetransmitSocket<'a> {
     Socket(&'a UdpSocket),
+    DualSocket(&'a UdpSocket, &'a UdpSocket), // Primary + backup interface
     Xdp(&'a XdpSender),
 }
 
@@ -346,24 +347,44 @@ fn retransmit(
         egress_socket_select::num_retransmit_sockets_per_interface();
     let retransmit_socket = |index: usize| {
         let socket = xdp_sender.map(RetransmitSocket::Xdp).unwrap_or_else(|| {
-            let interface_offset = egress_socket_select::active_offset();
+            let socket_index = index % num_retransmit_sockets_per_interface;
+            let total_sockets = retransmit_sockets.len();
+            let num_interfaces = total_sockets / num_retransmit_sockets_per_interface;
 
-            // greg: todo if we do this we need to make sure our offset index does not exceed the number of retransmit sockets
-            let socket: &UdpSocket = retransmit_sockets
-                [interface_offset + (index % num_retransmit_sockets_per_interface)]
-                .as_ref();
-            if rand::thread_rng().gen_ratio(1, 5000) {
-                error!(
-                    "greg: retransmit_socket index: {}, interface_offset: {}",
-                    index, interface_offset
-                );
-                info!("greg: retransmit_socket socket: {:?}", socket.local_addr());
+            // Always use primary interface (interface 0) as the base
+            let primary_socket: &UdpSocket = retransmit_sockets[socket_index].as_ref();
+
+            // If we have multiple interfaces, also send from backup interface (interface 1)
+            if num_interfaces >= 2 {
+                let backup_socket: &UdpSocket = retransmit_sockets
+                    [num_retransmit_sockets_per_interface + socket_index]
+                    .as_ref();
+
+                if rand::thread_rng().gen_ratio(1, 5000) {
+                    error!(
+                        "greg: dual retransmit_socket index: {}, primary: {}, backup: {}",
+                        index,
+                        socket_index,
+                        num_retransmit_sockets_per_interface + socket_index
+                    );
+                    info!(
+                        "greg: primary socket: {:?}, backup socket: {:?}",
+                        primary_socket.local_addr(),
+                        backup_socket.local_addr()
+                    );
+                }
+
+                RetransmitSocket::DualSocket(primary_socket, backup_socket)
+            } else {
+                if rand::thread_rng().gen_ratio(1, 5000) {
+                    error!(
+                        "greg: single retransmit_socket index: {}, socket_index: {}",
+                        index, socket_index
+                    );
+                    info!("greg: single socket: {:?}", primary_socket.local_addr());
+                }
+                RetransmitSocket::Socket(primary_socket)
             }
-            RetransmitSocket::Socket(socket)
-            // RetransmitSocket::Socket(
-            //     &retransmit_sockets
-            //         [(interface_offset + index) % num_retransmit_sockets_per_interface],
-            // )
         });
         socket
     };
@@ -466,6 +487,29 @@ fn retransmit_shred(
                     num_addrs - num_failed
                 }
             },
+            RetransmitSocket::DualSocket(primary_socket, backup_socket) => {
+                let mut total_sent = 0;
+
+                // Send primary
+                match multi_target_send(primary_socket, shred.clone(), &addrs) {
+                    Ok(()) => total_sent += num_addrs,
+                    Err(SendPktsError::IoError(ioerr, num_failed)) => {
+                        error!("primary interface retransmit error: {ioerr:?}, {num_failed}/{num_addrs} packets failed");
+                        total_sent += num_addrs - num_failed;
+                    }
+                }
+
+                // Send secondary
+                match multi_target_send(backup_socket, shred, &addrs) {
+                    Ok(()) => total_sent += num_addrs,
+                    Err(SendPktsError::IoError(ioerr, num_failed)) => {
+                        error!("backup interface retransmit error: {ioerr:?}, {num_failed}/{num_addrs} packets failed");
+                        total_sent += num_addrs - num_failed;
+                    }
+                }
+
+                total_sent
+            }
         },
     };
     retransmit_time.stop();
