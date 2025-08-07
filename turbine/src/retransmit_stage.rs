@@ -359,30 +359,8 @@ fn retransmit(
                 let backup_socket: &UdpSocket = retransmit_sockets
                     [num_retransmit_sockets_per_interface + socket_index]
                     .as_ref();
-
-                if rand::thread_rng().gen_ratio(1, 5000) {
-                    error!(
-                        "greg: dual retransmit_socket index: {}, primary: {}, backup: {}",
-                        index,
-                        socket_index,
-                        num_retransmit_sockets_per_interface + socket_index
-                    );
-                    info!(
-                        "greg: primary socket: {:?}, backup socket: {:?}",
-                        primary_socket.local_addr(),
-                        backup_socket.local_addr()
-                    );
-                }
-
                 RetransmitSocket::DualSocket(primary_socket, backup_socket)
             } else {
-                if rand::thread_rng().gen_ratio(1, 5000) {
-                    error!(
-                        "greg: single retransmit_socket index: {}, socket_index: {}",
-                        index, socket_index
-                    );
-                    info!("greg: single socket: {:?}", primary_socket.local_addr());
-                }
                 RetransmitSocket::Socket(primary_socket)
             }
         });
