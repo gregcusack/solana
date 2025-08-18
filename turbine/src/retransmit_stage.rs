@@ -30,7 +30,7 @@ use {
         bank_forks::BankForks,
     },
     solana_streamer::{
-        sendmmsg::{multi_target_send, SendPktsError},
+        sendmmsg::{multi_target_send_ref, SendPktsError},
         socket::SocketAddrSpace,
     },
     solana_time_utils::timestamp,
@@ -458,7 +458,7 @@ fn retransmit_shred(
                 }
                 sent
             }
-            RetransmitSocket::Socket(socket) => match multi_target_send(socket, shred, &addrs) {
+            RetransmitSocket::Socket(socket) => match multi_target_send_ref(socket, &shred, &addrs) {
                 Ok(()) => num_addrs,
                 Err(SendPktsError::IoError(ioerr, num_failed)) => {
                     error!("retransmit_to multi_target_send error: {ioerr:?}, {num_failed}/{} packets failed", num_addrs);
@@ -469,7 +469,7 @@ fn retransmit_shred(
                 let mut total_sent = 0;
 
                 // Send primary
-                match multi_target_send(primary_socket, shred.clone(), &addrs) {
+                match multi_target_send_ref(primary_socket, &shred, &addrs) {
                     Ok(()) => total_sent += num_addrs,
                     Err(SendPktsError::IoError(ioerr, num_failed)) => {
                         error!("primary interface retransmit error: {ioerr:?}, {num_failed}/{num_addrs} packets failed");
@@ -478,7 +478,7 @@ fn retransmit_shred(
                 }
 
                 // Send secondary
-                match multi_target_send(backup_socket, shred, &addrs) {
+                match multi_target_send_ref(backup_socket, &shred, &addrs) {
                     Ok(()) => total_sent += num_addrs,
                     Err(SendPktsError::IoError(ioerr, num_failed)) => {
                         error!("backup interface retransmit error: {ioerr:?}, {num_failed}/{num_addrs} packets failed");

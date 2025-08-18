@@ -233,8 +233,20 @@ where
     S: Borrow<SocketAddr>,
     T: AsRef<[u8]>,
 {
+    multi_target_send_ref(sock, &packet, dests)
+}
+
+pub fn multi_target_send_ref<S, T>(
+    sock: &UdpSocket,
+    packet: &T,
+    dests: &[S],
+) -> Result<(), SendPktsError>
+where
+    S: Borrow<SocketAddr>,
+    T: AsRef<[u8]>,
+{
     let dests = dests.iter().map(Borrow::borrow);
-    let pkts = dests.map(|addr| (&packet, addr));
+    let pkts = dests.map(|addr| (packet, addr));
     batch_send(sock, pkts)
 }
 
