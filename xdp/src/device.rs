@@ -142,6 +142,9 @@ impl NetworkDevice {
         Ok(DeviceQueue::new(self.if_index, queue_id, ring_sizes))
     }
 
+    // asking hardware for what its optimal ring sizes are
+    // returns rignsizes with rx, tx sizes
+    // different nics will report different ring sizes
     pub fn ring_sizes(if_name: &str) -> Result<RingSizes, io::Error> {
         const ETHTOOL_GRINGPARAM: u32 = 0x00000010;
 
@@ -182,6 +185,8 @@ impl NetworkDevice {
         if res < 0 {
             return Err(io::Error::last_os_error());
         }
+        // greg: print ring sizes
+        println!("greg: ring sizes: rx: {}, tx: {}", rp.rx_pending, rp.tx_pending);
 
         Ok(RingSizes {
             rx: rp.rx_pending as usize,

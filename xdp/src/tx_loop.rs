@@ -26,6 +26,7 @@ use {
     },
 };
 
+// packet tx logic happens here
 #[allow(clippy::too_many_arguments)]
 pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     cpu_id: usize,
@@ -44,7 +45,8 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         dev.name()
     );
 
-    // each queue is bound to its own CPU core
+    // each queue/thread is bound to its own CPU core
+    // cache efficiency and performance
     set_cpu_affinity([cpu_id]).unwrap();
 
     let src_mac = src_mac.unwrap_or_else(|| {
@@ -59,8 +61,19 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     });
 
     // some drivers require frame_size=page_size
+    // greg: get page size in bytes
+    // page size is typically 4KB
+    // some network drivers expect packet buffers to align with memory pages
+    // better when buffers match page boundaries
+    // dma ops more efficient with page aligned buffers
+    // nics often expect page aligned buffers
     let frame_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
 
+    // opens a network queue on the network interface
+    // gets ring sizes from hardware (ethtool)
+    // create devicequeue with queueinfo
+    // returns DeviceQueue that represents opened queue
+    // opening one queue per cpu core
     let queue = dev
         .open_queue(queue_id)
         .expect("failed to open queue for AF_XDP socket");
@@ -75,6 +88,10 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         RingSizes::default()
     });
 
+    // total number of packet buffers to allocate in memory
+    // hw buffers have fixed size (ringsizes)
+    // memory buffers need to be larger than rings
+    // 2x to avoid bottlenecks
     let frame_count = (rx_size + tx_size) * 2;
 
     // try to allocate huge pages first, then fall back to regular pages

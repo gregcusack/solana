@@ -119,17 +119,33 @@ impl XdpRetransmitter {
 
         // switch to higher caps while we setup XDP. We assume that an error in
         // this function is irrecoverable so we don't try to drop on errors.
+        //greg: CAP_NET_ADMIN -> configure network interfaces
+        //greg: CAP_NET_RAW -> send raw network packets
+        //greg: CAP_BPF -> load ebpf programs for zero copy
+        // need these so that we can attafch programs to the network interface and send packets directly
         for cap in [CAP_NET_ADMIN, CAP_NET_RAW, CAP_BPF] {
             caps::raise(None, CapSet::Effective, cap)
                 .map_err(|e| format!("failed to raise {cap:?} capability: {e}"))?;
         }
 
+        // greg: create network devicex handle that XDP will use to send packets
+        // so we attach to the interface?
         let dev = Arc::new(if let Some(interface) = config.interface {
             NetworkDevice::new(interface).unwrap()
         } else {
             NetworkDevice::new_from_default_route().unwrap()
         });
 
+        // greg: attach custom kernel code to network interface
+        // so if zero copy is enabled, we attach the ebpf program to the network interface
+        // so that we can send packets directly to the network interface
+        // without going through the kernel
+        // if zero copy is disabled, we don't attach the ebpf program
+        // and we send packets through the kernel
+        // but we still get the benefits of parallel transmission across multiple cpu cores
+        // dedicated transmission threads with cpu affinity
+        // channel-based packet queueing
+        // greg: question: so we're not attaching any xdp program to the network interface???
         let ebpf = if config.zero_copy {
             Some(
                 load_xdp_program(dev.if_index())
@@ -139,16 +155,27 @@ impl XdpRetransmitter {
             None
         };
 
+        // greg: drop the caps after we've used them for setup
         for cap in [CAP_NET_ADMIN, CAP_NET_RAW, CAP_BPF] {
             caps::drop(None, CapSet::Effective, cap).unwrap();
         }
 
+        //greg: create a channel for each cpu core
+        // sender is what the main thread uses to send packets
+        // receive is what the xdp transmission thread uses to receive packets
+        // each cpu has its own channel
+        // call try_send() with a packet
+        // packet goes to a specific CPU channel 
+        // that cpu's xdp thread picks up packet from its receiver
+        // xdp thread sends packet out to the network interface
         let (senders, receivers) = (0..config.cpus.len())
             .map(|_| crossbeam_channel::bounded(config.rtx_channel_cap))
             .unzip::<_, _, Vec<_>, Vec<_>>();
 
         let mut threads = vec![];
 
+        // creates a channel for sending items that need to be dropped/clean up
+        // xdp threads should never block or do expensive ops
         let (drop_sender, drop_receiver) = crossbeam_channel::bounded(DROP_CHANNEL_CAP);
         threads.push(
             Builder::new()
@@ -173,11 +200,15 @@ impl XdpRetransmitter {
                 .unwrap(),
         );
 
+        // greg: spawn the xdp transmission threads - one for each cpu core
+        // iterate over each cpu core
+        // each core gets a transmit thread and a reference to the drop sender
         for (i, (receiver, cpu_id)) in receivers
             .into_iter()
             .zip(config.cpus.into_iter())
             .enumerate()
         {
+            // each threads gets its own reference to the network device and drop_sender
             let dev = Arc::clone(&dev);
             let drop_sender = drop_sender.clone();
             threads.push(
@@ -185,15 +216,15 @@ impl XdpRetransmitter {
                     .name(format!("solRetransmIO{i:02}"))
                     .spawn(move || {
                         tx_loop(
-                            cpu_id,
-                            &dev,
-                            QueueId(i as u64),
+                            cpu_id, // cpu_id
+                            &dev, // network device
+                            QueueId(i as u64), // just the index of the cpu core
                             config.zero_copy,
                             None,
                             None,
-                            src_port,
+                            src_port, // src port of the retransmit socket
                             None,
-                            receiver,
+                            receiver, // the channel that the main thread uses to send packets. we read shreds to send from here
                             drop_sender,
                         )
                     })
