@@ -178,18 +178,22 @@ impl<T> ClusterNodes<T> {
                 None => {
                     num_nodes_dead += 1;
                     stake_dead += node.stake;
+                    info!("greg: dead node: {:?}", node.pubkey());
                 }
                 Some(wallclock) => {
                     let age = now.saturating_sub(wallclock);
                     if age > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS {
                         num_nodes_stale += 1;
                         stake_stale += node.stake;
+                        info!("greg: stale node: {:?}", node.pubkey());
                     }
                 }
             }
         }
         num_nodes_stale += num_nodes_dead;
         stake_stale += stake_dead;
+        info!("greg: num_nodes_dead: {:?}", num_nodes_dead);
+        info!("greg: num_nodes_stale: {:?}", num_nodes_stale);
         datapoint_info!(
             name,
             ("epoch_stakes", epoch_stakes / LAMPORTS_PER_SOL, i64),
