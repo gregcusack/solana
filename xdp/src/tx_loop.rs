@@ -110,6 +110,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         caps::raise(None, CapSet::Effective, cap).unwrap();
     }
 
+    //// creating af_xdp socket
     let Ok((mut socket, tx)) = Socket::tx(queue, umem, zero_copy, tx_size * 2, tx_size) else {
         panic!("failed to create AF_XDP socket on queue {queue_id:?}");
     };
@@ -154,10 +155,10 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     loop {
         match receiver.try_recv() {
             Ok((addrs, payload)) => {
-                batched_packets += addrs.as_ref().len();
-                batched_items.push((addrs, payload));
+                batched_packets += addrs.as_ref().len(); // number of dest
+                batched_items.push((addrs, payload)); // batches
                 timeouts = 0;
-                if batched_packets < BATCH_SIZE {
+                if batched_packets < BATCH_SIZE { // once we reach batch size, go onto the next
                     continue;
                 }
             }
@@ -174,26 +175,55 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
             }
             Err(TryRecvError::Disconnected) => {
                 // keep looping until we've flushed all the packets
+                // this is where we flush the ring
                 if batched_packets == 0 {
                     break;
                 }
             }
         };
+        // now we have received a full batch of packets
+        // greg: 
+        // does ring get commited if we hit max batch size?
+        // does ring (aka the driver) get kicked if we hit max batch size?
+        // greg: yes but down below
 
         // this is the number of packets after which we commit the ring and kick the driver if
         // necessary
         let mut chunk_remaining = BATCH_SIZE.min(batched_packets);
 
+        // ring holds slots for XdpDesc structs
+        // xdpDesc struct describes the memory address in UMEM, total packet length, and flags/options
+        // UMUM contains complete packets (headers/payloads)
+        // TX RING (metadata):
+        // Slot 0: XdpDesc { addr: 0x1000, len: 1500, options: 0 }
+        // Slot 1: XdpDesc { addr: 0x2000, len: 1200, options: 0 }
+        // Slot 2: XdpDesc { addr: 0x3000, len: 800,  options: 0 }
+        // UMEM (actual packet data)
+        // Frame 0 (0x1000): [ETH][IP][UDP][Payload1...]
+        // Frame 1 (0x2000): [ETH][IP][UDP][Payload2...]
+        // Frame 2 (0x3000): [ETH][IP][UDP][Payload3...]
         for (addrs, payload) in batched_items.drain(..) {
             for addr in addrs.as_ref() {
-                if ring.available() == 0 || umem.available() == 0 {
+                // ring no available -> tx ring is full -> no slots to queue packets
+                // umem no available -> umem is full -> no free memory frames to store packet data
+                if ring.available() == 0 || umem.available() == 0 { // no space for the next packet
                     // loop until we have space for the next packet
                     loop {
-                        completion.sync(true);
+                        // see what packets have been transmitted from the kernel
+                        // tells kernel wat we've processed
+                        // sees what kernel has written
+                        completion.sync(true); // check for completion notifications from kernel
                         // we haven't written any frames so we only need to sync the consumer position
+                        // sync tx ring with kernel without committing
+                        // we are not commiting new frames to the ring, we are just syncing the consumer position
+                        // and checking status of the ring
                         ring.sync(false);
 
                         // check if any frames were completed
+                        // read complettion notification from kernel
+                        // release memory frames back to pool
+                        // each completion means one packet was transmitted successfully
+                        // now we should have space for the next packet
                         while let Some(frame_offset) = completion.read() {
                             umem.release(frame_offset);
                         }
@@ -211,14 +241,16 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
 
                 // at this point we're guaranteed to have a frame to write the next packet into and
                 // a slot in the ring to submit it
-                let mut frame = umem.reserve().unwrap();
+                let mut frame = umem.reserve().unwrap(); // get a free memory frame
                 let IpAddr::V4(dst_ip) = addr.ip() else {
                     panic!("IPv6 not supported");
                 };
 
+                // route resolution
                 let dest_mac = if let Some(mac) = dest_mac {
                     mac
                 } else {
+                    // greg: query routing table to get route for packet
                     let next_hop = router.route(addr.ip()).unwrap();
 
                     let mut skip = false;
@@ -253,14 +285,17 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     next_hop.mac_addr.unwrap()
                 };
 
+                // greg: ok now we build the complete packet headers
+                // we write the complete packet headers and payload into umem
                 const PACKET_HEADER_SIZE: usize =
                     ETH_HEADER_SIZE + IP_HEADER_SIZE + UDP_HEADER_SIZE;
                 let len = payload.as_ref().len();
-                frame.set_len(PACKET_HEADER_SIZE + len);
+                frame.set_len(PACKET_HEADER_SIZE + len); // total packet length
                 let packet = umem.map_frame_mut(&frame);
 
                 // write the payload first as it's needed for checksum calculation (if enabled)
                 packet[PACKET_HEADER_SIZE..][..len].copy_from_slice(payload.as_ref());
+
 
                 write_eth_header(packet, &src_mac.0, &dest_mac.0);
 
@@ -282,7 +317,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     false,
                 );
 
-                // write the packet into the ring
+                // write the packet descriptior/metadata (XdpDesc) into the ring 
                 ring.write(frame, 0)
                     .map_err(|_| "ring full")
                     // this should never happen as we check for available slots above
@@ -307,6 +342,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     assert_eq!(batched_packets, 0);
 
     // drain the ring
+    // greg: is this when we are exiting?? 
     while umem.available() < umem_tx_capacity || ring.available() < ring.capacity() {
         log::debug!(
             "draining xdp ring umem {}/{} ring {}/{}",
@@ -330,11 +366,11 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
 // we want the NIC to do something.
 #[inline(always)]
 fn kick(ring: &TxRing<SliceUmemFrame<'_>>) {
-    if !ring.needs_wakeup() {
+    if !ring.needs_wakeup() { 
         return;
     }
 
-    if let Err(e) = ring.wake() {
+    if let Err(e) = ring.wake() { // wakeup network driver when new packets are available so it can process them
         kick_error(e);
     }
 }

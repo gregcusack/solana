@@ -462,6 +462,7 @@ fn parse_ip_address(data: &[u8], family: u8) -> Option<IpAddr> {
     }
 }
 
+// greg: for ibrl, we may need to update the netlink_get_routes to get routes from netlink periodically
 pub fn netlink_get_routes(family: u8) -> Result<Vec<RouteEntry>, io::Error> {
     let sock = NetlinkSocket::open()?;
 
@@ -472,7 +473,7 @@ pub fn netlink_get_routes(family: u8) -> Result<Vec<RouteEntry>, io::Error> {
     req.header = nlmsghdr {
         nlmsg_len: nlmsg_len as u32,
         nlmsg_flags: (NLM_F_REQUEST | NLM_F_DUMP) as u16,
-        nlmsg_type: RTM_GETROUTE,
+        nlmsg_type: RTM_GETROUTE, // request routing table dump
         nlmsg_pid: 0,
         nlmsg_seq: 1,
     };
@@ -480,29 +481,36 @@ pub fn netlink_get_routes(family: u8) -> Result<Vec<RouteEntry>, io::Error> {
     req.rtm.rtm_family = family;
     req.rtm.rtm_table = RT_TABLE_MAIN;
 
-    sock.send(&bytes_of(&req)[..req.header.nlmsg_len as usize])?;
+    sock.send(&bytes_of(&req)[..req.header.nlmsg_len as usize])?; // send request to netlink
 
-    let mut routes = Vec::new();
+    let mut routes = Vec::new(); //greg: if we run this periodically, we may want to reserve with capacity
 
     for msg in sock.recv()? {
+        // filter out other types of messages that aren't new routes. 
+        // get rid of interfaces, neighbors, et
+        // only process routing table entries
         if msg.header.nlmsg_type != RTM_NEWROUTE {
             continue;
         }
 
+        // make sure we have at least a complete router headers. skip malformed or truncated messages
         if msg.data.len() < mem::size_of::<rtmsg>() {
             continue;
         }
 
+        // extract route info from message
         let Some(route) = parse_rtm_newroute(msg) else {
             continue;
         };
 
+        // get back the RouteEntry and push it to the vector
         routes.push(route);
     }
 
     Ok(routes)
 }
 
+// greg: parse routing info here.. greg: todo come back ibrl
 pub fn parse_rtm_newroute(msg: NetlinkMessage) -> Option<RouteEntry> {
     let rt_msg = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const rtmsg) };
     let Ok(attrs) = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]) else {

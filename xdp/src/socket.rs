@@ -309,6 +309,7 @@ impl<F: Frame> TxRing<F> {
         unsafe { (*self.mmap.flags).load(Ordering::Relaxed) & XDP_RING_NEED_WAKEUP != 0 }
     }
 
+    // wakeup network driver when new packets are available so it can process them
     pub fn wake(&self) -> Result<u64, io::Error> {
         let result = unsafe { sendto(self.fd, ptr::null(), 0, libc::MSG_DONTWAIT, ptr::null(), 0) };
         if result < 0 {

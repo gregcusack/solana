@@ -320,6 +320,7 @@ impl RingProducer {
         Some(index)
     }
 
+    //greg: publishes the locally cached prodicer position to the shared memory making it visible to the consumer (kernel)
     pub fn commit(&mut self) {
         unsafe { (*self.producer).store(self.cached_producer, Ordering::Release) };
     }

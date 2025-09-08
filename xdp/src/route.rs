@@ -29,6 +29,7 @@ pub struct NextHop {
     pub if_index: u32,
 }
 
+//greg: implement longest prefix matching here (LPM) -> standard alg for IP routing
 fn lookup_route(routes: &[RouteEntry], dest: IpAddr) -> Option<&RouteEntry> {
     let mut best_match = None;
 
@@ -116,11 +117,15 @@ pub struct Router {
     routes: Vec<RouteEntry>,
 }
 
+// greg: this is the routing table
+//greg: right now we have static route loading
+
 impl Router {
+    // greg: for ibrl, we may need to update the netlink_get_routes to get routes from netlink periodically
     pub fn new() -> Result<Self, io::Error> {
         Ok(Self {
             arp_table: ArpTable::new()?,
-            routes: netlink_get_routes(AF_INET as u8)?,
+            routes: netlink_get_routes(AF_INET as u8)?, // get routes from netlink
         })
     }
 
@@ -150,8 +155,11 @@ impl Router {
     }
 
     pub fn route(&self, dest_ip: IpAddr) -> Result<NextHop, RouteError> {
+        // find best route in routing table
         let route = lookup_route(&self.routes, dest_ip).ok_or(RouteError::NoRouteFound(dest_ip))?;
 
+        // if_index is interface index
+        // its just the index of the interface we're going to send the packet out of
         let if_index = route
             .out_if_index
             .ok_or(RouteError::MissingOutputInterface)? as u32;
@@ -161,6 +169,7 @@ impl Router {
             None => dest_ip,
         };
 
+        // now we need to look up the MAC address for the next hop
         let mac_addr = self.arp_table.lookup(next_hop_ip).cloned();
 
         Ok(NextHop {
