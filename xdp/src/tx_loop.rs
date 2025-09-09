@@ -20,10 +20,11 @@ use {
     crossbeam_channel::{Receiver, Sender, TryRecvError},
     libc::{sysconf, _SC_PAGESIZE},
     std::{
+        sync::Arc,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::Arc,
         thread,
-        time::{Duration, Instant},
+        time::Duration,
     },
 };
 
@@ -131,10 +132,6 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     // example if we have 3 packets to transmit to 2 destination addresses each, we have 6 batched
     // packets.
     let mut batched_packets = 0;
-
-    // check for new route updates in the channel every 60 seconds
-    const ROUTE_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(60);
-    let mut last_route_check = Instant::now();
 
     let mut timeouts = 0;
     loop {

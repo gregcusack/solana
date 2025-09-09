@@ -8,9 +8,12 @@ use {
         io,
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
         sync::Arc,
+<<<<<<< HEAD
+=======
+        time::Instant,
+>>>>>>> 69382dab93 (implement shared memory using arcswap)
     },
     thiserror::Error,
-    tokio::sync::broadcast::{self, Receiver, Sender},
 };
 
 #[derive(Debug, Error)]
@@ -32,11 +35,7 @@ pub struct NextHop {
     pub if_index: u32,
 }
 
-#[derive(Clone)]
-pub enum RouteUpdate {
-    RoutesChanged(Vec<RouteEntry>),
-    ArpChanged(Vec<NeighborEntry>),
-}
+// Remove RouteUpdate enum - no longer needed with ArcSwap
 
 fn lookup_route(routes: &[RouteEntry], dest: IpAddr) -> Option<&RouteEntry> {
     let mut best_match = None;
@@ -192,44 +191,9 @@ impl Router {
         })
     }
 
-    // Check for updates and apply them (non-blocking)
-    pub fn try_update(&mut self) -> bool {
-        let mut updated = false;
-        let mut latest_routes = None;
-        let mut latest_arp = None;
-
-        // Drain all pending updates and keep only the latest
-        // we are writing the whole routing table as updates each time, so we only need to keep the latest
-        while let Ok(update) = self.update_receiver.try_recv() {
-            match update {
-                RouteUpdate::RoutesChanged(new_routes) => {
-                    latest_routes = Some(new_routes);
-                    updated = true;
-                }
-                RouteUpdate::ArpChanged(new_neighbors) => {
-                    latest_arp = Some(new_neighbors);
-                    updated = true;
-                }
-            }
-        }
-
-        // Apply only the latest updates
-        if let Some(routes) = latest_routes {
-            self.routes = routes;
-            self.last_update = Instant::now();
-            log::info!("greg: Updated routes: {} entries", self.routes.len());
-        }
-
-        if let Some(neighbors) = latest_arp {
-            self.arp_table = ArpTable::from_neighbors(neighbors);
-            self.last_update = Instant::now();
-            log::info!(
-                "greg: Updated ARP table: {} entries",
-                self.arp_table.neighbors.len()
-            );
-        }
-
-        updated
+    // Get last update time for monitoring
+    pub fn last_update(&self) -> Instant {
+        self.last_update
     }
 }
 
@@ -474,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_route_cache() {
-        let (router, _) = Router::new().unwrap();
+        let router = Router::new().unwrap();
         let next_hop = router.route("1.1.1.1".parse().unwrap()).unwrap();
         eprintln!("{next_hop:?}");
     }
