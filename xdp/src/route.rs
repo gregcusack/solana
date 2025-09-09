@@ -171,7 +171,6 @@ impl Router {
     }
 
     // Fast route lookup. no locks
-    // replaces Router::route()??
     pub fn route(&self, dest_ip: IpAddr) -> Result<NextHop, RouteError> {
         let route = lookup_route(&self.routes, dest_ip).ok_or(RouteError::NoRouteFound(dest_ip))?;
 
