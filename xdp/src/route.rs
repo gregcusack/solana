@@ -8,10 +8,6 @@ use {
         io,
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
         sync::Arc,
-<<<<<<< HEAD
-=======
-        time::Instant,
->>>>>>> 69382dab93 (implement shared memory using arcswap)
     },
     thiserror::Error,
 };
@@ -204,7 +200,8 @@ pub(crate) struct ArpTable {
 
 impl ArpTable {
     pub fn new() -> Result<Self, io::Error> {
-        let neighbors = netlink_get_neighbors(None, AF_INET as u8)?;
+        let mut neighbors = netlink_get_neighbors(None, AF_INET as u8)?;
+        filter_neighbors(&mut neighbors);
         Ok(Self { neighbors })
     }
 
