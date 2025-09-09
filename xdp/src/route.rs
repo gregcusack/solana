@@ -1,11 +1,14 @@
 use {
     crate::netlink::{
-        netlink_get_neighbors, netlink_get_routes, MacAddress, NeighborEntry, RouteEntry,
+        netlink_get_neighbors, netlink_get_routes, netlink_get_interfaces, InterfaceInfo, MacAddress, NeighborEntry, RouteEntry,
     },
+    arc_swap::ArcSwap,
     libc::{AF_INET, AF_INET6},
     std::{
+        collections::HashMap,
         io,
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
+        sync::Arc,
     },
     thiserror::Error,
 };
@@ -27,6 +30,7 @@ pub struct NextHop {
     pub mac_addr: Option<MacAddress>,
     pub ip_addr: IpAddr,
     pub if_index: u32,
+    pub preferred_src_ip: Option<Ipv4Addr>,
 }
 
 fn lookup_route(routes: &[RouteEntry], dest: IpAddr) -> Option<&RouteEntry> {
@@ -111,16 +115,29 @@ fn is_ipv6_match(addr: Ipv6Addr, network: Ipv6Addr, prefix_len: u8) -> bool {
     true
 }
 
+#[derive(Clone)]
 pub struct Router {
-    arp_table: ArpTable,
-    routes: Vec<RouteEntry>,
+    arp_table: Arc<ArpTable>,
+    routes: Arc<Vec<RouteEntry>>,
+    interfaces: Arc<HashMap<u32, InterfaceInfo>>, // if_index (on host) -> InterfaceInfo map
 }
 
 impl Router {
     pub fn new() -> Result<Self, io::Error> {
+        let arp_table = ArpTable::new()?;
+        let routes = netlink_get_routes(AF_INET as u8)?;
+        log::info!("greg: xdp: netlink_get_interfaces about to run");
+        let interfaces = netlink_get_interfaces()?;
+        log::info!("greg: xdp: netlink_get_interfaces returned");
+        let interface_map: HashMap<u32, InterfaceInfo> = interfaces
+            .into_iter()
+            .map(|if_info| (if_info.if_index, if_info))
+            .collect();
+
         Ok(Self {
-            arp_table: ArpTable::new()?,
-            routes: netlink_get_routes(AF_INET as u8)?,
+            arp_table: Arc::new(arp_table),
+            routes: Arc::new(routes),
+            interfaces: Arc::new(interface_map),
         })
     }
 
@@ -141,15 +158,23 @@ impl Router {
         };
 
         let mac_addr = self.arp_table.lookup(next_hop_ip).cloned();
+        let preferred_src_ip = match default_route.pref_src {
+            Some(IpAddr::V4(v4)) => Some(v4),
+            _ => None,
+        };
 
         Ok(NextHop {
             ip_addr: next_hop_ip,
             mac_addr,
             if_index,
+            preferred_src_ip,
         })
     }
 
-    pub fn route(&self, dest_ip: IpAddr) -> Result<NextHop, RouteError> {
+    // greg: todo: not sure if we should return is_gre here?
+    // we may want to return the entire InterfaceInfo
+    // InterfaceInfo will have to be expanded to include the src_ip/dst_ip for gre
+    pub fn route(&self, dest_ip: IpAddr) -> Result<(NextHop, &InterfaceInfo), RouteError> {
         let route = lookup_route(&self.routes, dest_ip).ok_or(RouteError::NoRouteFound(dest_ip))?;
 
         let if_index = route
@@ -162,12 +187,25 @@ impl Router {
         };
 
         let mac_addr = self.arp_table.lookup(next_hop_ip).cloned();
+        let preferred_src_ip = match route.pref_src {
+            Some(IpAddr::V4(v4)) => Some(v4),
+            _ => None,
+        };
 
-        Ok(NextHop {
+        let next_hop = NextHop {
             ip_addr: next_hop_ip,
             mac_addr,
             if_index,
-        })
+            preferred_src_ip
+        };
+
+        // Get the interface info for this route
+        let interface_info = self
+            .interfaces
+            .get(&(if_index))
+            .ok_or(RouteError::MissingOutputInterface)?;
+
+        Ok((next_hop, interface_info))
     }
 }
 
@@ -186,6 +224,41 @@ impl ArpTable {
             .iter()
             .find(|n| n.destination == Some(ip))
             .and_then(|n| n.lladdr.as_ref())
+    }
+}
+
+pub struct AtomicRouter {
+    router: ArcSwap<Router>,
+}
+
+impl AtomicRouter {
+    pub fn new() -> Result<Self, io::Error> {
+        Ok(Self {
+            router: ArcSwap::from_pointee(Router::new()?),
+        })
+    }
+
+    // Lock-free read - just load the current router
+    pub fn load(&self) -> Arc<Router> {
+        self.router.load().clone()
+    }
+
+    // update both routes and ARP table
+    pub fn update_routes_and_neighbors(&self) -> Result<(), io::Error> {
+        let mut current_router = (**self.router.load()).clone();
+        current_router.routes = Self::fetch_routes()?;
+        current_router.arp_table = Self::fetch_arp_table()?;
+        self.router.store(Arc::new(current_router));
+        Ok(())
+    }
+
+    fn fetch_routes() -> Result<Arc<Vec<RouteEntry>>, io::Error> {
+        Ok(Arc::new(netlink_get_routes(AF_INET as u8)?))
+    }
+
+    fn fetch_arp_table() -> Result<Arc<ArpTable>, io::Error> {
+        let neighbors = netlink_get_neighbors(None, AF_INET as u8)?;
+        Ok(Arc::new(ArpTable { neighbors }))
     }
 }
 
@@ -244,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn test_router() {
+    fn test_route() {
         let router = Router::new().unwrap();
         let next_hop = router.route("1.1.1.1".parse().unwrap()).unwrap();
         eprintln!("{next_hop:?}");
