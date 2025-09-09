@@ -186,11 +186,6 @@ impl Router {
             if_index: if_index as u32,
         })
     }
-
-    // Get last update time for monitoring
-    pub fn last_update(&self) -> Instant {
-        self.last_update
-    }
 }
 
 #[derive(Clone)]
