@@ -608,12 +608,14 @@ name = "agave-xdp"
 version = "3.1.0"
 dependencies = [
  "agave-xdp-ebpf",
+ "arc-swap",
  "aya",
  "caps",
  "crossbeam-channel",
  "libc",
  "log",
  "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]
