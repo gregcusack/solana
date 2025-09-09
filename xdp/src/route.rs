@@ -10,6 +10,7 @@ use {
         sync::Arc,
     },
     thiserror::Error,
+    tokio::sync::broadcast::{self, Receiver, Sender},
 };
 
 #[derive(Debug, Error)]
@@ -29,6 +30,12 @@ pub struct NextHop {
     pub mac_addr: Option<MacAddress>,
     pub ip_addr: IpAddr,
     pub if_index: u32,
+}
+
+#[derive(Clone)]
+pub enum RouteUpdate {
+    RoutesChanged(Vec<RouteEntry>),
+    ArpChanged(Vec<NeighborEntry>),
 }
 
 fn lookup_route(routes: &[RouteEntry], dest: IpAddr) -> Option<&RouteEntry> {
@@ -163,6 +170,8 @@ impl Router {
         })
     }
 
+    // Fast route lookup. no locks
+    // replaces Router::route()??
     pub fn route(&self, dest_ip: IpAddr) -> Result<NextHop, RouteError> {
         let route = lookup_route(&self.routes, dest_ip).ok_or(RouteError::NoRouteFound(dest_ip))?;
 
@@ -182,6 +191,46 @@ impl Router {
             mac_addr,
             if_index: if_index as u32,
         })
+    }
+
+    // Check for updates and apply them (non-blocking)
+    pub fn try_update(&mut self) -> bool {
+        let mut updated = false;
+        let mut latest_routes = None;
+        let mut latest_arp = None;
+
+        // Drain all pending updates and keep only the latest
+        // we are writing the whole routing table as updates each time, so we only need to keep the latest
+        while let Ok(update) = self.update_receiver.try_recv() {
+            match update {
+                RouteUpdate::RoutesChanged(new_routes) => {
+                    latest_routes = Some(new_routes);
+                    updated = true;
+                }
+                RouteUpdate::ArpChanged(new_neighbors) => {
+                    latest_arp = Some(new_neighbors);
+                    updated = true;
+                }
+            }
+        }
+
+        // Apply only the latest updates
+        if let Some(routes) = latest_routes {
+            self.routes = routes;
+            self.last_update = Instant::now();
+            log::info!("greg: Updated routes: {} entries", self.routes.len());
+        }
+
+        if let Some(neighbors) = latest_arp {
+            self.arp_table = ArpTable::from_neighbors(neighbors);
+            self.last_update = Instant::now();
+            log::info!(
+                "greg: Updated ARP table: {} entries",
+                self.arp_table.neighbors.len()
+            );
+        }
+
+        updated
     }
 }
 
@@ -417,9 +466,16 @@ mod tests {
         ));
     }
 
+    // #[test]
+    // fn test_router() {
+    //     let router = Router::new().unwrap();
+    //     let next_hop = router.route("1.1.1.1".parse().unwrap()).unwrap();
+    //     eprintln!("{next_hop:?}");
+    // }
+
     #[test]
-    fn test_router() {
-        let router = Router::new().unwrap();
+    fn test_route_cache() {
+        let (router, _) = Router::new().unwrap();
         let next_hop = router.route("1.1.1.1".parse().unwrap()).unwrap();
         eprintln!("{next_hop:?}");
     }

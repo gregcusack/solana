@@ -23,7 +23,7 @@ use {
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::Arc,
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     },
 };
 
@@ -132,8 +132,19 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     // packets.
     let mut batched_packets = 0;
 
+    // check for new route updates in the channel every 60 seconds
+    const ROUTE_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(60);
+    let mut last_route_check = Instant::now();
+
     let mut timeouts = 0;
     loop {
+        if last_route_check.elapsed() > ROUTE_UPDATE_CHECK_INTERVAL {
+            if router.try_update() {
+                log::debug!("greg: CPU {cpu_id}: Updated routes from channel");
+            }
+            last_route_check = Instant::now();
+        }
+
         match receiver.try_recv() {
             Ok((addrs, payload)) => {
                 batched_packets += addrs.as_ref().len();
