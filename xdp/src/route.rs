@@ -31,8 +31,6 @@ pub struct NextHop {
     pub if_index: u32,
 }
 
-// Remove RouteUpdate enum - no longer needed with ArcSwap
-
 fn lookup_route(routes: &[RouteEntry], dest: IpAddr) -> Option<&RouteEntry> {
     let mut best_match = None;
 
@@ -165,7 +163,6 @@ impl Router {
         })
     }
 
-    // Fast route lookup. no locks
     pub fn route(&self, dest_ip: IpAddr) -> Result<NextHop, RouteError> {
         let route = lookup_route(&self.routes, dest_ip).ok_or(RouteError::NoRouteFound(dest_ip))?;
 
@@ -195,8 +192,7 @@ pub(crate) struct ArpTable {
 
 impl ArpTable {
     pub fn new() -> Result<Self, io::Error> {
-        let mut neighbors = netlink_get_neighbors(None, AF_INET as u8)?;
-        filter_neighbors(&mut neighbors);
+        let neighbors = netlink_get_neighbors(None, AF_INET as u8)?;
         Ok(Self { neighbors })
     }
 
@@ -421,15 +417,8 @@ mod tests {
         ));
     }
 
-    // #[test]
-    // fn test_router() {
-    //     let router = Router::new().unwrap();
-    //     let next_hop = router.route("1.1.1.1".parse().unwrap()).unwrap();
-    //     eprintln!("{next_hop:?}");
-    // }
-
     #[test]
-    fn test_route_cache() {
+    fn test_route() {
         let router = Router::new().unwrap();
         let next_hop = router.route("1.1.1.1".parse().unwrap()).unwrap();
         eprintln!("{next_hop:?}");
