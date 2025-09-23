@@ -30,6 +30,7 @@ pub struct NextHop {
     pub mac_addr: Option<MacAddress>,
     pub ip_addr: IpAddr,
     pub if_index: u32,
+    pub preferred_src_ip: Option<Ipv4Addr>,
 }
 
 fn lookup_route(routes: &[RouteEntry], dest: IpAddr) -> Option<&RouteEntry> {
@@ -155,11 +156,16 @@ impl Router {
         };
 
         let mac_addr = self.arp_table.lookup(next_hop_ip).cloned();
+        let preferred_src_ip = match default_route.pref_src {
+            Some(IpAddr::V4(v4)) => Some(v4),
+            _ => None,
+        };
 
         Ok(NextHop {
             ip_addr: next_hop_ip,
             mac_addr,
             if_index,
+            preferred_src_ip,
         })
     }
 
@@ -179,11 +185,16 @@ impl Router {
         };
 
         let mac_addr = self.arp_table.lookup(next_hop_ip).cloned();
+        let preferred_src_ip = match route.pref_src {
+            Some(IpAddr::V4(v4)) => Some(v4),
+            _ => None,
+        };
 
         let next_hop = NextHop {
             ip_addr: next_hop_ip,
             mac_addr,
             if_index,
+            preferred_src_ip
         };
 
         // Get the interface info for this route
