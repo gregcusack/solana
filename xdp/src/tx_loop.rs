@@ -2,14 +2,13 @@
 
 use {
     crate::{
-        // dev_gre_check::{ip_route_get_dev,},
         device::{NetworkDevice, QueueId, RingSizes},
         netlink::MacAddress,
         packet::{
-            construct_gre_packet, write_eth_header, write_ip_header_for_udp, write_udp_header, ETH_HEADER_SIZE, IP_HEADER_SIZE,
-            UDP_HEADER_SIZE, GRE_HEADER_SIZE,
+            construct_gre_packet, write_eth_header, write_ip_header_for_udp, write_udp_header,
+            ETH_HEADER_SIZE, GRE_HEADER_SIZE, IP_HEADER_SIZE, UDP_HEADER_SIZE,
         },
-        route::{AtomicRouter, get_inner_src_ipv4},
+        route::{get_inner_src_ipv4, AtomicRouter},
         set_cpu_affinity,
         socket::{Socket, Tx, TxRing},
         umem::{Frame as _, PageAlignedMemory, SliceUmem, SliceUmemFrame, Umem as _},
@@ -63,7 +62,6 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
             .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
     });
     log::info!("xdp: using fixed inner src IPv4 {inner_src_ip}");
-
 
     // some drivers require frame_size=page_size
     let frame_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
@@ -210,39 +208,26 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     // lock free route lookup
                     let router = atomic_router.load();
                     let dst = addr.ip();
-                    let (next_hop, mut interface_info) = router.route(dst).unwrap();
+                    let (next_hop, interface_info) = router.route(dst).unwrap();
 
                     // Print one line with both decisions
                     // greg: todo: probably don't need to take this
-                    if let Some(gre) = interface_info.gre_tunnel.take() {
-                        // log::info!(
-                        //     "greg: gre tunnel found: [IBRL] dst={} our={} via_if={}({}) gre.local={} gre.remote={}  kernel={} via_dev={}",
-                        //     dst,
-                        //     our_str,
-                        //     interface_info.if_name,
-                        //     interface_info.if_index,
-                        //     gre.local,
-                        //     gre.remote,
-                        //     kern_str,
-                        //     &kern_dev_str
-                        // );
-
+                    if let Some(gre) = interface_info.gre_tunnel {
                         // Resolve the UNDERLAY toward the GRE remote (this is where we ARP and enforce ifindex)
                         // greg: todo, we should probably cache this
                         let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
 
                         // Need underlay next-hop MAC
-                        let outer_dst_mac = match u_nh.mac_addr {
-                            Some(m) => m,
-                            None => {
-                                log::warn!(
-                                    "greg: dropping GRE pkt: missing underlay MAC for next-hop {} on {}({})",
-                                    u_nh.ip_addr, u_iface.if_name, u_iface.if_index
-                                );
-                                batched_packets -= 1;
-                                umem.release(frame.offset());
-                                continue;
-                            }
+                        let Some(outer_dst_mac) = u_nh.mac_addr else {
+                            log::warn!(
+                                "dropping GRE pkt: missing underlay MAC for next-hop {} on {}({})",
+                                u_nh.ip_addr,
+                                u_iface.if_name,
+                                u_iface.if_index
+                            );
+                            batched_packets -= 1;
+                            umem.release(frame.offset());
+                            continue;
                         };
 
                         // Calculate GRE packet size
@@ -258,14 +243,14 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         // Construct the GRE packet
                         let gre_packet_len = construct_gre_packet(
                             packet,
-                            &inner_src_ip,            // inner src ip
-                            &dst_ip,            // inner dst ip
+                            &inner_src_ip, // inner src ip
+                            &dst_ip,       // inner dst ip
                             src_port,
                             addr.port(),
                             payload.as_ref(),
-                            gre.local,            // gre src ip
-                            gre.remote,            // gre dst ip
-                            &src_mac.0,            // src MAC (our nic)
+                            gre.local,        // gre src ip
+                            gre.remote,       // gre dst ip
+                            &src_mac.0,       // src MAC (our nic)
                             &outer_dst_mac.0, // outer dst MAC (underlay next-hop)
                         );
 
@@ -281,28 +266,6 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
 
                         continue;
                     }
-
-                    // non-gre tunnel
-                    // log::info!(
-                    //     "greg: non-gre tunnel found: [IBRL] dst={} our={} via_if={}({}) nh_ip={} nh_mac={:?}  kernel={} via_dev={}",
-                    //     dst,
-                    //     our_str,
-                    //     interface_info.if_name,
-                    //     interface_info.if_index,
-                    //     next_hop.ip_addr,
-                    //     next_hop.mac_addr,
-                    //     kern_str,
-                    //     &kern_dev_str
-                    // );
-
-                    // if our_is_gre != kernel_is_gre {
-                    //     log::warn!(
-                    //         "greg: MISMATCH: [IBRL] MISMATCH for dst={}  our={}  kernel={} (kernel dev={}). \
-                    //          If kernel shows dev={} but we said PLAIN: check LINKINFO parsing / route table refresh. \
-                    //          If kernel shows non-{} but we said GRE: check which table our route() used.",
-                    //         dst, our_str, kern_str, &kern_dev_str, DZ_DEV_NAME, DZ_DEV_NAME
-                    //     );
-                    // }
 
                     let mut skip = false;
 

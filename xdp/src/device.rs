@@ -105,7 +105,7 @@ impl NetworkDevice {
         ))
     }
 
-    // greg: todo ... we may want to change this 
+    // greg: todo ... we may want to change this
     pub fn ipv4_addr(&self) -> Result<Ipv4Addr, io::Error> {
         let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
         if fd < 0 {
