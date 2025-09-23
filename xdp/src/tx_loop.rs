@@ -206,8 +206,14 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                 } else {
                     // lock free route lookup
                     let router = atomic_router.load();
-                    let next_hop = router.route(addr.ip()).unwrap();
+                    let (next_hop, interface_info) = router.route(addr.ip()).unwrap();
 
+                    if let Some(gre_tunnel) = interface_info.gre_tunnel {
+                        log::info!("greg: gre tunnel found: {:?} for dst {}", gre_tunnel, addr.ip());
+                    } else {
+                        log::info!("greg: non-gre tunnel found: {:?} for dst {}", interface_info, addr.ip());
+                    }
+                    
                     let mut skip = false;
 
                     // sanity check that the address is routable through our NIC

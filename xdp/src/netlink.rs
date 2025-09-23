@@ -9,7 +9,8 @@ use {
         RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_F_CLONED, RTM_GETNEIGH, RTM_GETROUTE,
         RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST, RTN_LOCAL, RTN_MULTICAST,
         RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW,
-        SOL_NETLINK,
+        SOL_NETLINK, ARPHRD_ETHER, ARPHRD_LOOPBACK, ARPHRD_IPGRE, IFLA_IFNAME, IFLA_LINKINFO,
+        IFLA_INFO_DATA, RTM_GETLINK, RTM_NEWLINK, ARPHRD_NETROM, IFNAMSIZ,
     },
     std::{
         collections::HashMap,
@@ -22,6 +23,29 @@ use {
 };
 
 const NLA_HDR_LEN: usize = align_to(mem::size_of::<nlattr>(), NLA_ALIGNTO as usize);
+// GRE nested attributes (from include/uapi/linux/if_tunnel.h)
+const IFLA_GRE_LINK: u16 = 1;
+const IFLA_GRE_IKEY: u16 = 4;
+const IFLA_GRE_OKEY: u16 = 5;
+const IFLA_GRE_LOCAL: u16 = 6;
+const IFLA_GRE_REMOTE: u16 = 7;
+const IFLA_GRE_TTL: u16 = 10;
+const IFLA_GRE_TOS: u16 = 11;
+const IFLA_GRE_PMTUDISC: u16 = 12;
+const IFLA_GRE_CSUM: u16 = 13;
+const IFLA_GRE_SEQ: u16 = 14;
+
+const IFLA_INFO_KIND: u16 = 1;
+
+#[repr(C)]
+#[allow(non_camel_case_types)]
+struct ifinfomsg {
+    ifi_family: u8,
+    ifi_type: u16,
+    ifi_index: u32,
+    ifi_flags: u32,
+    ifi_change: u32,
+}
 
 // Removes cloned routes, non-main/local table routes, and invalid route types
 // Many invisible routes are inserted when doing IPv4 MTU discovery or caching neighbor information
@@ -329,6 +353,216 @@ impl std::fmt::Display for MacAddress {
             self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5]
         )
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct GreTunnelInfo {
+    pub local: Ipv4Addr,
+    pub remote: Ipv4Addr,
+    pub ikey: Option<u32>,
+    pub okey: Option<u32>,
+    pub ttl: Option<u8>,
+    pub tos: Option<u8>,
+    pub pmtudisc: Option<u8>, // non-zero => set DF on outer IP
+    pub csum: Option<u8>,
+    pub seq: Option<u8>,
+    pub link_ifindex: Option<u32>, // underlay ifindex (IFLA_GRE_LINK)
+}
+
+// Interface information structure
+// greg: todo: add more here once we need to build the headers
+// fd has a few other things here like:
+// oper_status, master_idx, slave_tbl_idx, mac_addr, mtu...
+#[derive(Debug, Clone)]
+pub struct InterfaceInfo {
+    pub if_index: u32,
+    pub if_name: String,
+    pub dev_type: u16,
+    pub gre_tunnel: Option<GreTunnelInfo>,
+}
+
+// Get all interfaces via netlink (based off of FD: fd_netdev_netlink_load_table)
+pub fn netlink_get_interfaces() -> Result<Vec<InterfaceInfo>, io::Error> {
+    let socket = NetlinkSocket::open()?;
+
+    // Create request struct
+    #[repr(C)]
+    struct Request {
+        nlh: nlmsghdr,
+        ifi: ifinfomsg,
+    }
+
+    let request = Request {
+        nlh: nlmsghdr {
+            nlmsg_type: RTM_GETLINK,
+            nlmsg_flags: (NLM_F_REQUEST | NLM_F_DUMP) as u16,
+            nlmsg_len: mem::size_of::<Request>() as u32,
+            nlmsg_seq: 1,
+            nlmsg_pid: 0,
+        },
+        ifi: ifinfomsg {
+            ifi_family: AF_INET as u8,
+            ifi_type: ARPHRD_NETROM,
+            ifi_index: 0,
+            ifi_flags: 0,
+            ifi_change: 0,
+        },
+    };
+
+    // Send request
+    let request_bytes = bytes_of(&request);
+    socket.send(request_bytes)?;
+
+    // Receive and parse messages
+    let messages = socket.recv()?;
+    let mut interfaces = Vec::new();
+
+    for msg in messages {
+        // Check for netlink errors
+        if msg.header.nlmsg_type == NLMSG_ERROR as u16 {
+            let err = msg.error.unwrap();
+            if err.error != 0 {
+                return Err(io::Error::from_raw_os_error(-err.error));
+            }
+            continue;
+        }
+
+        if msg.header.nlmsg_type != RTM_NEWLINK {
+            continue;
+        }
+
+        if let Some(if_info) = parse_ifinfomsg(msg) {
+            interfaces.push(if_info);
+        }
+    }
+
+    Ok(interfaces)
+}
+
+// Interface info parsing (modeled after the FD impl: fd_netdev_netlink_load_table)
+// Just parsing the interface info for:
+// - if_index
+// - if_name
+// - dev_type
+// greg: todo: may need to add more here...see fd code for creating fd_netdev (same as our InterfaceInfo)
+fn parse_ifinfomsg(msg: NetlinkMessage) -> Option<InterfaceInfo> {
+    if msg.data.len() < mem::size_of::<ifinfomsg>() {
+        return None;
+    }
+
+    let ifi = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const ifinfomsg) };
+
+    // Filter interface types
+    let ifi_type = ifi.ifi_type;
+    if ifi_type != ARPHRD_ETHER && ifi_type != ARPHRD_LOOPBACK && ifi_type != ARPHRD_IPGRE {
+        return None;
+    }
+
+    // Parse attributes
+    let Ok(attrs) = parse_attrs(&msg.data[mem::size_of::<ifinfomsg>()..]) else {
+        return None;
+    };
+
+    let mut if_name = format!("if{}", ifi.ifi_index);
+
+    // Parse IFLA_IFNAME
+    if let Some(attr) = attrs.get(&IFLA_IFNAME) {
+        if !attr.data.is_empty() && attr.data.len() <= IFNAMSIZ {
+            if let Ok(name) = String::from_utf8(attr.data.to_vec()) {
+                if_name = name.trim_end_matches('\0').to_string();
+            }
+        }
+    }
+    
+    // Parse GRE tunnel information if this is a GRE interface
+    let gre_tunnel = parse_gre_tunnel_info_from_linkinfo(&attrs);
+
+    // let gre_tunnel = if ifi_type == ARPHRD_IPGRE {
+    //     parse_gre_tunnel_info_from_linkinfo(&attrs)
+    // } else {
+    //     None
+    // };
+
+    Some(InterfaceInfo {
+        if_index: ifi.ifi_index,
+        if_name,
+        dev_type: ifi_type,
+        gre_tunnel,
+    })
+}
+
+// Parse GRE tunnel information from netlink
+fn parse_gre_tunnel_info_from_linkinfo(
+    attrs: &HashMap<u16, NlAttr>,
+) -> Option<GreTunnelInfo> {
+    let (kind, gre) = parse_linkinfo_kind_and_data(attrs)?;
+    if kind != "gre" {
+        return None; // only L3 GRE; ignore gretap/erspan
+    }
+
+    let mut local = Ipv4Addr::UNSPECIFIED;
+    let mut remote = Ipv4Addr::UNSPECIFIED;
+    let mut ikey = None;
+    let mut okey = None;
+    let mut ttl  = None;
+    let mut tos  = None;
+    let mut pmtu = None;
+    let mut csum = None;
+    let mut seq  = None;
+    let mut link_ifindex = None;
+
+    if let Some(a) = gre.get(&IFLA_GRE_LOCAL)     { if a.data.len() >= 4 { local  = Ipv4Addr::new(a.data[0], a.data[1], a.data[2], a.data[3]); } }
+    if let Some(a) = gre.get(&IFLA_GRE_REMOTE)    { if a.data.len() >= 4 { remote = Ipv4Addr::new(a.data[0], a.data[1], a.data[2], a.data[3]); } }
+    if let Some(a) = gre.get(&IFLA_GRE_IKEY)      { if a.data.len() >= 4 { ikey   = Some(u32::from_be_bytes(a.data[0..4].try_into().unwrap())); } }
+    if let Some(a) = gre.get(&IFLA_GRE_OKEY)      { if a.data.len() >= 4 { okey   = Some(u32::from_be_bytes(a.data[0..4].try_into().unwrap())); } }
+    if let Some(a) = gre.get(&IFLA_GRE_TTL)       { if !a.data.is_empty() { ttl   = Some(a.data[0]); } }
+    if let Some(a) = gre.get(&IFLA_GRE_TOS)       { if !a.data.is_empty() { tos   = Some(a.data[0]); } }
+    if let Some(a) = gre.get(&IFLA_GRE_PMTUDISC)  { if !a.data.is_empty() { pmtu  = Some(a.data[0]); } }
+    if let Some(a) = gre.get(&IFLA_GRE_CSUM)      { if !a.data.is_empty() { csum  = Some(a.data[0]); } }
+    if let Some(a) = gre.get(&IFLA_GRE_SEQ)       { if !a.data.is_empty() { seq   = Some(a.data[0]); } }
+    if let Some(a) = gre.get(&IFLA_GRE_LINK)      { if a.data.len() >= 4 { link_ifindex = Some(u32::from_ne_bytes(a.data[0..4].try_into().unwrap())); } }
+
+    // Must have both endpoints for a valid GRE tunnel.
+    if local == Ipv4Addr::UNSPECIFIED || remote == Ipv4Addr::UNSPECIFIED {
+        return None;
+    }
+
+    Some(GreTunnelInfo {
+        local,
+        remote,
+        ikey,
+        okey,
+        ttl,
+        tos,
+        pmtudisc: pmtu,
+        csum,
+        seq,
+        link_ifindex,
+    })
+}
+
+fn parse_linkinfo_kind_and_data<'a>(
+    attrs: &HashMap<u16, NlAttr<'a>>,
+) -> Option<(String, HashMap<u16, NlAttr<'a>>)> {
+    let li = attrs.get(&IFLA_LINKINFO)?;
+    // IFLA_LINKINFO contains nested attributes
+    let info = parse_attrs(&li.data).ok()?;
+
+    let kind_attr = info.get(&IFLA_INFO_KIND)?;
+    let mut kind = String::new();
+    if !kind_attr.data.is_empty() {
+        if let Ok(s) = String::from_utf8(kind_attr.data.to_vec()) {
+            kind = s.trim_end_matches('\0').to_string();
+        }
+    }
+
+    // Nested data (GRE attributes) is optional.
+    if let Some(data_attr) = info.get(&IFLA_INFO_DATA) {
+        let nested = parse_attrs(&data_attr.data).unwrap_or_default();
+        return Some((kind, nested));
+    }
+
+    Some((kind, HashMap::new()))
 }
 
 /// Represents an entry in the neighbor table (ARP/NDP cache)
