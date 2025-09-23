@@ -11,7 +11,7 @@ use {
         route::{get_inner_src_ipv4, AtomicRouter},
         set_cpu_affinity,
         socket::{Socket, Tx, TxRing},
-        umem::{Frame as _, PageAlignedMemory, SliceUmem, SliceUmemFrame, Umem as _},
+        umem::{PageAlignedMemory, SliceUmem, SliceUmemFrame, Umem as _},
     },
     caps::{
         CapSet,
@@ -194,115 +194,90 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     }
                 }
 
-                // at this point we're guaranteed to have a frame to write the next packet into and
-                // a slot in the ring to submit it
-                let mut frame = umem.reserve().unwrap();
+                // decide addressing and encapsulation before reserving a frame
                 let IpAddr::V4(dst_ip) = addr.ip() else {
                     panic!("IPv6 not supported");
                 };
 
                 let len = payload.as_ref().len();
+
+                // lock free route lookup (used for GRE decision and UDP next-hop resolution)
+                let router = atomic_router.load();
+                let (next_hop, interface_info) = router.route(addr.ip()).unwrap();
+
+                // Resolve destination MAC for the non-GRE path (or from config)
                 let dest_mac = if let Some(mac) = dest_mac {
                     mac
                 } else {
-                    // lock free route lookup
-                    let router = atomic_router.load();
-                    let dst = addr.ip();
-                    let (next_hop, interface_info) = router.route(dst).unwrap();
-
-                    // Print one line with both decisions
-                    // greg: todo: probably don't need to take this
-                    if let Some(gre) = interface_info.gre_tunnel {
-                        // Resolve the UNDERLAY toward the GRE remote (this is where we ARP and enforce ifindex)
-                        // greg: todo, we should probably cache this
-                        let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
-
-                        // Need underlay next-hop MAC
-                        let Some(outer_dst_mac) = u_nh.mac_addr else {
-                            log::warn!(
-                                "dropping GRE pkt: missing underlay MAC for next-hop {} on {}({})",
-                                u_nh.ip_addr,
-                                u_iface.if_name,
-                                u_iface.if_index
-                            );
-                            batched_packets -= 1;
-                            umem.release(frame.offset());
-                            continue;
-                        };
-
-                        // Calculate GRE packet size
-                        const INNER_PACKET_HEADER_SIZE: usize = IP_HEADER_SIZE + UDP_HEADER_SIZE;
-                        let inner_packet_len = INNER_PACKET_HEADER_SIZE + len;
-                        let gre_packet_size =
-                            ETH_HEADER_SIZE + IP_HEADER_SIZE + GRE_HEADER_SIZE + inner_packet_len;
-
-                        // Reserve space for GRE packet
-                        frame.set_len(gre_packet_size);
-                        let packet = umem.map_frame_mut(&frame);
-
-                        // Construct the GRE packet
-                        let gre_packet_len = construct_gre_packet(
-                            packet,
-                            &inner_src_ip, // inner src ip
-                            &dst_ip,       // inner dst ip
-                            src_port,
-                            addr.port(),
-                            payload.as_ref(),
-                            gre.local,        // gre src ip
-                            gre.remote,       // gre dst ip
-                            &src_mac.0,       // src MAC (our nic)
-                            &outer_dst_mac.0, // outer dst MAC (underlay next-hop)
-                        );
-
-                        // Update frame length and submit packet
-                        frame.set_len(gre_packet_len);
-                        submit_packet_to_ring(
-                            frame,
-                            &mut ring,
-                            &mut batched_packets,
-                            &mut chunk_remaining,
-                            BATCH_SIZE,
-                        );
-
-                        continue;
-                    }
-
-                    let mut skip = false;
-
-                    // sanity check that the address is routable through our NIC
-                    // greg: todo. not sure if we actually need this.
-                    // if next_hop.if_index != dev.if_index() {
-                    //     log::warn!(
-                    //         "dropping packet: turbine peer {addr} must be routed through \
-                    //          if_index: {} our if_index: {}",
-                    //         next_hop.if_index,
-                    //         dev.if_index()
-                    //     );
-                    //     skip = true;
-                    // }
-
-                    // we need the MAC address to send the packet
-                    if next_hop.mac_addr.is_none() {
+                    // greg: todo: with xdp gre, we can't rely on next_hop.if_index to match the dev.if_index()
+                    let Some(mac) = next_hop.mac_addr else {
                         log::warn!(
                             "dropping packet: turbine peer {addr} must be routed through {} which \
                              has no known MAC address",
                             next_hop.ip_addr
                         );
-                        skip = true;
+                        batched_packets -= 1;
+                        continue;
+                    };
+                    mac
+                };
+
+                // GRE encapsulation, if configured for this route
+                if let Some(gre) = interface_info.gre_tunnel {
+                    // Resolve the UNDERLAY toward the GRE remote (this is where we ARP and enforce ifindex)
+                    let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
+
+                    // Need underlay next-hop MAC
+                    let Some(gre_dst_mac) = u_nh.mac_addr else {
+                        log::warn!(
+                            "dropping GRE pkt: missing underlay MAC for next-hop {} on {}({})",
+                            u_nh.ip_addr,
+                            u_iface.if_name,
+                            u_iface.if_index
+                        );
+                        batched_packets -= 1;
+                        continue;
                     };
 
-                    if skip {
-                        batched_packets -= 1;
-                        umem.release(frame.offset());
-                        continue;
-                    }
+                    // Reserve and construct GRE packet
+                    let mut frame = umem.reserve().unwrap();
 
-                    next_hop.mac_addr.unwrap()
-                };
+                    const INNER_PACKET_HEADER_SIZE: usize = IP_HEADER_SIZE + UDP_HEADER_SIZE;
+                    let inner_packet_len = INNER_PACKET_HEADER_SIZE + len;
+                    let gre_packet_size =
+                        ETH_HEADER_SIZE + IP_HEADER_SIZE + GRE_HEADER_SIZE + inner_packet_len;
+
+                    frame.set_len(gre_packet_size);
+                    let packet = umem.map_frame_mut(&frame);
+
+                    let gre_packet_len = construct_gre_packet(
+                        packet,
+                        &inner_src_ip, // inner src ip
+                        &dst_ip,       // inner dst ip
+                        src_port,
+                        addr.port(),
+                        payload.as_ref(),
+                        gre.local,      // gre src ip
+                        gre.remote,     // gre dst ip
+                        &src_mac.0,     // src MAC (our nic)
+                        &gre_dst_mac.0, // outer dst MAC (underlay next-hop)
+                    );
+
+                    frame.set_len(gre_packet_len);
+                    submit_packet_to_ring(
+                        frame,
+                        &mut ring,
+                        &mut batched_packets,
+                        &mut chunk_remaining,
+                        BATCH_SIZE,
+                    );
+
+                    continue;
+                }
 
                 const PACKET_HEADER_SIZE: usize =
                     ETH_HEADER_SIZE + IP_HEADER_SIZE + UDP_HEADER_SIZE;
-                let len = payload.as_ref().len();
+                let mut frame = umem.reserve().unwrap();
                 frame.set_len(PACKET_HEADER_SIZE + len);
                 let packet = umem.map_frame_mut(&frame);
 
