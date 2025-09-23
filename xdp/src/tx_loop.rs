@@ -9,7 +9,7 @@ use {
             construct_gre_packet, write_eth_header, write_ip_header_for_udp, write_udp_header, ETH_HEADER_SIZE, IP_HEADER_SIZE,
             UDP_HEADER_SIZE, GRE_HEADER_SIZE,
         },
-        route::AtomicRouter,
+        route::{AtomicRouter, get_inner_src_ipv4},
         set_cpu_affinity,
         socket::{Socket, Tx, TxRing},
         umem::{Frame as _, PageAlignedMemory, SliceUmem, SliceUmemFrame, Umem as _},
@@ -55,6 +55,15 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         dev.mac_addr()
             .expect("no src_mac provided, device must have a MAC address")
     });
+
+    // Compute a single inner source IPv4 now (or panic with a clear message in dev)
+    let inner_src_ip = src_ip.unwrap_or_else(|| {
+        let r = atomic_router.load();
+        get_inner_src_ipv4(&r)
+            .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
+    });
+    log::info!("xdp: using fixed inner src IPv4 {inner_src_ip}");
+
 
     // some drivers require frame_size=page_size
     let frame_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
@@ -195,14 +204,13 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                 };
 
                 let len = payload.as_ref().len();
-                let (dest_mac, inner_src_ip) = if let Some(mac) = dest_mac {
-                    (mac, src_ip.expect("no source IP provided"))
+                let dest_mac = if let Some(mac) = dest_mac {
+                    mac
                 } else {
                     // lock free route lookup
                     let router = atomic_router.load();
                     let dst = addr.ip();
                     let (next_hop, mut interface_info) = router.route(dst).unwrap();
-                    let inner_src_ip: Ipv4Addr = src_ip.unwrap_or_else(|| next_hop.preferred_src_ip.expect("no source IP found"));
 
                     // Print one line with both decisions
                     // greg: todo: probably don't need to take this
@@ -326,7 +334,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         continue;
                     }
 
-                    (next_hop.mac_addr.unwrap(), inner_src_ip)
+                    next_hop.mac_addr.unwrap()
                 };
 
                 const PACKET_HEADER_SIZE: usize =

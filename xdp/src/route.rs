@@ -3,11 +3,13 @@ use {
         netlink_get_neighbors, netlink_get_routes, netlink_get_interfaces, InterfaceInfo, MacAddress, NeighborEntry, RouteEntry,
     },
     arc_swap::ArcSwap,
-    libc::{AF_INET, AF_INET6},
+    libc::{AF_INET, AF_INET6, ifreq, IF_NAMESIZE, syscall, SYS_ioctl, SIOCGIFADDR},
     std::{
         collections::HashMap,
+        ffi::{c_char, CString},
         io,
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
+        os::fd::{AsRawFd, FromRawFd, OwnedFd},
         sync::Arc,
     },
     thiserror::Error,
@@ -387,6 +389,74 @@ impl Working {
             self.dirty_neigh = true;
         }
     }
+}
+
+/// Decide the fixed inner source IPv4 once (at startup or on router refresh).
+/// Order:
+///   1) any route RTA_PREFSRC (v4) from the current route dump (greg: todo: this will likely have to change with multihoming)
+///   2) default route egress interface IPv4 (prefer interfaces[ifindex].primary_ipv4; else ioctl)
+pub fn get_inner_src_ipv4(router: &Router) -> Result<Ipv4Addr, io::Error> {
+    // 1) Any route with prefsrc (common when BGP installs /32 with 'src X')
+    if let Some(v4) = router
+        .routes
+        .iter()
+        .find_map(|re| match re.pref_src { Some(IpAddr::V4(v)) => Some(v), _ => None })
+    {
+        return Ok(v4);
+    }
+
+    // 2) Default route egress interface address
+    //    Find default route in main table: AF_INET, no RTA_DST, dst_len==0
+    let def = router.routes.iter().find(|re| {
+        re.family == libc::AF_INET as u8 && re.dst_len == 0 && re.destination.is_none()
+    }).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no IPv4 default route found"))?;
+
+    let oif = def.out_if_index.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "default route missing oif"))? as u32;
+
+    // Prefer what you already cached on InterfaceInfo from RTM_GETADDR (scope=global)
+    if let Some(iface) = router.interfaces.get(&oif) {
+        if let Some(ip) = iface.primary_ipv4 {
+            return Ok(ip);
+        }
+        // Fallback: query via ioctl once (safe here; this is init-time)
+        return ioctl_ipv4_addr_by_name(&iface.if_name);
+    }
+
+    Err(io::Error::new(io::ErrorKind::NotFound, "default route oif not in interfaces map"))
+}
+
+// greg: todo this is basically a copy of the function ipv4_addr() in device.rs
+pub fn ioctl_ipv4_addr_by_name(if_name: &str) -> Result<Ipv4Addr, io::Error> {
+    let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+
+    let mut req: ifreq = unsafe { std::mem::zeroed() };
+    let if_name = CString::new(if_name.as_bytes()).unwrap();
+
+    let if_name_bytes = if_name.as_bytes_with_nul();
+    let len = std::cmp::min(if_name_bytes.len(), IF_NAMESIZE);
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            if_name_bytes.as_ptr() as *const c_char,
+            req.ifr_name.as_mut_ptr(),
+            len,
+        );
+    }
+
+    let result = unsafe { syscall(SYS_ioctl, fd.as_raw_fd(), SIOCGIFADDR, &mut req) };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let addr = unsafe {
+        let addr_ptr = &req.ifr_ifru.ifru_addr as *const libc::sockaddr;
+        let sin_addr = (*(addr_ptr as *const libc::sockaddr_in)).sin_addr;
+        Ipv4Addr::from(sin_addr.s_addr.to_ne_bytes())
+    };
+    Ok(addr)
 }
 
 #[cfg(test)]
