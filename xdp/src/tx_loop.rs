@@ -6,8 +6,8 @@ use {
         device::{NetworkDevice, QueueId, RingSizes},
         netlink::MacAddress,
         packet::{
-            write_eth_header, write_ip_header, write_udp_header, ETH_HEADER_SIZE, IP_HEADER_SIZE,
-            UDP_HEADER_SIZE,
+            construct_gre_packet, write_eth_header, write_ip_header_for_udp, write_udp_header, ETH_HEADER_SIZE, IP_HEADER_SIZE,
+            UDP_HEADER_SIZE, GRE_HEADER_SIZE,
         },
         route::AtomicRouter,
         set_cpu_affinity,
@@ -204,6 +204,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     panic!("IPv6 not supported");
                 };
 
+                let len = payload.as_ref().len();
                 let dest_mac = if let Some(mac) = dest_mac {
                     mac
                 } else {
@@ -234,19 +235,85 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                             kern_str,
                             &kern_dev_str
                         );
-                    } else {
-                        log::info!(
-                            "greg: non-gre tunnel found: [IBRL] dst={} our={} via_if={}({}) nh_ip={} nh_mac={:?}  kernel={} via_dev={}",
-                            dst,
-                            our_str,
-                            interface_info.if_name,
-                            interface_info.if_index,
-                            next_hop.ip_addr,
-                            next_hop.mac_addr,
-                            kern_str,
-                            &kern_dev_str
+
+                        // Resolve the UNDERLAY toward the GRE remote (this is where we ARP and enforce ifindex)
+                        // greg: todo, we should probably cache this
+                        let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
+
+                        // Underlay must egress the AF_XDP-bound device
+                        if u_nh.if_index != dev.if_index() {
+                            log::warn!(
+                                "greg: dropping GRE pkt: underlay oif={} != xdp dev ifindex={} (underlay via {}({}))",
+                                u_nh.if_index, dev.if_index(), u_iface.if_name, u_iface.if_index
+                            );
+                            batched_packets -= 1;
+                            umem.release(frame.offset());
+                            continue;
+                        }
+
+                        // Need underlay next-hop MAC
+                        let outer_dst_mac = match u_nh.mac_addr {
+                            Some(m) => m,
+                            None => {
+                                log::warn!(
+                                    "greg: dropping GRE pkt: missing underlay MAC for next-hop {} on {}({})",
+                                    u_nh.ip_addr, u_iface.if_name, u_iface.if_index
+                                );
+                                batched_packets -= 1;
+                                umem.release(frame.offset());
+                                continue;
+                            }
+                        };
+
+                        // Calculate GRE packet size
+                        const INNER_PACKET_HEADER_SIZE: usize = IP_HEADER_SIZE + UDP_HEADER_SIZE;
+                        let inner_packet_len = INNER_PACKET_HEADER_SIZE + len;
+                        let gre_packet_size =
+                            ETH_HEADER_SIZE + IP_HEADER_SIZE + GRE_HEADER_SIZE + inner_packet_len;
+
+                        // Reserve space for GRE packet
+                        frame.set_len(gre_packet_size);
+                        let packet = umem.map_frame_mut(&frame);
+
+                        // Construct the GRE packet
+                        let gre_packet_len = construct_gre_packet(
+                            packet,
+                            &src_ip,            // inner src ip
+                            &dst_ip,            // inner dst ip
+                            src_port,
+                            addr.port(),
+                            payload.as_ref(),
+                            gre.local,            // gre src ip
+                            gre.remote,            // gre dst ip
+                            &src_mac.0,            // src MAC (our nic)
+                            &outer_dst_mac.0, // outer dst MAC (underlay next-hop)
                         );
+
+                        // Update frame length and submit packet
+                        frame.set_len(gre_packet_len);
+                        submit_packet_to_ring(
+                            frame,
+                            &mut ring,
+                            &mut batched_packets,
+                            &mut chunk_remaining,
+                            BATCH_SIZE,
+                        );
+
+                        continue;
                     }
+
+                    // non-gre tunnel
+                    log::info!(
+                        "greg: non-gre tunnel found: [IBRL] dst={} our={} via_if={}({}) nh_ip={} nh_mac={:?}  kernel={} via_dev={}",
+                        dst,
+                        our_str,
+                        interface_info.if_name,
+                        interface_info.if_index,
+                        next_hop.ip_addr,
+                        next_hop.mac_addr,
+                        kern_str,
+                        &kern_dev_str
+                    );
 
                     if our_is_gre != kernel_is_gre {
                         log::warn!(
@@ -300,7 +367,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
 
                 write_eth_header(packet, &src_mac.0, &dest_mac.0);
 
-                write_ip_header(
+                write_ip_header_for_udp(
                     &mut packet[ETH_HEADER_SIZE..],
                     &src_ip,
                     &dst_ip,
@@ -319,22 +386,13 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                 );
 
                 // write the packet into the ring
-                ring.write(frame, 0)
-                    .map_err(|_| "ring full")
-                    // this should never happen as we check for available slots above
-                    .expect("failed to write to ring");
-
-                batched_packets -= 1;
-                chunk_remaining -= 1;
-
-                // check if it's time to commit the ring and kick the driver
-                if chunk_remaining == 0 {
-                    chunk_remaining = BATCH_SIZE.min(batched_packets);
-
-                    // commit new frames
-                    ring.commit();
-                    kick(&ring);
-                }
+                submit_packet_to_ring(
+                    frame,
+                    &mut ring,
+                    &mut batched_packets,
+                    &mut chunk_remaining,
+                    BATCH_SIZE,
+                );
             }
             let _ = drop_sender.try_send((addrs, payload));
         }
@@ -389,5 +447,29 @@ fn kick_error(e: std::io::Error) {
         _ => {
             log::error!("network interface driver error: {e:?}");
         }
+    }
+}
+
+/// Common packet submission logic - handles ring writing, batching, and driver kicking
+fn submit_packet_to_ring<'a>(
+    frame: SliceUmemFrame<'a>,
+    ring: &mut TxRing<SliceUmemFrame<'a>>,
+    batched_packets: &mut usize,
+    chunk_remaining: &mut usize,
+    batch_size: usize,
+) {
+    // Write the packet into the ring
+    ring.write(frame, 0)
+        .map_err(|_| "ring full")
+        .expect("failed to write to ring");
+
+    *batched_packets -= 1;
+    *chunk_remaining -= 1;
+
+    // Check if it's time to commit the ring and kick the driver
+    if *chunk_remaining == 0 {
+        *chunk_remaining = batch_size.min(*batched_packets);
+        ring.commit();
+        kick(ring);
     }
 }
