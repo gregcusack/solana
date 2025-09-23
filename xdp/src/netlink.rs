@@ -74,7 +74,7 @@ fn is_valid_route(route: &RouteEntry) -> bool {
         RTN_BLACKHOLE => true,
         RTN_THROW => true,
         _ => {
-            log::info!("greg: Unsupported route type: {}", route.type_);
+            log::info!("Unsupported route type: {}", route.type_);
             false
         }
     }
