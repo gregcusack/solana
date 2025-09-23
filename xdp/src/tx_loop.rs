@@ -237,17 +237,6 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         // greg: todo, we should probably cache this
                         let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
 
-                        // Underlay must egress the AF_XDP-bound device
-                        if u_nh.if_index != dev.if_index() {
-                            log::warn!(
-                                "greg: dropping GRE pkt: underlay oif={} != xdp dev ifindex={} (underlay via {}({}))",
-                                u_nh.if_index, dev.if_index(), u_iface.if_name, u_iface.if_index
-                            );
-                            batched_packets -= 1;
-                            umem.release(frame.offset());
-                            continue;
-                        }
-
                         // Need underlay next-hop MAC
                         let outer_dst_mac = match u_nh.mac_addr {
                             Some(m) => m,
@@ -324,15 +313,16 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     let mut skip = false;
 
                     // sanity check that the address is routable through our NIC
-                    if next_hop.if_index != dev.if_index() {
-                        log::warn!(
-                            "dropping packet: turbine peer {addr} must be routed through \
-                             if_index: {} our if_index: {}",
-                            next_hop.if_index,
-                            dev.if_index()
-                        );
-                        skip = true;
-                    }
+                    // greg: todo. not sure if we actually need this.
+                    // if next_hop.if_index != dev.if_index() {
+                    //     log::warn!(
+                    //         "dropping packet: turbine peer {addr} must be routed through \
+                    //          if_index: {} our if_index: {}",
+                    //         next_hop.if_index,
+                    //         dev.if_index()
+                    //     );
+                    //     skip = true;
+                    // }
 
                     // we need the MAC address to send the packet
                     if next_hop.mac_addr.is_none() {
