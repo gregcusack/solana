@@ -213,7 +213,7 @@ pub fn wrap_packet_with_gre(
 ///
 /// # Arguments
 /// * `packet` - Buffer to write the GRE packet into
-/// * `src_ip` - Source IP for the inner packet -> this is the interfaces IP addres from doublezero0
+/// * `src_ip` - Source IP for the inner packet
 /// * `dst_ip` - Destination IP for the inner packet  
 /// * `src_port` - Source port for the inner UDP packet
 /// * `dst_port` - Destination port for the inner UDP packet
@@ -240,15 +240,8 @@ pub fn construct_gre_packet(
 ) -> usize {
     let payload_len = payload.len();
 
-    // Calculate sizes
     const INNER_PACKET_HEADER_SIZE: usize = IP_HEADER_SIZE + UDP_HEADER_SIZE;
     let inner_packet_len = INNER_PACKET_HEADER_SIZE + payload_len;
-    let gre_packet_size = ETH_HEADER_SIZE + IP_HEADER_SIZE + GRE_HEADER_SIZE + inner_packet_len;
-
-    // Ensure packet buffer is large enough
-    if packet.len() < gre_packet_size {
-        panic!("Packet buffer too small for GRE packet");
-    }
 
     // Write the inner packet (IP + UDP + payload) at the GRE payload position
     let inner_start = ETH_HEADER_SIZE + IP_HEADER_SIZE + GRE_HEADER_SIZE;
@@ -261,7 +254,7 @@ pub fn construct_gre_packet(
         (UDP_HEADER_SIZE + payload_len) as u16,
     );
 
-    // Write UDP header
+    // Write inner UDP header
     write_udp_header(
         &mut packet[inner_start + IP_HEADER_SIZE..inner_start + INNER_PACKET_HEADER_SIZE],
         src_ip,
