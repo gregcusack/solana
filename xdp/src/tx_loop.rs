@@ -55,11 +55,13 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         dev.mac_addr()
             .expect("no src_mac provided, device must have a MAC address")
     });
-    let src_ip = src_ip.unwrap_or_else(|| {
-        // if no source IP is provided, use the device's IPv4 address
-        dev.ipv4_addr()
-            .expect("no src_ip provided, device must have an IPv4 address")
-    });
+    // let src_ip = src_ip.unwrap_or_else(|| {
+    //     // if no source IP is provided, use the device's IPv4 address
+    //     dev.ipv4_addr()
+    //         .expect("no src_ip provided, device must have an IPv4 address")
+    // });
+    // greg: TODO: remove this this is just for testing
+    let src_ip = Ipv4Addr::new(147, 28, 171, 69);
 
     // some drivers require frame_size=page_size
     let frame_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
