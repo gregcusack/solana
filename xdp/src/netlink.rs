@@ -488,6 +488,7 @@ pub struct InterfaceInfo {
     pub if_name: String,
     pub dev_type: u16,
     pub gre_tunnel: Option<GreTunnelInfo>,
+    pub primary_ipv4: Option<Ipv4Addr>,
 }
 
 // Get all interfaces via netlink (based off of FD: fd_netdev_netlink_load_table)
@@ -586,17 +587,12 @@ fn parse_ifinfomsg(msg: NetlinkMessage) -> Option<InterfaceInfo> {
     // Parse GRE tunnel information if this is a GRE interface
     let gre_tunnel = parse_gre_tunnel_info_from_linkinfo(&attrs);
 
-    // let gre_tunnel = if ifi_type == ARPHRD_IPGRE {
-    //     parse_gre_tunnel_info_from_linkinfo(&attrs)
-    // } else {
-    //     None
-    // };
-
     Some(InterfaceInfo {
         if_index: ifi.ifi_index,
         if_name,
         dev_type: ifi_type,
         gre_tunnel,
+        primary_ipv4: None,
     })
 }
 

@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        dev_gre_check::{ip_route_get_dev, DZ_DEV_NAME},
+        // dev_gre_check::{ip_route_get_dev,},
         device::{NetworkDevice, QueueId, RingSizes},
         netlink::MacAddress,
         packet::{
@@ -55,13 +55,6 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         dev.mac_addr()
             .expect("no src_mac provided, device must have a MAC address")
     });
-    // let src_ip = src_ip.unwrap_or_else(|| {
-    //     // if no source IP is provided, use the device's IPv4 address
-    //     dev.ipv4_addr()
-    //         .expect("no src_ip provided, device must have an IPv4 address")
-    // });
-    // greg: TODO: remove this this is just for testing
-    let src_ip = Ipv4Addr::new(147, 28, 171, 69);
 
     // some drivers require frame_size=page_size
     let frame_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
@@ -202,24 +195,17 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                 };
 
                 let len = payload.as_ref().len();
-                let dest_mac = if let Some(mac) = dest_mac {
-                    mac
+                let (dest_mac, inner_src_ip) = if let Some(mac) = dest_mac {
+                    (mac, src_ip.expect("no source IP provided"))
                 } else {
                     // lock free route lookup
                     let router = atomic_router.load();
                     let dst = addr.ip();
                     let (next_hop, mut interface_info) = router.route(dst).unwrap();
-
-                    // let our_is_gre = interface_info.gre_tunnel.is_some();
-                    // let our_str = if our_is_gre { "GRE" } else { "PLAIN" };
-
-                    // Kernel’s view right now (dev name from `ip route get`)
-                    // let kernel_dev = ip_route_get_dev(dst).ok().flatten();
-                    // let kernel_is_gre = kernel_dev.as_deref() == Some(DZ_DEV_NAME);
-                    // let kern_str = if kernel_is_gre { "GRE" } else { "PLAIN" };
-                    // let kern_dev_str = kernel_dev.clone().unwrap_or_else(|| "<unknown>".to_string());
+                    let inner_src_ip: Ipv4Addr = src_ip.unwrap_or_else(|| next_hop.preferred_src_ip.expect("no source IP found"));
 
                     // Print one line with both decisions
+                    // greg: todo: probably don't need to take this
                     if let Some(gre) = interface_info.gre_tunnel.take() {
                         // log::info!(
                         //     "greg: gre tunnel found: [IBRL] dst={} our={} via_if={}({}) gre.local={} gre.remote={}  kernel={} via_dev={}",
@@ -264,7 +250,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         // Construct the GRE packet
                         let gre_packet_len = construct_gre_packet(
                             packet,
-                            &src_ip,            // inner src ip
+                            &inner_src_ip,            // inner src ip
                             &dst_ip,            // inner dst ip
                             src_port,
                             addr.port(),
@@ -340,7 +326,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         continue;
                     }
 
-                    next_hop.mac_addr.unwrap()
+                    (next_hop.mac_addr.unwrap(), inner_src_ip)
                 };
 
                 const PACKET_HEADER_SIZE: usize =
@@ -356,14 +342,14 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
 
                 write_ip_header_for_udp(
                     &mut packet[ETH_HEADER_SIZE..],
-                    &src_ip,
+                    &inner_src_ip,
                     &dst_ip,
                     (UDP_HEADER_SIZE + len) as u16,
                 );
 
                 write_udp_header(
                     &mut packet[ETH_HEADER_SIZE + IP_HEADER_SIZE..],
-                    &src_ip,
+                    &inner_src_ip,
                     src_port,
                     &dst_ip,
                     addr.port(),
