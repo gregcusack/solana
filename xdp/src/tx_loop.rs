@@ -2,6 +2,7 @@
 
 use {
     crate::{
+        dev_gre_check::{ip_route_get_dev, DZ_DEV_NAME},
         device::{NetworkDevice, QueueId, RingSizes},
         netlink::MacAddress,
         packet::{
@@ -206,14 +207,54 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                 } else {
                     // lock free route lookup
                     let router = atomic_router.load();
-                    let (next_hop, interface_info) = router.route(addr.ip()).unwrap();
+                    let dst = addr.ip();
+                    let (next_hop, mut interface_info) = router.route(dst).unwrap();
 
-                    if let Some(gre_tunnel) = interface_info.gre_tunnel {
-                        log::info!("greg: gre tunnel found: {:?} for dst {}", gre_tunnel, addr.ip());
+                    let our_is_gre = interface_info.gre_tunnel.is_some();
+                    let our_str = if our_is_gre { "GRE" } else { "PLAIN" };
+
+                    // Kernel’s view right now (dev name from `ip route get`)
+                    let kernel_dev = ip_route_get_dev(dst).ok().flatten();
+                    let kernel_is_gre = kernel_dev.as_deref() == Some(DZ_DEV_NAME);
+                    let kern_str = if kernel_is_gre { "GRE" } else { "PLAIN" };
+                    let kern_dev_str = kernel_dev.clone().unwrap_or_else(|| "<unknown>".to_string());
+
+                    // Print one line with both decisions
+                    if let Some(gre) = interface_info.gre_tunnel.take() {
+                        log::info!(
+                            "greg: gre tunnel found: [IBRL] dst={} our={} via_if={}({}) gre.local={} gre.remote={}  kernel={} via_dev={}",
+                            dst,
+                            our_str,
+                            interface_info.if_name,
+                            interface_info.if_index,
+                            gre.local,
+                            gre.remote,
+                            kern_str,
+                            &kern_dev_str
+                        );
                     } else {
-                        log::info!("greg: non-gre tunnel found: {:?} for dst {}", interface_info, addr.ip());
+                        log::info!(
+                            "greg: non-gre tunnel found: [IBRL] dst={} our={} via_if={}({}) nh_ip={} nh_mac={:?}  kernel={} via_dev={}",
+                            dst,
+                            our_str,
+                            interface_info.if_name,
+                            interface_info.if_index,
+                            next_hop.ip_addr,
+                            next_hop.mac_addr,
+                            kern_str,
+                            &kern_dev_str
+                        );
                     }
-                    
+
+                    if our_is_gre != kernel_is_gre {
+                        log::warn!(
+                            "greg: MISMATCH: [IBRL] MISMATCH for dst={}  our={}  kernel={} (kernel dev={}). \
+                             If kernel shows dev={} but we said PLAIN: check LINKINFO parsing / route table refresh. \
+                             If kernel shows non-{} but we said GRE: check which table our route() used.",
+                            dst, our_str, kern_str, &kern_dev_str, DZ_DEV_NAME, DZ_DEV_NAME
+                        );
+                    }
+
                     let mut skip = false;
 
                     // sanity check that the address is routable through our NIC
