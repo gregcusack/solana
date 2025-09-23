@@ -1,10 +1,11 @@
 use {
     crate::netlink::{
-        netlink_get_neighbors, netlink_get_routes, MacAddress, NeighborEntry, RouteEntry,
+        netlink_get_neighbors, netlink_get_routes, netlink_get_interfaces, InterfaceInfo, MacAddress, NeighborEntry, RouteEntry,
     },
     arc_swap::ArcSwap,
     libc::{AF_INET, AF_INET6},
     std::{
+        collections::HashMap,
         io,
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
         sync::Arc,
@@ -117,16 +118,23 @@ fn is_ipv6_match(addr: Ipv6Addr, network: Ipv6Addr, prefix_len: u8) -> bool {
 pub struct Router {
     arp_table: Arc<ArpTable>,
     routes: Arc<Vec<RouteEntry>>,
+    interfaces: Arc<HashMap<u32, InterfaceInfo>>, // if_index (on host) -> InterfaceInfo map
 }
 
 impl Router {
     pub fn new() -> Result<Self, io::Error> {
         let arp_table = ArpTable::new()?;
         let routes = netlink_get_routes(AF_INET as u8)?;
+        let interfaces = netlink_get_interfaces()?;
+        let interface_map: HashMap<u32, InterfaceInfo> = interfaces
+            .into_iter()
+            .map(|if_info| (if_info.if_index, if_info))
+            .collect();
 
         Ok(Self {
             arp_table: Arc::new(arp_table),
             routes: Arc::new(routes),
+            interfaces: Arc::new(interface_map),
         })
     }
 
@@ -163,7 +171,10 @@ impl Router {
         })
     }
 
-    pub fn route(&self, dest_ip: IpAddr) -> Result<NextHop, RouteError> {
+    // greg: todo: not sure if we should return is_gre here?
+    // we may want to return the entire InterfaceInfo
+    // InterfaceInfo will have to be expanded to include the src_ip/dst_ip for gre
+    pub fn route(&self, dest_ip: IpAddr) -> Result<(NextHop, InterfaceInfo), RouteError> {
         let route = lookup_route(&self.routes, dest_ip).ok_or(RouteError::NoRouteFound(dest_ip))?;
 
         let if_index = route
@@ -177,7 +188,7 @@ impl Router {
 
         let mac_addr = self.arp_table.lookup(next_hop_ip, if_index).cloned();
 
-        Ok(NextHop {
+        let next_hop = NextHop {
             ip_addr: next_hop_ip,
             mac_addr,
             if_index: if_index as u32,
