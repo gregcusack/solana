@@ -9,7 +9,8 @@ use {
         RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_F_CLONED, RTM_GETNEIGH, RTM_GETROUTE,
         RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST, RTN_LOCAL, RTN_MULTICAST,
         RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW,
-        SOL_NETLINK, SOL_SOCKET, SO_RCVBUF,
+        SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, ARPHRD_ETHER, ARPHRD_IPGRE, ARPHRD_LOOPBACK, ARPHRD_NETROM,
+        IFLA_IFNAME, IFLA_INFO_DATA, IFLA_LINKINFO, IFNAMSIZ,
     },
     std::{
         collections::HashMap,
@@ -583,7 +584,7 @@ fn parse_ifinfomsg(msg: NetlinkMessage) -> Option<InterfaceInfo> {
             }
         }
     }
-    
+
     // Parse GRE tunnel information if this is a GRE interface
     let gre_tunnel = parse_gre_tunnel_info_from_linkinfo(&attrs);
 
@@ -597,9 +598,7 @@ fn parse_ifinfomsg(msg: NetlinkMessage) -> Option<InterfaceInfo> {
 }
 
 // Parse GRE tunnel information from netlink
-fn parse_gre_tunnel_info_from_linkinfo(
-    attrs: &HashMap<u16, NlAttr>,
-) -> Option<GreTunnelInfo> {
+fn parse_gre_tunnel_info_from_linkinfo(attrs: &HashMap<u16, NlAttr>) -> Option<GreTunnelInfo> {
     let (kind, gre) = parse_linkinfo_kind_and_data(attrs)?;
     if kind != "gre" {
         return None; // only L3 GRE; ignore gretap/erspan
@@ -609,23 +608,63 @@ fn parse_gre_tunnel_info_from_linkinfo(
     let mut remote = Ipv4Addr::UNSPECIFIED;
     let mut ikey = None;
     let mut okey = None;
-    let mut ttl  = None;
-    let mut tos  = None;
+    let mut ttl = None;
+    let mut tos = None;
     let mut pmtu = None;
     let mut csum = None;
-    let mut seq  = None;
+    let mut seq = None;
     let mut link_ifindex = None;
 
-    if let Some(a) = gre.get(&IFLA_GRE_LOCAL)     { if a.data.len() >= 4 { local  = Ipv4Addr::new(a.data[0], a.data[1], a.data[2], a.data[3]); } }
-    if let Some(a) = gre.get(&IFLA_GRE_REMOTE)    { if a.data.len() >= 4 { remote = Ipv4Addr::new(a.data[0], a.data[1], a.data[2], a.data[3]); } }
-    if let Some(a) = gre.get(&IFLA_GRE_IKEY)      { if a.data.len() >= 4 { ikey   = Some(u32::from_be_bytes(a.data[0..4].try_into().unwrap())); } }
-    if let Some(a) = gre.get(&IFLA_GRE_OKEY)      { if a.data.len() >= 4 { okey   = Some(u32::from_be_bytes(a.data[0..4].try_into().unwrap())); } }
-    if let Some(a) = gre.get(&IFLA_GRE_TTL)       { if !a.data.is_empty() { ttl   = Some(a.data[0]); } }
-    if let Some(a) = gre.get(&IFLA_GRE_TOS)       { if !a.data.is_empty() { tos   = Some(a.data[0]); } }
-    if let Some(a) = gre.get(&IFLA_GRE_PMTUDISC)  { if !a.data.is_empty() { pmtu  = Some(a.data[0]); } }
-    if let Some(a) = gre.get(&IFLA_GRE_CSUM)      { if !a.data.is_empty() { csum  = Some(a.data[0]); } }
-    if let Some(a) = gre.get(&IFLA_GRE_SEQ)       { if !a.data.is_empty() { seq   = Some(a.data[0]); } }
-    if let Some(a) = gre.get(&IFLA_GRE_LINK)      { if a.data.len() >= 4 { link_ifindex = Some(u32::from_ne_bytes(a.data[0..4].try_into().unwrap())); } }
+    if let Some(a) = gre.get(&IFLA_GRE_LOCAL) {
+        if a.data.len() >= 4 {
+            local = Ipv4Addr::new(a.data[0], a.data[1], a.data[2], a.data[3]);
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_REMOTE) {
+        if a.data.len() >= 4 {
+            remote = Ipv4Addr::new(a.data[0], a.data[1], a.data[2], a.data[3]);
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_IKEY) {
+        if a.data.len() >= 4 {
+            ikey = Some(u32::from_be_bytes(a.data[0..4].try_into().unwrap()));
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_OKEY) {
+        if a.data.len() >= 4 {
+            okey = Some(u32::from_be_bytes(a.data[0..4].try_into().unwrap()));
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_TTL) {
+        if !a.data.is_empty() {
+            ttl = Some(a.data[0]);
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_TOS) {
+        if !a.data.is_empty() {
+            tos = Some(a.data[0]);
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_PMTUDISC) {
+        if !a.data.is_empty() {
+            pmtu = Some(a.data[0]);
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_CSUM) {
+        if !a.data.is_empty() {
+            csum = Some(a.data[0]);
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_SEQ) {
+        if !a.data.is_empty() {
+            seq = Some(a.data[0]);
+        }
+    }
+    if let Some(a) = gre.get(&IFLA_GRE_LINK) {
+        if a.data.len() >= 4 {
+            link_ifindex = Some(u32::from_ne_bytes(a.data[0..4].try_into().unwrap()));
+        }
+    }
 
     // Must have both endpoints for a valid GRE tunnel.
     if local == Ipv4Addr::UNSPECIFIED || remote == Ipv4Addr::UNSPECIFIED {
@@ -651,7 +690,7 @@ fn parse_linkinfo_kind_and_data<'a>(
 ) -> Option<(String, HashMap<u16, NlAttr<'a>>)> {
     let li = attrs.get(&IFLA_LINKINFO)?;
     // IFLA_LINKINFO contains nested attributes
-    let info = parse_attrs(&li.data).ok()?;
+    let info = parse_attrs(li.data).ok()?;
 
     let kind_attr = info.get(&IFLA_INFO_KIND)?;
     let mut kind = String::new();
@@ -663,7 +702,7 @@ fn parse_linkinfo_kind_and_data<'a>(
 
     // Nested data (GRE attributes) is optional.
     if let Some(data_attr) = info.get(&IFLA_INFO_DATA) {
-        let nested = parse_attrs(&data_attr.data).unwrap_or_default();
+        let nested = parse_attrs(data_attr.data).unwrap_or_default();
         return Some((kind, nested));
     }
 

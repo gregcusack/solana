@@ -1,9 +1,10 @@
 use {
     crate::netlink::{
-        netlink_get_neighbors, netlink_get_routes, netlink_get_interfaces, InterfaceInfo, MacAddress, NeighborEntry, RouteEntry,
+        netlink_get_interfaces, netlink_get_neighbors, netlink_get_routes, InterfaceInfo,
+        MacAddress, NeighborEntry, RouteEntry,
     },
     arc_swap::ArcSwap,
-    libc::{AF_INET, AF_INET6, ifreq, IF_NAMESIZE, syscall, SYS_ioctl, SIOCGIFADDR},
+    libc::{ifreq, syscall, SYS_ioctl, AF_INET, AF_INET6, IF_NAMESIZE, SIOCGIFADDR},
     std::{
         collections::HashMap,
         ffi::{c_char, CString},
@@ -204,7 +205,7 @@ impl Router {
             ip_addr: next_hop_ip,
             mac_addr,
             if_index,
-            preferred_src_ip
+            preferred_src_ip,
         };
 
         // Get the interface info for this route
@@ -397,21 +398,25 @@ impl Working {
 ///   2) default route egress interface IPv4 (prefer interfaces[ifindex].primary_ipv4; else ioctl)
 pub fn get_inner_src_ipv4(router: &Router) -> Result<Ipv4Addr, io::Error> {
     // 1) Any route with prefsrc (common when BGP installs /32 with 'src X')
-    if let Some(v4) = router
-        .routes
-        .iter()
-        .find_map(|re| match re.pref_src { Some(IpAddr::V4(v)) => Some(v), _ => None })
-    {
+    if let Some(v4) = router.routes.iter().find_map(|re| match re.pref_src {
+        Some(IpAddr::V4(v)) => Some(v),
+        _ => None,
+    }) {
         return Ok(v4);
     }
 
     // 2) Default route egress interface address
     //    Find default route in main table: AF_INET, no RTA_DST, dst_len==0
-    let def = router.routes.iter().find(|re| {
-        re.family == libc::AF_INET as u8 && re.dst_len == 0 && re.destination.is_none()
-    }).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no IPv4 default route found"))?;
+    let def = router
+        .routes
+        .iter()
+        .find(|re| re.family == libc::AF_INET as u8 && re.dst_len == 0 && re.destination.is_none())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no IPv4 default route found"))?;
 
-    let oif = def.out_if_index.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "default route missing oif"))? as u32;
+    let oif = def
+        .out_if_index
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "default route missing oif"))?
+        as u32;
 
     // Prefer what you already cached on InterfaceInfo from RTM_GETADDR (scope=global)
     if let Some(iface) = router.interfaces.get(&oif) {
@@ -422,7 +427,10 @@ pub fn get_inner_src_ipv4(router: &Router) -> Result<Ipv4Addr, io::Error> {
         return ioctl_ipv4_addr_by_name(&iface.if_name);
     }
 
-    Err(io::Error::new(io::ErrorKind::NotFound, "default route oif not in interfaces map"))
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "default route oif not in interfaces map",
+    ))
 }
 
 // greg: todo this is basically a copy of the function ipv4_addr() in device.rs
