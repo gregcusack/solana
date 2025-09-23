@@ -250,6 +250,8 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     frame.set_len(gre_packet_size);
                     let packet = umem.map_frame_mut(&frame);
 
+                    // merklized shreds are forced to be a maximum of SIZE_OF_PAYLOAD (1203) bytes (1228 for non merklized shreds)
+                    // w/ gre wrapping, max size: 20 bytes (outer IP) + 4 bytes (GRE) + 20 bytes (inner IP) + 8 bytes (UDP) + 1228 bytes (payload) = 1280 bytes
                     let gre_packet_len = construct_gre_packet(
                         packet,
                         &inner_src_ip, // inner src ip
