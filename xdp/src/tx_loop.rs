@@ -2,14 +2,14 @@
 
 use {
     crate::{
-        dev_gre_check::{ip_route_get_dev, DZ_DEV_NAME},
+        // dev_gre_check::{ip_route_get_dev,},
         device::{NetworkDevice, QueueId, RingSizes},
         netlink::MacAddress,
         packet::{
             construct_gre_packet, write_eth_header, write_ip_header_for_udp, write_udp_header, ETH_HEADER_SIZE, IP_HEADER_SIZE,
             UDP_HEADER_SIZE, GRE_HEADER_SIZE,
         },
-        route::AtomicRouter,
+        route::{AtomicRouter, get_inner_src_ipv4},
         set_cpu_affinity,
         socket::{Socket, Tx, TxRing},
         umem::{Frame as _, PageAlignedMemory, SliceUmem, SliceUmemFrame, Umem as _},
@@ -55,13 +55,15 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         dev.mac_addr()
             .expect("no src_mac provided, device must have a MAC address")
     });
-    // let src_ip = src_ip.unwrap_or_else(|| {
-    //     // if no source IP is provided, use the device's IPv4 address
-    //     dev.ipv4_addr()
-    //         .expect("no src_ip provided, device must have an IPv4 address")
-    // });
-    // greg: TODO: remove this this is just for testing
-    let src_ip = Ipv4Addr::new(147, 28, 171, 69);
+
+    // Compute a single inner source IPv4 now (or panic with a clear message in dev)
+    let inner_src_ip = src_ip.unwrap_or_else(|| {
+        let r = atomic_router.load();
+        get_inner_src_ipv4(&r)
+            .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
+    });
+    log::info!("xdp: using fixed inner src IPv4 {inner_src_ip}");
+
 
     // some drivers require frame_size=page_size
     let frame_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
@@ -111,9 +113,6 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         mut completion,
     } = tx;
     let mut ring = ring.unwrap();
-
-    // get the routing table from netlink
-    // let router = Router::new().expect("failed to create router");
 
     // we don't need higher caps anymore
     for cap in [CAP_NET_ADMIN, CAP_NET_RAW] {
@@ -213,16 +212,8 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     let dst = addr.ip();
                     let (next_hop, mut interface_info) = router.route(dst).unwrap();
 
-                    // let our_is_gre = interface_info.gre_tunnel.is_some();
-                    // let our_str = if our_is_gre { "GRE" } else { "PLAIN" };
-
-                    // Kernel’s view right now (dev name from `ip route get`)
-                    // let kernel_dev = ip_route_get_dev(dst).ok().flatten();
-                    // let kernel_is_gre = kernel_dev.as_deref() == Some(DZ_DEV_NAME);
-                    // let kern_str = if kernel_is_gre { "GRE" } else { "PLAIN" };
-                    // let kern_dev_str = kernel_dev.clone().unwrap_or_else(|| "<unknown>".to_string());
-
                     // Print one line with both decisions
+                    // greg: todo: probably don't need to take this
                     if let Some(gre) = interface_info.gre_tunnel.take() {
                         // log::info!(
                         //     "greg: gre tunnel found: [IBRL] dst={} our={} via_if={}({}) gre.local={} gre.remote={}  kernel={} via_dev={}",
@@ -267,7 +258,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         // Construct the GRE packet
                         let gre_packet_len = construct_gre_packet(
                             packet,
-                            &src_ip,            // inner src ip
+                            &inner_src_ip,            // inner src ip
                             &dst_ip,            // inner dst ip
                             src_port,
                             addr.port(),
@@ -359,14 +350,14 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
 
                 write_ip_header_for_udp(
                     &mut packet[ETH_HEADER_SIZE..],
-                    &src_ip,
+                    &inner_src_ip,
                     &dst_ip,
                     (UDP_HEADER_SIZE + len) as u16,
                 );
 
                 write_udp_header(
                     &mut packet[ETH_HEADER_SIZE + IP_HEADER_SIZE..],
-                    &src_ip,
+                    &inner_src_ip,
                     src_port,
                     &dst_ip,
                     addr.port(),
