@@ -24,7 +24,7 @@ use {
 };
 
 #[cfg(target_os = "linux")]
-const ROUTE_MONITOR_UPDATE_INTERVAL_SECS: Duration = Duration::from_secs(60);
+const ROUTE_MONITOR_UPDATE_INTERVAL_MS: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Debug)]
 pub struct XdpConfig {
@@ -111,7 +111,6 @@ impl XdpSender {
 
 pub struct XdpRetransmitter {
     threads: Vec<thread::JoinHandle<()>>,
-    monitor_thread: thread::Thread,
 }
 
 impl XdpRetransmitter {
@@ -171,9 +170,8 @@ impl XdpRetransmitter {
         let monitor_handle = RouteMonitor::start(
             Arc::clone(&atomic_router),
             exit.clone(),
-            ROUTE_MONITOR_UPDATE_INTERVAL_SECS,
+            ROUTE_MONITOR_UPDATE_INTERVAL_MS,
         );
-        let monitor_thread = monitor_handle.thread().clone();
 
         let mut threads = vec![];
         threads.push(monitor_handle); // Add monitor thread
@@ -232,17 +230,10 @@ impl XdpRetransmitter {
             );
         }
 
-        Ok((
-            Self {
-                threads,
-                monitor_thread,
-            },
-            XdpSender { senders },
-        ))
+        Ok(( Self { threads },  XdpSender { senders } ))
     }
 
     pub fn join(self) -> thread::Result<()> {
-        self.monitor_thread.unpark();
         for handle in self.threads {
             handle.join()?;
         }

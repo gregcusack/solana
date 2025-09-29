@@ -25,11 +25,7 @@ impl RouteMonitor {
             );
 
             while !exit.load(Ordering::Relaxed) {
-                thread::park_timeout(update_interval);
-
-                if exit.load(Ordering::Relaxed) {
-                    break;
-                }
+                std::thread::sleep(update_interval);
 
                 // Fetch and update both routes and ARP table atomically
                 if let Err(e) = atomic_router.update_routes_and_neighbors() {
