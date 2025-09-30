@@ -24,7 +24,7 @@ use {
 };
 
 #[cfg(target_os = "linux")]
-const ROUTE_MONITOR_UPDATE_INTERVAL_SECS: Duration = Duration::from_secs(60);
+const ROUTE_MONITOR_UPDATE_INTERVAL_SECS: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug)]
 pub struct XdpConfig {

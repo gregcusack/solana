@@ -249,7 +249,9 @@ impl AtomicRouter {
     pub fn update_routes_and_neighbors(&self) -> Result<(), io::Error> {
         let mut current_router = (**self.router.load()).clone();
         current_router.routes = Self::fetch_routes()?;
+        log::info!("greg: num routes: {}", current_router.routes.len());
         current_router.arp_table = Self::fetch_arp_table()?;
+        log::info!("greg: num arp_table: {}", current_router.arp_table.neighbors.len());
         self.router.store(Arc::new(current_router));
         Ok(())
     }
