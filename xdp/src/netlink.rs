@@ -351,6 +351,30 @@ impl NetlinkMessage {
             error,
         })
     }
+
+    /// Check if this message is relevant to the route/neighbor refresh flags.
+    /// - NEWROUTE/DELROUTE: set route refresh when IPv4 route header is acceptable
+    /// - NEWNEIGH/DELNEIGH: set neighbor refresh when IPv4 neighbor header is acceptable
+    /// we already filter out errors (NLMSG_ERROR) in NetlinkSocket::recv()
+    pub fn check_if_relevant_message(
+        &self,
+        route_refresh_pending: &mut bool,
+        neigh_refresh_pending: &mut bool,
+    ) {
+        match self.header.nlmsg_type {
+            RTM_NEWROUTE | RTM_DELROUTE => {
+                if is_supported_ipv4_route_header(self) {
+                    *route_refresh_pending = true;
+                }
+            },
+            RTM_NEWNEIGH | RTM_DELNEIGH => {
+                if is_supported_ipv4_neigh_header(self) {
+                    *neigh_refresh_pending = true;
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 const fn align_to(v: usize, align: usize) -> usize {

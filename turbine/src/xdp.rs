@@ -111,7 +111,6 @@ impl XdpSender {
 
 pub struct XdpRetransmitter {
     threads: Vec<thread::JoinHandle<()>>,
-    monitor_thread: thread::Thread,
 }
 
 impl XdpRetransmitter {
@@ -231,17 +230,10 @@ impl XdpRetransmitter {
             );
         }
 
-        Ok((
-            Self {
-                threads,
-                monitor_thread,
-            },
-            XdpSender { senders },
-        ))
+        Ok((Self { threads }, XdpSender { senders }))
     }
 
     pub fn join(self) -> thread::Result<()> {
-        self.monitor_thread.unpark();
         for handle in self.threads {
             handle.join()?;
         }

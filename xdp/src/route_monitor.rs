@@ -122,6 +122,71 @@ impl RouteMonitor {
                         w.clear_dirty();
                     }
                 }
+                log::info!("greg: got first update");
+                Self::process_msgs(first, &mut refresh_routes, &mut refresh_neighbors);
+                log::info!(
+                    "greg: first update route_refresh_pending: {}, neigh_refresh_pending: {}",
+                    refresh_routes,
+                    refresh_neighbors
+                );
+
+                // read from socket for drain_window time
+                let t0 = Instant::now();
+                let deadline = t0 + drain_window;
+
+                // Once we have an update, drain the netlink socket for the rest of the window
+                loop {
+                    if exit.load(Ordering::Relaxed) {
+                        break 'outer;
+                    }
+                    let now = Instant::now();
+                    if now >= deadline {
+                        break;
+                    }
+
+                    let mut pfd = pollfd {
+                        fd: sock.as_raw_fd(),
+                        events: POLLIN,
+                        revents: 0,
+                    };
+                    let remain_ms = (deadline - now).as_millis() as i32;
+                    let rc = unsafe { poll(&mut pfd as *mut pollfd, 1, remain_ms) };
+                    if rc < 0 {
+                        log::warn!("poll error: {}", std::io::Error::last_os_error());
+                        // treat as loss -> refresh both
+                        refresh_routes = true;
+                        refresh_neighbors = true;
+                        break;
+                    }
+                    if rc == 0 || (pfd.revents & POLLIN) == 0 {
+                        break;
+                    }
+
+                    if !Self::drain_netlink_socket(
+                        &sock,
+                        &mut refresh_routes,
+                        &mut refresh_neighbors,
+                    ) {
+                        // on error, refresh both
+                        refresh_routes = true;
+                        refresh_neighbors = true;
+                        break;
+                    }
+                }
+
+                // based on incoming updates, refresh the appropriate tables
+                if refresh_routes && refresh_neighbors {
+                    let _ = atomic_router.update_routes_and_neighbors();
+                } else if refresh_routes {
+                    let _ = atomic_router.refresh_routes();
+                } else if refresh_neighbors {
+                    let _ = atomic_router.refresh_neighbors();
+                } else {
+                    continue;
+                }
+
+                refresh_routes = false;
+                refresh_neighbors = false;
             }
         })
     }

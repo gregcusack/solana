@@ -120,8 +120,8 @@ fn is_ipv6_match(addr: Ipv6Addr, network: Ipv6Addr, prefix_len: u8) -> bool {
 
 #[derive(Clone)]
 pub struct Router {
-    arp_table: Arc<ArpTable>,
-    routes: Arc<Vec<RouteEntry>>,
+    pub(crate) arp_table: Arc<ArpTable>,
+    pub(crate) routes: Arc<Vec<RouteEntry>>,
     interfaces: Arc<HashMap<u32, InterfaceInfo>>, // if_index (on host) -> InterfaceInfo map
 }
 
