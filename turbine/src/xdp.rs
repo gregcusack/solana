@@ -24,7 +24,7 @@ use {
 };
 
 #[cfg(target_os = "linux")]
-const ROUTE_MONITOR_UPDATE_INTERVAL_MS: Duration = Duration::from_millis(50);
+const ROUTE_MONITOR_UPDATE_INTERVAL_MS: Duration = Duration::from_millis(10);
 
 #[derive(Clone, Debug)]
 pub struct XdpConfig {
@@ -230,7 +230,7 @@ impl XdpRetransmitter {
             );
         }
 
-        Ok(( Self { threads },  XdpSender { senders } ))
+        Ok((Self { threads }, XdpSender { senders }))
     }
 
     pub fn join(self) -> thread::Result<()> {

@@ -115,8 +115,8 @@ fn is_ipv6_match(addr: Ipv6Addr, network: Ipv6Addr, prefix_len: u8) -> bool {
 
 #[derive(Clone)]
 pub struct Router {
-    arp_table: Arc<ArpTable>,
-    routes: Arc<Vec<RouteEntry>>,
+    pub(crate) arp_table: Arc<ArpTable>,
+    pub(crate) routes: Arc<Vec<RouteEntry>>,
 }
 
 impl Router {
@@ -177,8 +177,9 @@ impl Router {
     }
 }
 
-struct ArpTable {
-    neighbors: Vec<NeighborEntry>,
+#[derive(Clone)]
+pub(crate) struct ArpTable {
+    pub(crate) neighbors: Vec<NeighborEntry>,
 }
 
 impl ArpTable {
@@ -211,10 +212,26 @@ impl AtomicRouter {
         self.router.load().clone()
     }
 
-    // update both routes and ARP table
+    /// update both routes and ARP table
     pub fn update_routes_and_neighbors(&self) -> Result<(), io::Error> {
         let mut current_router = (**self.router.load()).clone();
         current_router.routes = Self::fetch_routes()?;
+        current_router.arp_table = Self::fetch_arp_table()?;
+        self.router.store(Arc::new(current_router));
+        Ok(())
+    }
+
+    /// Refresh only the routes, leave ARP table unchanged.
+    pub fn refresh_routes(&self) -> Result<(), io::Error> {
+        let mut current_router = (**self.router.load()).clone();
+        current_router.routes = Self::fetch_routes()?;
+        self.router.store(Arc::new(current_router));
+        Ok(())
+    }
+
+    /// Refresh only the ARP neighbor table, leave routes unchanged.
+    pub fn refresh_neighbors(&self) -> Result<(), io::Error> {
+        let mut current_router = (**self.router.load()).clone();
         current_router.arp_table = Self::fetch_arp_table()?;
         self.router.store(Arc::new(current_router));
         Ok(())

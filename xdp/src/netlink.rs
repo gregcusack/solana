@@ -2,14 +2,14 @@
 
 use {
     libc::{
-        getsockname, nlattr, nlmsgerr, nlmsghdr, recv, send, setsockopt, sockaddr_nl, socket,
+        bind, getsockname, nlattr, nlmsgerr, nlmsghdr, recv, send, setsockopt, sockaddr_nl, socket,
         AF_INET, AF_INET6, AF_NETLINK, NDA_DST, NDA_LLADDR, NETLINK_EXT_ACK, NETLINK_ROUTE,
         NLA_ALIGNTO, NLA_TYPE_MASK, NLMSG_DONE, NLMSG_ERROR, NLM_F_DUMP, NLM_F_MULTI,
         NLM_F_REQUEST, NUD_PERMANENT, NUD_REACHABLE, NUD_STALE, RTA_DST, RTA_GATEWAY, RTA_IIF,
         RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_F_CLONED, RTM_GETNEIGH, RTM_GETROUTE,
         RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST, RTN_LOCAL, RTN_MULTICAST,
         RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW,
-        SOL_NETLINK,
+        SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, RTM_DELROUTE, RTM_DELNEIGH
     },
     std::{
         collections::HashMap,
@@ -23,37 +23,39 @@ use {
 
 const NLA_HDR_LEN: usize = align_to(mem::size_of::<nlattr>(), NLA_ALIGNTO as usize);
 
+#[inline]
+fn is_supported_route_type(ty: u8) -> bool {
+    matches!(
+        ty,
+        RTN_UNICAST | RTN_LOCAL | RTN_BROADCAST | RTN_MULTICAST | RTN_BLACKHOLE | RTN_THROW
+    )
+}
+
+#[inline]
+fn is_supported_route_table_id_u8(table: u8) -> bool {
+    table == RT_TABLE_UNSPEC || table == RT_TABLE_MAIN || table == RT_TABLE_LOCAL
+}
+
+#[inline]
+fn is_supported_route_table_id_opt_u32(table: Option<u32>) -> bool {
+    match table {
+        None => true,
+        Some(t) => {
+            t == RT_TABLE_UNSPEC as u32 || t == RT_TABLE_MAIN as u32 || t == RT_TABLE_LOCAL as u32
+        }
+    }
+}
+
 // Removes cloned routes, non-main/local table routes, and invalid route types
-// Many invisible routes may be inserted
-fn is_valid_route(route: &RouteEntry) -> bool {
-    // Filter out cloned routes
+// Many invisible routes may be inserted, we need to remove them.
+pub(crate) fn is_valid_route(route: &RouteEntry) -> bool {
     if route.flags & RTM_F_CLONED != 0 {
         return false;
     }
-
-    // Filter by table ID - only keep main and local tables
-    if let Some(table) = route.table {
-        if table != RT_TABLE_UNSPEC as u32
-            && table != RT_TABLE_MAIN as u32
-            && table != RT_TABLE_LOCAL as u32
-        {
-            return false;
-        }
+    if !is_supported_route_table_id_opt_u32(route.table) {
+        return false;
     }
-
-    // Filter by route type
-    match route.type_ {
-        RTN_UNICAST => true,
-        RTN_LOCAL => true,
-        RTN_BROADCAST => true,
-        RTN_MULTICAST => true,
-        RTN_BLACKHOLE => true,
-        RTN_THROW => true,
-        _ => {
-            log::info!("Unsupported route type: {}", route.type_);
-            false
-        }
-    }
+    is_supported_route_type(route.type_)
 }
 
 pub struct NetlinkSocket {
@@ -123,8 +125,10 @@ impl NetlinkSocket {
         Ok(())
     }
 
-    fn recv(&self) -> Result<Vec<NetlinkMessage>, io::Error> {
-        let mut buf = [0u8; 4096];
+    pub(crate) fn recv(&self) -> Result<Vec<NetlinkMessage>, io::Error> {
+        // create large buffer for when we poll the socket
+        // This is used to avoid truncation when a single datagram contains many messages.
+        let mut buf = [0u8; 64 * 1024];
         let mut messages = Vec::new();
         let mut multipart = true;
         'out: while multipart {
@@ -168,6 +172,110 @@ impl NetlinkSocket {
 
         Ok(messages)
     }
+
+    /// Bind a NETLINK_ROUTE socket subscribed to `groups` (bitmask).
+    pub fn open_multicast_listener(groups: u32) -> Result<Self, io::Error> {
+        let raw = unsafe { socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE) };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let sock = unsafe { OwnedFd::from_raw_fd(raw) };
+
+        // Subscribe to multicast groups
+        let mut addr: sockaddr_nl = unsafe { mem::zeroed() };
+        addr.nl_family = AF_NETLINK as u16;
+        addr.nl_groups = groups;
+        if unsafe {
+            bind(
+                sock.as_raw_fd(),
+                &addr as *const _ as *const _,
+                mem::size_of::<sockaddr_nl>() as u32,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+
+        // Larger rcvbuf to survive bursts
+        let rcvbuf: i32 = 1 << 20;
+        unsafe {
+            setsockopt(
+                sock.as_raw_fd(),
+                SOL_SOCKET,
+                SO_RCVBUF,
+                &rcvbuf as *const _ as *const _,
+                mem::size_of::<i32>() as u32,
+            );
+        }
+
+        // Record nl_pid (optional)
+        let mut name: sockaddr_nl = unsafe { mem::zeroed() };
+        let mut len = mem::size_of::<sockaddr_nl>() as u32;
+        if unsafe {
+            getsockname(
+                sock.as_raw_fd(),
+                &mut name as *mut _ as *mut _,
+                &mut len as *mut _,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(Self {
+            sock,
+            _nl_pid: name.nl_pid,
+        })
+    }
+
+    #[inline]
+    pub fn as_raw_fd(&self) -> std::os::fd::RawFd {
+        self.sock.as_raw_fd()
+    }
+}
+
+#[inline]
+pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
+    if msg.data.len() < mem::size_of::<rtmsg>() {
+        return false;
+    }
+    let rt = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const rtmsg) };
+    if rt.rtm_family as i32 != AF_INET {
+        return false;
+    }
+    if rt.rtm_flags & RTM_F_CLONED != 0 {
+        return false;
+    }
+    if !is_supported_route_table_id_u8(rt.rtm_table) {
+        return false;
+    }
+    is_supported_route_type(rt.rtm_type)
+}
+
+#[repr(C)]
+#[allow(non_camel_case_types)]
+struct ndmsg_hdr {
+    ndm_family: u8,
+    ndm_pad1: u8,
+    ndm_pad2: u16,
+    ndm_ifindex: i32,
+    ndm_state: u16,
+    ndm_flags: u8,
+    ndm_type: u8,
+}
+
+#[inline]
+pub(crate) fn is_supported_ipv4_neigh_header(msg: &NetlinkMessage) -> bool {
+    if msg.data.len() < mem::size_of::<ndmsg_hdr>() {
+        return false;
+    }
+    let nd = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const ndmsg_hdr) };
+
+    if nd.ndm_family as i32 != AF_INET {
+        return false;
+    }
+    // Only keep neighbors that are useful (matches NeighborEntry::is_valid())
+    nd.ndm_state & (NUD_REACHABLE | NUD_PERMANENT | NUD_STALE) != 0
 }
 
 pub struct NetlinkMessage {
@@ -216,6 +324,30 @@ impl NetlinkMessage {
             data,
             error,
         })
+    }
+
+    /// Check if this message is relevant to the route/neighbor refresh flags.
+    /// - NEWROUTE/DELROUTE: set route refresh when IPv4 route header is acceptable
+    /// - NEWNEIGH/DELNEIGH: set neighbor refresh when IPv4 neighbor header is acceptable
+    /// we already filter out errors (NLMSG_ERROR) in NetlinkSocket::recv()
+    pub fn check_if_relevant_message(
+        &self,
+        route_refresh_pending: &mut bool,
+        neigh_refresh_pending: &mut bool,
+    ) {
+        match self.header.nlmsg_type {
+            RTM_NEWROUTE | RTM_DELROUTE => {
+                if is_supported_ipv4_route_header(self) {
+                    *route_refresh_pending = true;
+                }
+            },
+            RTM_NEWNEIGH | RTM_DELNEIGH => {
+                if is_supported_ipv4_neigh_header(self) {
+                    *neigh_refresh_pending = true;
+                }
+            }
+            _ => {}
+        }
     }
 }
 
