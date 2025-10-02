@@ -70,6 +70,32 @@ fn is_supported_route_table_id_opt_u32(table: Option<u32>) -> bool {
     }
 }
 
+#[inline]
+fn route_type_str(ty: u8) -> &'static str {
+    match ty {
+        RTN_UNICAST => "UNICAST",
+        RTN_LOCAL => "LOCAL",
+        RTN_BROADCAST => "BROADCAST",
+        RTN_MULTICAST => "MULTICAST",
+        RTN_BLACKHOLE => "BLACKHOLE",
+        RTN_THROW => "THROW",
+        _ => "OTHER",
+    }
+}
+
+#[inline]
+fn route_table_str(table: u8) -> &'static str {
+    if table == RT_TABLE_MAIN as u8 {
+        "MAIN"
+    } else if table == RT_TABLE_LOCAL as u8 {
+        "LOCAL"
+    } else if table == RT_TABLE_UNSPEC as u8 {
+        "UNSPEC"
+    } else {
+        "OTHER"
+    }
+}
+
 // Removes cloned routes, non-main/local table routes, and invalid route types
 // Many invisible routes may be inserted, we need to remove them.
 pub(crate) fn is_valid_route(route: &RouteEntry) -> bool {
@@ -273,7 +299,21 @@ pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
     if !is_supported_route_table_id_u8(rt.rtm_table) {
         return false;
     }
-    is_supported_route_type(rt.rtm_type)
+    let supported = is_supported_route_type(rt.rtm_type);
+    if supported {
+        log::info!(
+            "greg: netlink: supported IPv4 route: type={} ({}), table={} ({}), dst_len={}, proto={}, scope={}, flags=0x{:x}",
+            rt.rtm_type,
+            route_type_str(rt.rtm_type),
+            rt.rtm_table,
+            route_table_str(rt.rtm_table),
+            rt.rtm_dst_len,
+            rt.rtm_protocol,
+            rt.rtm_scope,
+            rt.rtm_flags
+        );
+    }
+    supported
 }
 
 #[repr(C)]
