@@ -176,10 +176,13 @@ impl RouteMonitor {
 
                 // based on incoming updates, refresh the appropriate tables
                 if refresh_routes && refresh_neighbors {
+                    log::info!("greg: refreshing both routes and neighbors");
                     let _ = atomic_router.update_routes_and_neighbors();
                 } else if refresh_routes {
+                    log::info!("greg: refreshing routes");
                     let _ = atomic_router.refresh_routes();
                 } else if refresh_neighbors {
+                    log::info!("greg: refreshing neighbors");
                     let _ = atomic_router.refresh_neighbors();
                 } else {
                     continue;
