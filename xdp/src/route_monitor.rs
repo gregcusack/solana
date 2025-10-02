@@ -124,11 +124,11 @@ impl RouteMonitor {
                 }
                 log::info!("greg: got first update");
                 Self::process_msgs(first, &mut refresh_routes, &mut refresh_neighbors);
-                log::info!(
-                    "greg: first update route_refresh_pending: {}, neigh_refresh_pending: {}",
-                    refresh_routes,
-                    refresh_neighbors
-                );
+                // log::info!(
+                //     "greg: first update route_refresh_pending: {}, neigh_refresh_pending: {}",
+                //     refresh_routes,
+                //     refresh_neighbors
+                // );
 
                 // read from socket for drain_window time
                 let t0 = Instant::now();
