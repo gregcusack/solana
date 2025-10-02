@@ -6,7 +6,7 @@ use {
         AF_INET, AF_INET6, AF_NETLINK, NDA_DST, NDA_LLADDR, NETLINK_EXT_ACK, NETLINK_ROUTE,
         NLA_ALIGNTO, NLA_TYPE_MASK, NLMSG_DONE, NLMSG_ERROR, NLM_F_DUMP, NLM_F_MULTI,
         NLM_F_REQUEST, NUD_PERMANENT, NUD_REACHABLE, NUD_STALE, RTA_DST, RTA_GATEWAY, RTA_IIF,
-        RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_F_CLONED, RTM_GETNEIGH, RTM_GETROUTE,
+        RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTA_MULTIPATH, RTM_F_CLONED, RTM_GETNEIGH, RTM_GETROUTE,
         RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST, RTN_LOCAL, RTN_MULTICAST,
         RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW,
         SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, ARPHRD_ETHER, ARPHRD_IPGRE, ARPHRD_LOOPBACK, ARPHRD_NETROM,
@@ -93,6 +93,41 @@ fn route_table_str(table: u8) -> &'static str {
         "UNSPEC"
     } else {
         "OTHER"
+    }
+}
+
+#[inline]
+fn route_msg_type_str(ty: u16) -> &'static str {
+    match ty {
+        RTM_NEWROUTE => "RTM_NEWROUTE",
+        RTM_DELROUTE => "RTM_DELROUTE",
+        _ => "OTHER",
+    }
+}
+
+#[inline]
+fn route_protocol_str(proto: u8) -> &'static str {
+    match proto {
+        2 => "KERNEL",   // RTPROT_KERNEL
+        3 => "BOOT",     // RTPROT_BOOT
+        4 => "STATIC",   // RTPROT_STATIC
+        186 => "BGP",    // RTPROT_BGP
+        187 => "ISIS",   // RTPROT_ISIS
+        188 => "OSPF",   // RTPROT_OSPF
+        189 => "RIP",    // RTPROT_RIP
+        _ => "OTHER",
+    }
+}
+
+#[inline]
+fn route_scope_str(scope: u8) -> &'static str {
+    match scope {
+        0 => "UNIVERSE", // RT_SCOPE_UNIVERSE
+        200 => "SITE",   // RT_SCOPE_SITE
+        253 => "LINK",   // RT_SCOPE_LINK
+        254 => "HOST",   // RT_SCOPE_HOST
+        255 => "NOWHERE",// RT_SCOPE_NOWHERE
+        _ => "OTHER",
     }
 }
 
@@ -301,16 +336,66 @@ pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
     }
     let supported = is_supported_route_type(rt.rtm_type);
     if supported {
+        // Parse attributes for richer logging (only when supported)
+        let attrs = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]).unwrap_or_default();
+
+        let parse_u32 = |data: &[u8]| -> Option<u32> {
+            data.get(..4)
+                .map(|d| u32::from_ne_bytes([d[0], d[1], d[2], d[3]]))
+        };
+
+        let dst_ip = attrs
+            .get(&RTA_DST)
+            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+        let gw_ip = attrs
+            .get(&RTA_GATEWAY)
+            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+        let oif = attrs.get(&RTA_OIF).and_then(|a| parse_u32(a.data));
+        let iif = attrs.get(&RTA_IIF).and_then(|a| parse_u32(a.data));
+        let metric = attrs
+            .get(&RTA_PRIORITY)
+            .and_then(|a| parse_u32(a.data));
+        let prefsrc = attrs
+            .get(&RTA_PREFSRC)
+            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+        let mpath = attrs.contains_key(&RTA_MULTIPATH);
+
+        let dst_str = match dst_ip {
+            Some(ip) => format!("{}/{}", ip, rt.rtm_dst_len),
+            None => "0.0.0.0/0".to_string(),
+        };
+        let gw_str = gw_ip
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let prefsrc_str = prefsrc
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let oif_str = oif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+        let iif_str = iif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+        let metric_str = metric.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+
         log::info!(
-            "greg: netlink: supported IPv4 route: type={} ({}), table={} ({}), dst_len={}, proto={}, scope={}, flags=0x{:x}",
+            "greg: netlink: {} supported IPv4 route: dst={} gw={} oif={} iif={} metric={} prefsrc={} type={} ({}) table={} ({}) proto={} ({}) scope={} ({}) tos={} flags=0x{:x} seq={} pid={} mpath={}",
+            route_msg_type_str(msg.header.nlmsg_type),
+            dst_str,
+            gw_str,
+            oif_str,
+            iif_str,
+            metric_str,
+            prefsrc_str,
             rt.rtm_type,
             route_type_str(rt.rtm_type),
             rt.rtm_table,
             route_table_str(rt.rtm_table),
-            rt.rtm_dst_len,
             rt.rtm_protocol,
+            route_protocol_str(rt.rtm_protocol),
             rt.rtm_scope,
-            rt.rtm_flags
+            route_scope_str(rt.rtm_scope),
+            rt.rtm_tos,
+            rt.rtm_flags,
+            msg.header.nlmsg_seq,
+            msg.header.nlmsg_pid,
+            if mpath { "yes" } else { "no" },
         );
     }
     supported
