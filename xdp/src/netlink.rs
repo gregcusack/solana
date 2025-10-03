@@ -9,7 +9,7 @@ use {
         RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_DELNEIGH, RTM_DELROUTE, RTM_F_CLONED,
         RTM_GETNEIGH, RTM_GETROUTE, RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST,
         RTN_LOCAL, RTN_MULTICAST, RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN,
-        RT_TABLE_UNSPEC, SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF,
+        RT_TABLE_UNSPEC, SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, RTA_MULTIPATH,
     },
     std::{
         collections::HashMap,
@@ -45,6 +45,68 @@ fn is_supported_route_table_id_opt_u32(table: Option<u32>) -> bool {
         }
     }
 }
+
+#[inline]
+fn route_type_str(ty: u8) -> &'static str {
+    match ty {
+        RTN_UNICAST => "UNICAST",
+        RTN_LOCAL => "LOCAL",
+        RTN_BROADCAST => "BROADCAST",
+        RTN_MULTICAST => "MULTICAST",
+        RTN_BLACKHOLE => "BLACKHOLE",
+        RTN_THROW => "THROW",
+        _ => "OTHER",
+    }
+}
+
+#[inline]
+fn route_table_str(table: u8) -> &'static str {
+    if table == RT_TABLE_MAIN as u8 {
+        "MAIN"
+    } else if table == RT_TABLE_LOCAL as u8 {
+        "LOCAL"
+    } else if table == RT_TABLE_UNSPEC as u8 {
+        "UNSPEC"
+    } else {
+        "OTHER"
+    }
+}
+
+#[inline]
+fn route_msg_type_str(ty: u16) -> &'static str {
+    match ty {
+        RTM_NEWROUTE => "RTM_NEWROUTE",
+        RTM_DELROUTE => "RTM_DELROUTE",
+        _ => "OTHER",
+    }
+}
+
+#[inline]
+fn route_protocol_str(proto: u8) -> &'static str {
+    match proto {
+        2 => "KERNEL",   // RTPROT_KERNEL
+        3 => "BOOT",     // RTPROT_BOOT
+        4 => "STATIC",   // RTPROT_STATIC
+        186 => "BGP",    // RTPROT_BGP
+        187 => "ISIS",   // RTPROT_ISIS
+        188 => "OSPF",   // RTPROT_OSPF
+        189 => "RIP",    // RTPROT_RIP
+        _ => "OTHER",
+    }
+}
+
+#[inline]
+fn route_scope_str(scope: u8) -> &'static str {
+    match scope {
+        0 => "UNIVERSE", // RT_SCOPE_UNIVERSE
+        200 => "SITE",   // RT_SCOPE_SITE
+        253 => "LINK",   // RT_SCOPE_LINK
+        254 => "HOST",   // RT_SCOPE_HOST
+        255 => "NOWHERE",// RT_SCOPE_NOWHERE
+        _ => "OTHER",
+    }
+}
+
 
 // Removes cloned routes, non-main/local table routes, and invalid route types
 // Many invisible routes may be inserted, we need to remove them.
@@ -249,8 +311,71 @@ pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
     if !is_supported_route_table_id_u8(rt.rtm_table) {
         return false;
     }
-    is_supported_route_type(rt.rtm_type)
-}
+    let supported = is_supported_route_type(rt.rtm_type);
+    if supported {
+        // Parse attributes for richer logging (only when supported)
+        let attrs = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]).unwrap_or_default();
+
+        let parse_u32 = |data: &[u8]| -> Option<u32> {
+            data.get(..4)
+                .map(|d| u32::from_ne_bytes([d[0], d[1], d[2], d[3]]))
+        };
+
+        let dst_ip = attrs
+            .get(&RTA_DST)
+            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+        let gw_ip = attrs
+            .get(&RTA_GATEWAY)
+            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+        let oif = attrs.get(&RTA_OIF).and_then(|a| parse_u32(a.data));
+        let iif = attrs.get(&RTA_IIF).and_then(|a| parse_u32(a.data));
+        let metric = attrs
+            .get(&RTA_PRIORITY)
+            .and_then(|a| parse_u32(a.data));
+        let prefsrc = attrs
+            .get(&RTA_PREFSRC)
+            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+        let mpath = attrs.contains_key(&RTA_MULTIPATH);
+
+        let dst_str = match dst_ip {
+            Some(ip) => format!("{}/{}", ip, rt.rtm_dst_len),
+            None => "0.0.0.0/0".to_string(),
+        };
+        let gw_str = gw_ip
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let prefsrc_str = prefsrc
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let oif_str = oif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+        let iif_str = iif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+        let metric_str = metric.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+
+        log::info!(
+            "greg: netlink: {} supported IPv4 route: dst={} gw={} oif={} iif={} metric={} prefsrc={} type={} ({}) table={} ({}) proto={} ({}) scope={} ({}) tos={} flags=0x{:x} seq={} pid={} mpath={}",
+            route_msg_type_str(msg.header.nlmsg_type),
+            dst_str,
+            gw_str,
+            oif_str,
+            iif_str,
+            metric_str,
+            prefsrc_str,
+            rt.rtm_type,
+            route_type_str(rt.rtm_type),
+            rt.rtm_table,
+            route_table_str(rt.rtm_table),
+            rt.rtm_protocol,
+            route_protocol_str(rt.rtm_protocol),
+            rt.rtm_scope,
+            route_scope_str(rt.rtm_scope),
+            rt.rtm_tos,
+            rt.rtm_flags,
+            msg.header.nlmsg_seq,
+            msg.header.nlmsg_pid,
+            if mpath { "yes" } else { "no" },
+        );
+    }
+    supported}
 
 #[repr(C)]
 #[allow(non_camel_case_types)]
