@@ -179,6 +179,7 @@ impl RouteMonitor {
                     let snapshot = atomic_router.load();
                     working = WorkingRouter::from_router(&snapshot);
                 } else if routes_changed || neigh_changed {
+                    log::info!("greg: publishing updated router. routes_changed: {routes_changed}, neigh_changed: {neigh_changed}");
                     atomic_router.publish(working.to_router());
                 }
 
