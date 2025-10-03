@@ -6,10 +6,10 @@ use {
         AF_INET, AF_INET6, AF_NETLINK, NDA_DST, NDA_LLADDR, NETLINK_EXT_ACK, NETLINK_ROUTE,
         NLA_ALIGNTO, NLA_TYPE_MASK, NLMSG_DONE, NLMSG_ERROR, NLM_F_DUMP, NLM_F_MULTI,
         NLM_F_REQUEST, NUD_PERMANENT, NUD_REACHABLE, NUD_STALE, RTA_DST, RTA_GATEWAY, RTA_IIF,
-        RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_F_CLONED, RTM_GETNEIGH, RTM_GETROUTE,
-        RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST, RTN_LOCAL, RTN_MULTICAST,
-        RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW,
-        SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, RTM_DELROUTE, RTM_DELNEIGH
+        RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_DELNEIGH, RTM_DELROUTE, RTM_F_CLONED,
+        RTM_GETNEIGH, RTM_GETROUTE, RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST,
+        RTN_LOCAL, RTN_MULTICAST, RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN,
+        RT_TABLE_UNSPEC, SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF,
     },
     std::{
         collections::HashMap,
@@ -326,10 +326,15 @@ impl NetlinkMessage {
         })
     }
 
+    #[inline]
+    pub fn nlmsg_type(&self) -> u16 {
+        self.header.nlmsg_type
+    }
+
     /// Check if this message is relevant to the route/neighbor refresh flags.
-    /// - NEWROUTE/DELROUTE: set route refresh when IPv4 route header is acceptable
-    /// - NEWNEIGH/DELNEIGH: set neighbor refresh when IPv4 neighbor header is acceptable
-    /// we already filter out errors (NLMSG_ERROR) in NetlinkSocket::recv()
+    ///     - NEWROUTE/DELROUTE: set route refresh when IPv4 route header is acceptable
+    ///     - NEWNEIGH/DELNEIGH: set neighbor refresh when IPv4 neighbor header is acceptable
+    ///     - we already filter out errors (NLMSG_ERROR) in NetlinkSocket::recv()
     pub fn check_if_relevant_message(
         &self,
         route_refresh_pending: &mut bool,
@@ -340,7 +345,7 @@ impl NetlinkMessage {
                 if is_supported_ipv4_route_header(self) {
                     *route_refresh_pending = true;
                 }
-            },
+            }
             RTM_NEWNEIGH | RTM_DELNEIGH => {
                 if is_supported_ipv4_neigh_header(self) {
                     *neigh_refresh_pending = true;
@@ -464,7 +469,7 @@ impl std::fmt::Display for MacAddress {
 }
 
 /// Represents an entry in the neighbor table (ARP/NDP cache)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NeighborEntry {
     // IPv4 or IPv6 address
     pub destination: Option<IpAddr>,
@@ -538,7 +543,7 @@ pub fn netlink_get_neighbors(
             continue;
         }
 
-        let Some(neighbor) = parse_rtm_newneigh(msg, if_index) else {
+        let Some(neighbor) = parse_rtm_newneigh(&msg, if_index) else {
             continue;
         };
 
@@ -550,7 +555,14 @@ pub fn netlink_get_neighbors(
     Ok(neighbors)
 }
 
-pub fn parse_rtm_newneigh(msg: NetlinkMessage, if_index: Option<i32>) -> Option<NeighborEntry> {
+/// Borrowing parse of RTM_NEWNEIGH that does not consume the message.
+pub(crate) fn parse_rtm_newneigh(
+    msg: &NetlinkMessage,
+    if_index: Option<i32>,
+) -> Option<NeighborEntry> {
+    if msg.data.len() < mem::size_of::<ndmsg>() {
+        return None;
+    }
     let nd_msg = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const ndmsg) };
     if let Some(idx) = if_index {
         if nd_msg.ndm_ifindex != idx {
@@ -579,7 +591,7 @@ pub fn parse_rtm_newneigh(msg: NetlinkMessage, if_index: Option<i32>) -> Option<
     Some(neighbor)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteEntry {
     pub destination: Option<IpAddr>,
     pub gateway: Option<IpAddr>,
@@ -663,7 +675,7 @@ pub fn netlink_get_routes(family: u8) -> Result<Vec<RouteEntry>, io::Error> {
             continue;
         }
 
-        let Some(route) = parse_rtm_newroute(msg) else {
+        let Some(route) = parse_rtm_newroute(&msg) else {
             continue;
         };
 
@@ -675,7 +687,11 @@ pub fn netlink_get_routes(family: u8) -> Result<Vec<RouteEntry>, io::Error> {
     Ok(routes)
 }
 
-pub fn parse_rtm_newroute(msg: NetlinkMessage) -> Option<RouteEntry> {
+/// Borrowing variant of `parse_rtm_newroute` that does not consume the message.
+pub(crate) fn parse_rtm_newroute(msg: &NetlinkMessage) -> Option<RouteEntry> {
+    if msg.data.len() < mem::size_of::<rtmsg>() {
+        return None;
+    }
     let rt_msg = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const rtmsg) };
     let Ok(attrs) = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]) else {
         return None;
@@ -701,12 +717,10 @@ pub fn parse_rtm_newroute(msg: NetlinkMessage) -> Option<RouteEntry> {
     if let Some(gateway_attr) = attrs.get(&RTA_GATEWAY) {
         route.gateway = parse_ip_address(gateway_attr.data, rt_msg.rtm_family);
     }
-
     let u32_from_ne_bytes = |data: &[u8]| -> Option<u32> {
         data.get(..4)
             .map(|data| u32::from_ne_bytes([data[0], data[1], data[2], data[3]]))
     };
-
     if let Some(oif_attr) = attrs.get(&RTA_OIF) {
         route.out_if_index = u32_from_ne_bytes(oif_attr.data).map(|i| i as i32);
     }

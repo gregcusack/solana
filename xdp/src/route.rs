@@ -177,6 +177,92 @@ impl Router {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct WorkingRouter {
+    pub routes: Vec<RouteEntry>,
+    pub neighbors: Vec<NeighborEntry>,
+}
+
+impl WorkingRouter {
+    pub fn from_router(router: &Router) -> Self {
+        Self {
+            routes: router.routes.as_ref().clone(),
+            neighbors: router.arp_table.neighbors.clone(),
+        }
+    }
+
+    pub fn to_router(&self) -> Router {
+        Router {
+            arp_table: Arc::new(ArpTable {
+                neighbors: self.neighbors.clone(),
+            }),
+            routes: Arc::new(self.routes.clone()),
+        }
+    }
+
+    #[inline]
+    fn route_key(r: &RouteEntry) -> (u8, Option<IpAddr>, u8, Option<u32>, Option<i32>) {
+        (r.family, r.destination, r.dst_len, r.table, r.out_if_index)
+    }
+
+    #[inline]
+    fn neigh_key(n: &NeighborEntry) -> (Option<IpAddr>, i32) {
+        (n.destination, n.ifindex)
+    }
+
+    pub fn apply_route_upsert(&mut self, route: RouteEntry) -> bool {
+        let key = Self::route_key(&route);
+        if let Some(idx) = self.routes.iter().position(|r| Self::route_key(r) == key) {
+            if self.routes[idx] != route {
+                self.routes[idx] = route; // route has same key but different value, update in place
+                return true;
+            }
+            return false; // upserting route we already have, nothing to do
+        }
+        self.routes.push(route); // upserting route we don't have, add to end
+        true
+    }
+
+    pub fn apply_route_delete(&mut self, route: &RouteEntry) -> bool {
+        let key = Self::route_key(route);
+        if let Some(idx) = self.routes.iter().position(|r| Self::route_key(r) == key) {
+            self.routes.swap_remove(idx);
+            return true;
+        }
+        false // trying to delete route we don't have, nothing to do
+    }
+
+    pub fn apply_neighbor_update(&mut self, neigh: NeighborEntry) -> bool {
+        let key = Self::neigh_key(&neigh);
+        if let Some(idx) = self
+            .neighbors
+            .iter()
+            .position(|n| Self::neigh_key(n) == key)
+        {
+            if self.neighbors[idx] != neigh {
+                self.neighbors[idx] = neigh; // neighbor has same key but different value, update in place
+                return true;
+            }
+            return false; // upserting neighbor we already have, nothing to do
+        }
+        self.neighbors.push(neigh); // upserting neighbor we don't have, add to end
+        true
+    }
+
+    pub fn apply_neighbor_delete(&mut self, neigh: &NeighborEntry) -> bool {
+        let key = Self::neigh_key(neigh);
+        if let Some(idx) = self
+            .neighbors
+            .iter()
+            .position(|n| Self::neigh_key(n) == key)
+        {
+            self.neighbors.swap_remove(idx);
+            return true;
+        }
+        false // trying to delete neighbor we don't have, nothing to do
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct ArpTable {
     pub(crate) neighbors: Vec<NeighborEntry>,
@@ -210,6 +296,11 @@ impl AtomicRouter {
     // Lock-free read - just load the current router
     pub fn load(&self) -> Arc<Router> {
         self.router.load().clone()
+    }
+
+    /// Publish a new snapshot of the router into the fast path
+    pub fn publish(&self, new_router: Router) {
+        self.router.store(Arc::new(new_router));
     }
 
     /// update both routes and ARP table

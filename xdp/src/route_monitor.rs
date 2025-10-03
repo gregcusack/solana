@@ -1,9 +1,15 @@
 use {
     crate::{
-        netlink::{NetlinkMessage, NetlinkSocket},
-        route::AtomicRouter,
+        netlink::{
+            is_supported_ipv4_neigh_header, is_supported_ipv4_route_header, parse_rtm_newneigh,
+            parse_rtm_newroute, NetlinkMessage, NetlinkSocket,
+        },
+        route::{AtomicRouter, WorkingRouter},
     },
-    libc::{poll, pollfd, POLLIN, RTMGRP_IPV4_ROUTE, RTMGRP_NEIGH},
+    libc::{
+        poll, pollfd, POLLIN, RTMGRP_IPV4_ROUTE, RTMGRP_NEIGH, RTM_DELNEIGH, RTM_DELROUTE,
+        RTM_NEWNEIGH, RTM_NEWROUTE,
+    },
     std::{
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -33,41 +39,75 @@ impl RouteMonitor {
                     return;
                 }
             };
+            // Set netlink socket to non-blocking once on creation
+            unsafe {
+                let fd = sock.as_raw_fd();
+                let flags = libc::fcntl(fd, libc::F_GETFL, 0);
+                if flags >= 0 {
+                    let _ = libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+                } else {
+                    log::warn!("fcntl(F_GETFL) failed: {}", std::io::Error::last_os_error());
+                }
+            }
+            let snapshot = atomic_router.load();
+            let mut working = WorkingRouter::from_router(&snapshot);
+            let mut routes_changed = false;
+            let mut neigh_changed = false;
+            let mut resync_needed = false;
 
-            let mut refresh_routes: bool = false;
-            let mut refresh_neighbors: bool = false;
-
-            let mut outer_count: usize = 0;
             'outer: loop {
-                outer_count += 1;
-                log::info!("greg: outer loop count: {}", outer_count);
                 if exit.load(Ordering::Relaxed) {
                     break;
                 }
 
-                // Just block until we get the first updata from netlink. don't start window until we have one update
+                // Block until at least one message arrives; then start the window
+                loop {
+                    let mut pfd = pollfd {
+                        fd: sock.as_raw_fd(),
+                        events: POLLIN,
+                        revents: 0,
+                    };
+                    let rc = unsafe { poll(&mut pfd as *mut pollfd, 1, -1) };
+                    if rc < 0 {
+                        let err = std::io::Error::last_os_error();
+                        if let Some(code) = err.raw_os_error() {
+                            if code == libc::EINTR {
+                                continue;
+                            }
+                        }
+                        log::warn!("poll error waiting first msg: {err}");
+                        resync_needed = true;
+                        break;
+                    }
+                    if (pfd.revents & POLLIN) != 0 {
+                        break;
+                    }
+                }
+
+                // Don't start window until we have one update
                 let first = match sock.recv() {
                     Ok(v) => v,
                     Err(e) => {
-                        log::warn!("netlink recv error: {e}; resyncing");
-                        let _ = atomic_router.update_routes_and_neighbors();
+                        log::warn!("recv error on first drain: {e}");
                         continue;
                     }
                 };
                 if first.is_empty() {
                     continue;
                 }
-                log::info!("greg: got first update");
-                Self::process_msgs(first, &mut refresh_routes, &mut refresh_neighbors);
-                log::info!(
-                    "greg: first update route_refresh_pending: {}, neigh_refresh_pending: {}",
-                    refresh_routes,
-                    refresh_neighbors
+                Self::apply_msgs(
+                    &mut working,
+                    &first,
+                    &mut routes_changed,
+                    &mut neigh_changed,
                 );
 
+                log::info!(
+                    "greg: first update routes_changed: {routes_changed}, neigh_changed: \
+                     {neigh_changed}"
+                );
                 // read from socket for drain_window time
                 let t0 = Instant::now();
-                let deadline = t0 + drain_window;
 
                 // Once we have an update, drain the netlink socket for the rest of the window
                 loop {
@@ -75,7 +115,7 @@ impl RouteMonitor {
                         break 'outer;
                     }
                     let now = Instant::now();
-                    if now >= deadline {
+                    if now.saturating_duration_since(t0) >= drain_window {
                         break;
                     }
 
@@ -84,90 +124,106 @@ impl RouteMonitor {
                         events: POLLIN,
                         revents: 0,
                     };
-                    let remain_ms = (deadline - now).as_millis() as i32;
+                    let remain_ms = drain_window
+                        .saturating_sub(now.saturating_duration_since(t0))
+                        .as_millis() as i32;
                     let rc = unsafe { poll(&mut pfd as *mut pollfd, 1, remain_ms) };
                     if rc < 0 {
-                        log::warn!("poll error: {}", std::io::Error::last_os_error());
-                        // treat as loss -> refresh both
-                        refresh_routes = true;
-                        refresh_neighbors = true;
+                        let err = std::io::Error::last_os_error();
+                        if let Some(code) = err.raw_os_error() {
+                            if code == libc::EINTR {
+                                continue;
+                            }
+                        }
+                        log::warn!("poll error (non-fatal): {err}");
+                        resync_needed = true;
                         break;
                     }
                     if rc == 0 || (pfd.revents & POLLIN) == 0 {
                         break;
                     }
 
-                    if !Self::drain_netlink_socket(
-                        &sock,
-                        &mut refresh_routes,
-                        &mut refresh_neighbors,
-                    ) {
-                        // on error, refresh both
-                        refresh_routes = true;
-                        refresh_neighbors = true;
-                        break;
+                    // Drain as much as available immediately (non-blocking)
+                    loop {
+                        if Instant::now().saturating_duration_since(t0) >= drain_window {
+                            break;
+                        }
+                        match sock.recv() {
+                            Ok(msgs) => {
+                                if msgs.is_empty() {
+                                    break;
+                                }
+                                Self::apply_msgs(
+                                    &mut working,
+                                    &msgs,
+                                    &mut routes_changed,
+                                    &mut neigh_changed,
+                                );
+                            }
+                            Err(e) => {
+                                if let Some(code) = e.raw_os_error() {
+                                    if code == libc::EAGAIN || code == libc::EWOULDBLOCK {
+                                        break;
+                                    }
+                                }
+                                log::warn!("recv during drain failed: {e}");
+                                resync_needed = true;
+                                break;
+                            }
+                        }
                     }
                 }
 
-                // based on incoming updates, refresh the appropriate tables
-                if refresh_routes && refresh_neighbors {
+                if resync_needed {
                     let _ = atomic_router.update_routes_and_neighbors();
-                } else if refresh_routes {
-                    let _ = atomic_router.refresh_routes();
-                } else if refresh_neighbors {
-                    let _ = atomic_router.refresh_neighbors();
-                } else {
-                    continue;
+                    let snapshot = atomic_router.load();
+                    working = WorkingRouter::from_router(&snapshot);
+                } else if routes_changed || neigh_changed {
+                    atomic_router.publish(working.to_router());
                 }
 
-                refresh_routes = false;
-                refresh_neighbors = false;
+                routes_changed = false;
+                neigh_changed = false;
+                resync_needed = false;
             }
         })
     }
 
     #[inline]
-    fn drain_netlink_socket(
-        sock: &NetlinkSocket,
-        route_refresh_pending: &mut bool,
-        neigh_refresh_pending: &mut bool,
-    ) -> bool {
-        let mut pfd = pollfd {
-            fd: sock.as_raw_fd(),
-            events: POLLIN,
-            revents: 0,
-        };
-        loop {
-            pfd.revents = 0;
-            let rc0 = unsafe { libc::poll(&mut pfd as *mut libc::pollfd, 1, 0) };
-            if rc0 <= 0 || (pfd.revents & libc::POLLIN) == 0 {
-                break;
-            }
-
-            match sock.recv() {
-                Ok(msgs) => {
-                    if msgs.is_empty() {
-                        break;
-                    }
-                    Self::process_msgs(msgs, route_refresh_pending, neigh_refresh_pending);
-                }
-                Err(e) => {
-                    log::warn!("recv during drain failed: {e}");
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
-    #[inline]
-    fn process_msgs(
-        msgs: Vec<NetlinkMessage>,
-        route_refresh_pending: &mut bool,
-        neigh_refresh_pending: &mut bool,
+    fn apply_msgs(
+        working: &mut WorkingRouter,
+        msgs: &[NetlinkMessage],
+        routes_changed: &mut bool,
+        neigh_changed: &mut bool,
     ) {
-        for m in msgs.into_iter() {
-            m.check_if_relevant_message(route_refresh_pending, neigh_refresh_pending);
+        for msg in msgs.iter() {
+            match msg.nlmsg_type() {
+                RTM_NEWROUTE | RTM_DELROUTE => {
+                    if !is_supported_ipv4_route_header(msg) {
+                        continue;
+                    }
+                    if let Some(route) = parse_rtm_newroute(msg) {
+                        if msg.nlmsg_type() == RTM_DELROUTE {
+                            *routes_changed |= working.apply_route_delete(&route);
+                        } else {
+                            *routes_changed |= working.apply_route_upsert(route);
+                        }
+                    }
+                }
+                RTM_NEWNEIGH | RTM_DELNEIGH => {
+                    if !is_supported_ipv4_neigh_header(msg) {
+                        continue;
+                    }
+                    if let Some(neigh) = parse_rtm_newneigh(msg, None) {
+                        if msg.nlmsg_type() == RTM_DELNEIGH {
+                            *neigh_changed |= working.apply_neighbor_delete(&neigh);
+                        } else {
+                            *neigh_changed |= working.apply_neighbor_update(neigh);
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 }
