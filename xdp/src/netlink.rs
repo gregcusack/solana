@@ -477,10 +477,15 @@ impl NetlinkMessage {
         })
     }
 
+    #[inline]
+    pub fn nlmsg_type(&self) -> u16 {
+        self.header.nlmsg_type
+    }
+
     /// Check if this message is relevant to the route/neighbor refresh flags.
-    /// - NEWROUTE/DELROUTE: set route refresh when IPv4 route header is acceptable
-    /// - NEWNEIGH/DELNEIGH: set neighbor refresh when IPv4 neighbor header is acceptable
-    /// we already filter out errors (NLMSG_ERROR) in NetlinkSocket::recv()
+    ///     - NEWROUTE/DELROUTE: set route refresh when IPv4 route header is acceptable
+    ///     - NEWNEIGH/DELNEIGH: set neighbor refresh when IPv4 neighbor header is acceptable
+    ///     - we already filter out errors (NLMSG_ERROR) in NetlinkSocket::recv()
     pub fn check_if_relevant_message(
         &self,
         route_refresh_pending: &mut bool,
@@ -491,7 +496,7 @@ impl NetlinkMessage {
                 if is_supported_ipv4_route_header(self) {
                     *route_refresh_pending = true;
                 }
-            },
+            }
             RTM_NEWNEIGH | RTM_DELNEIGH => {
                 if is_supported_ipv4_neigh_header(self) {
                     *neigh_refresh_pending = true;
@@ -1096,12 +1101,10 @@ pub fn parse_rtm_newroute(msg: &NetlinkMessage) -> Option<RouteEntry> {
     if let Some(gateway_attr) = attrs.get(&RTA_GATEWAY) {
         route.gateway = parse_ip_address(gateway_attr.data, rt_msg.rtm_family);
     }
-
     let u32_from_ne_bytes = |data: &[u8]| -> Option<u32> {
         data.get(..4)
             .map(|data| u32::from_ne_bytes([data[0], data[1], data[2], data[3]]))
     };
-
     if let Some(oif_attr) = attrs.get(&RTA_OIF) {
         route.out_if_index = u32_from_ne_bytes(oif_attr.data).map(|i| i as i32);
     }
