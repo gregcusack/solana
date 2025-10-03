@@ -335,69 +335,69 @@ pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
         return false;
     }
     let supported = is_supported_route_type(rt.rtm_type);
-    if supported {
-        // Parse attributes for richer logging (only when supported)
-        let attrs = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]).unwrap_or_default();
+    // if supported {
+    //     // Parse attributes for richer logging (only when supported)
+    //     let attrs = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]).unwrap_or_default();
 
-        let parse_u32 = |data: &[u8]| -> Option<u32> {
-            data.get(..4)
-                .map(|d| u32::from_ne_bytes([d[0], d[1], d[2], d[3]]))
-        };
+    //     let parse_u32 = |data: &[u8]| -> Option<u32> {
+    //         data.get(..4)
+    //             .map(|d| u32::from_ne_bytes([d[0], d[1], d[2], d[3]]))
+    //     };
 
-        let dst_ip = attrs
-            .get(&RTA_DST)
-            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
-        let gw_ip = attrs
-            .get(&RTA_GATEWAY)
-            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
-        let oif = attrs.get(&RTA_OIF).and_then(|a| parse_u32(a.data));
-        let iif = attrs.get(&RTA_IIF).and_then(|a| parse_u32(a.data));
-        let metric = attrs
-            .get(&RTA_PRIORITY)
-            .and_then(|a| parse_u32(a.data));
-        let prefsrc = attrs
-            .get(&RTA_PREFSRC)
-            .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
-        let mpath = attrs.contains_key(&RTA_MULTIPATH);
+    //     let dst_ip = attrs
+    //         .get(&RTA_DST)
+    //         .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+    //     let gw_ip = attrs
+    //         .get(&RTA_GATEWAY)
+    //         .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+    //     let oif = attrs.get(&RTA_OIF).and_then(|a| parse_u32(a.data));
+    //     let iif = attrs.get(&RTA_IIF).and_then(|a| parse_u32(a.data));
+    //     let metric = attrs
+    //         .get(&RTA_PRIORITY)
+    //         .and_then(|a| parse_u32(a.data));
+    //     let prefsrc = attrs
+    //         .get(&RTA_PREFSRC)
+    //         .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
+    //     let mpath = attrs.contains_key(&RTA_MULTIPATH);
 
-        let dst_str = match dst_ip {
-            Some(ip) => format!("{}/{}", ip, rt.rtm_dst_len),
-            None => "0.0.0.0/0".to_string(),
-        };
-        let gw_str = gw_ip
-            .map(|ip| ip.to_string())
-            .unwrap_or_else(|| "-".to_string());
-        let prefsrc_str = prefsrc
-            .map(|ip| ip.to_string())
-            .unwrap_or_else(|| "-".to_string());
-        let oif_str = oif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-        let iif_str = iif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-        let metric_str = metric.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+    //     let dst_str = match dst_ip {
+    //         Some(ip) => format!("{}/{}", ip, rt.rtm_dst_len),
+    //         None => "0.0.0.0/0".to_string(),
+    //     };
+    //     let gw_str = gw_ip
+    //         .map(|ip| ip.to_string())
+    //         .unwrap_or_else(|| "-".to_string());
+    //     let prefsrc_str = prefsrc
+    //         .map(|ip| ip.to_string())
+    //         .unwrap_or_else(|| "-".to_string());
+    //     let oif_str = oif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+    //     let iif_str = iif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+    //     let metric_str = metric.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
 
-        log::info!(
-            "greg: netlink: {} supported IPv4 route: dst={} gw={} oif={} iif={} metric={} prefsrc={} type={} ({}) table={} ({}) proto={} ({}) scope={} ({}) tos={} flags=0x{:x} seq={} pid={} mpath={}",
-            route_msg_type_str(msg.header.nlmsg_type),
-            dst_str,
-            gw_str,
-            oif_str,
-            iif_str,
-            metric_str,
-            prefsrc_str,
-            rt.rtm_type,
-            route_type_str(rt.rtm_type),
-            rt.rtm_table,
-            route_table_str(rt.rtm_table),
-            rt.rtm_protocol,
-            route_protocol_str(rt.rtm_protocol),
-            rt.rtm_scope,
-            route_scope_str(rt.rtm_scope),
-            rt.rtm_tos,
-            rt.rtm_flags,
-            msg.header.nlmsg_seq,
-            msg.header.nlmsg_pid,
-            if mpath { "yes" } else { "no" },
-        );
-    }
+    //     log::info!(
+    //         "greg: netlink: {} supported IPv4 route: dst={} gw={} oif={} iif={} metric={} prefsrc={} type={} ({}) table={} ({}) proto={} ({}) scope={} ({}) tos={} flags=0x{:x} seq={} pid={} mpath={}",
+    //         route_msg_type_str(msg.header.nlmsg_type),
+    //         dst_str,
+    //         gw_str,
+    //         oif_str,
+    //         iif_str,
+    //         metric_str,
+    //         prefsrc_str,
+    //         rt.rtm_type,
+    //         route_type_str(rt.rtm_type),
+    //         rt.rtm_table,
+    //         route_table_str(rt.rtm_table),
+    //         rt.rtm_protocol,
+    //         route_protocol_str(rt.rtm_protocol),
+    //         rt.rtm_scope,
+    //         route_scope_str(rt.rtm_scope),
+    //         rt.rtm_tos,
+    //         rt.rtm_flags,
+    //         msg.header.nlmsg_seq,
+    //         msg.header.nlmsg_pid,
+    //         if mpath { "yes" } else { "no" },
+    //     );
+    // }
     supported
 }
 

@@ -145,10 +145,10 @@ impl RouteMonitor {
                 //     refresh_neighbors
                 // );
 
-                log::info!(
-                    "greg: first update routes_changed: {routes_changed}, neigh_changed: \
-                     {neigh_changed}"
-                );
+                // log::info!(
+                //     "greg: first update routes_changed: {routes_changed}, neigh_changed: \
+                //      {neigh_changed}"
+                // );
                 // read from socket for drain_window time
                 let t0 = Instant::now();
 
