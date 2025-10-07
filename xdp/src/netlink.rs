@@ -296,11 +296,15 @@ impl<'a> Iterator for NlAttrsIterator<'a> {
 }
 
 fn parse_attrs(buf: &[u8]) -> Result<HashMap<u16, NlAttr<'_>>, NlAttrError> {
+    log::info!("greg: xdp: parsing attrs");
     let mut attrs = HashMap::new();
     for attr in NlAttrsIterator::new(buf) {
+        log::info!("greg: xdp: parsing attr");
         let attr = attr?;
+        log::info!("greg: xdp: attr parsed, adding to attrs");
         attrs.insert(attr.header.nla_type & NLA_TYPE_MASK as u16, attr);
     }
+    log::info!("greg: xdp: attrs parsed, returning");
     Ok(attrs)
 }
 
@@ -419,24 +423,31 @@ pub fn netlink_get_interfaces() -> Result<Vec<InterfaceInfo>, io::Error> {
     let mut interfaces = Vec::new();
 
     for msg in messages {
+        log::info!("greg: xdp: message received");
         // Check for netlink errors
         if msg.header.nlmsg_type == NLMSG_ERROR as u16 {
+            log::info!("greg: xdp: netlink error message received");
             let err = msg.error.unwrap();
             if err.error != 0 {
+                log::info!("greg: xdp: netlink error, returning");
                 return Err(io::Error::from_raw_os_error(-err.error));
             }
+            log::info!("greg: xdp: netlink error, skipping");
             continue;
         }
 
         if msg.header.nlmsg_type != RTM_NEWLINK {
+            log::info!("greg: xdp: not a newlink message, skipping");
             continue;
         }
-
+        log::info!("greg: xdp: newlink message received, parsing");
         if let Some(if_info) = parse_ifinfomsg(msg) {
+            log::info!("greg: xdp: if_info parsed, adding to interfaces");
             interfaces.push(if_info);
         }
     }
 
+    log::info!("greg: xdp: interfaces parsed, returning");
     Ok(interfaces)
 }
 
@@ -447,7 +458,9 @@ pub fn netlink_get_interfaces() -> Result<Vec<InterfaceInfo>, io::Error> {
 // - dev_type
 // greg: todo: may need to add more here...see fd code for creating fd_netdev (same as our InterfaceInfo)
 fn parse_ifinfomsg(msg: NetlinkMessage) -> Option<InterfaceInfo> {
+    log::info!("greg: xdp: parsing ifinfomsg");
     if msg.data.len() < mem::size_of::<ifinfomsg>() {
+        log::info!("greg: xdp: ifinfomsg too short, skipping");
         return None;
     }
 
@@ -456,28 +469,35 @@ fn parse_ifinfomsg(msg: NetlinkMessage) -> Option<InterfaceInfo> {
     // Filter interface types
     let ifi_type = ifi.ifi_type;
     if ifi_type != ARPHRD_ETHER && ifi_type != ARPHRD_LOOPBACK && ifi_type != ARPHRD_IPGRE {
+        log::info!("greg: xdp: ifi_type not supported, skipping");
         return None;
     }
 
     // Parse attributes
     let Ok(attrs) = parse_attrs(&msg.data[mem::size_of::<ifinfomsg>()..]) else {
+        log::info!("greg: xdp: parse_attrs failed, skipping");
         return None;
     };
 
     let mut if_name = format!("if{}", ifi.ifi_index);
+    log::info!("greg: xdp: if_name parsed, adding to interfaces");
 
     // Parse IFLA_IFNAME
     if let Some(attr) = attrs.get(&IFLA_IFNAME) {
+        log::info!("greg: xdp: IFLA_IFNAME parsed, adding to interfaces");
         if !attr.data.is_empty() && attr.data.len() <= IFNAMSIZ {
+            log::info!("greg: xdp: IFLA_IFNAME data is not empty, parsing");
             if let Ok(name) = String::from_utf8(attr.data.to_vec()) {
                 if_name = name.trim_end_matches('\0').to_string();
+                log::info!("greg: xdp: if_name parsed, adding to interfaces");
             }
         }
     }
+    log::info!("greg: xdp: if_name parsed, adding to interfaces");
     
     // Parse GRE tunnel information if this is a GRE interface
     let gre_tunnel = parse_gre_tunnel_info_from_linkinfo(&attrs);
-
+    log::info!("greg: xdp: gre_tunnel parsed, adding to interfaces");
     Some(InterfaceInfo {
         if_index: ifi.ifi_index,
         if_name,
@@ -491,8 +511,11 @@ fn parse_ifinfomsg(msg: NetlinkMessage) -> Option<InterfaceInfo> {
 fn parse_gre_tunnel_info_from_linkinfo(
     attrs: &HashMap<u16, NlAttr>,
 ) -> Option<GreTunnelInfo> {
+    log::info!("greg: xdp: parsing gre_tunnel_info_from_linkinfo");
     let (kind, gre) = parse_linkinfo_kind_and_data(attrs)?;
+    log::info!("greg: xdp: kind parsed, adding to interfaces");
     if kind != "gre" {
+        log::info!("greg: xdp: kind not gre, skipping");
         return None; // only L3 GRE; ignore gretap/erspan
     }
 
@@ -517,11 +540,14 @@ fn parse_gre_tunnel_info_from_linkinfo(
     if let Some(a) = gre.get(&IFLA_GRE_CSUM)      { if !a.data.is_empty() { csum  = Some(a.data[0]); } }
     if let Some(a) = gre.get(&IFLA_GRE_SEQ)       { if !a.data.is_empty() { seq   = Some(a.data[0]); } }
     if let Some(a) = gre.get(&IFLA_GRE_LINK)      { if a.data.len() >= 4 { link_ifindex = Some(u32::from_ne_bytes(a.data[0..4].try_into().unwrap())); } }
+    log::info!("greg: xdp: gre_tunnel info parsed, adding to interfaces");
 
     // Must have both endpoints for a valid GRE tunnel.
     if local == Ipv4Addr::UNSPECIFIED || remote == Ipv4Addr::UNSPECIFIED {
+        log::info!("greg: xdp: local or remote not specified, skipping, local: {local}, remote: {remote}");
         return None;
     }
+    log::info!("greg: xdp: gre_tunnel info parsed, adding to interfaces: {local} {remote}, {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}", ikey, okey, ttl, tos, pmtu, csum, seq, link_ifindex);
 
     Some(GreTunnelInfo {
         local,
@@ -540,24 +566,32 @@ fn parse_gre_tunnel_info_from_linkinfo(
 fn parse_linkinfo_kind_and_data<'a>(
     attrs: &HashMap<u16, NlAttr<'a>>,
 ) -> Option<(String, HashMap<u16, NlAttr<'a>>)> {
+    log::info!("greg: xdp: parsing linkinfo_kind_and_data");
     let li = attrs.get(&IFLA_LINKINFO)?;
+    log::info!("greg: xdp: IFLA_LINKINFO parsed, adding to interfaces");
     // IFLA_LINKINFO contains nested attributes
     let info = parse_attrs(&li.data).ok()?;
-
+    log::info!("greg: xdp: info parsed, adding to interfaces");
     let kind_attr = info.get(&IFLA_INFO_KIND)?;
+    log::info!("greg: xdp: IFLA_INFO_KIND parsed, adding to interfaces");
     let mut kind = String::new();
     if !kind_attr.data.is_empty() {
+        log::info!("greg: xdp: IFLA_INFO_KIND data is not empty, parsing");
         if let Ok(s) = String::from_utf8(kind_attr.data.to_vec()) {
+            log::info!("greg: xdp: IFLA_INFO_KIND data parsed, adding to interfaces");
             kind = s.trim_end_matches('\0').to_string();
         }
     }
-
+    log::info!("greg: xdp: IFLA_INFO_KIND parsed, adding to interfaces");
     // Nested data (GRE attributes) is optional.
     if let Some(data_attr) = info.get(&IFLA_INFO_DATA) {
+        log::info!("greg: xdp: IFLA_INFO_DATA parsed, adding to interfaces");
         let nested = parse_attrs(&data_attr.data).unwrap_or_default();
+        log::info!("greg: xdp: IFLA_INFO_DATA parsed, adding to interfaces");
         return Some((kind, nested));
     }
 
+    log::info!("greg: xdp: IFLA_INFO_DATA parsed, adding to interfaces");
     Some((kind, HashMap::new()))
 }
 

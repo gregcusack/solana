@@ -128,7 +128,9 @@ impl Router {
     pub fn new() -> Result<Self, io::Error> {
         let arp_table = ArpTable::new()?;
         let routes = netlink_get_routes(AF_INET as u8)?;
+        log::info!("greg: xdp: netlink_get_interfaces about to run");
         let interfaces = netlink_get_interfaces()?;
+        log::info!("greg: xdp: netlink_get_interfaces returned");
         let interface_map: HashMap<u32, InterfaceInfo> = interfaces
             .into_iter()
             .map(|if_info| (if_info.if_index, if_info))

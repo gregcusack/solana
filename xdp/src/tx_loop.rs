@@ -224,7 +224,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     let router = atomic_router.load();
                     let dst = addr.ip();
                     let (next_hop, mut interface_info) = router.route(dst).unwrap();
-                    log::info!("greg: xdp: next_hop {next_hop:?} interface_info {interface_info:?}");
+                    // log::info!("greg: xdp: next_hop {next_hop:?} interface_info {interface_info:?}");
                     // Print one line with both decisions
                     // greg: todo: probably don't need to take this
                     if let Some(gre) = interface_info.gre_tunnel.take() {
