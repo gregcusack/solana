@@ -63,6 +63,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     //         .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
     // });
     log::info!("greg: xdp: using bind address {src_ip}");
+    let src_ip = Ipv4Addr::new(147, 28, 171, 69);
 
     // let inner_src_ip_v2 = match dev.ipv4_addr() {
     //     Ok(ip) => {
