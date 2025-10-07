@@ -326,7 +326,7 @@ pub fn ioctl_ipv4_addr_by_name(if_name: &str) -> Result<Ipv4Addr, io::Error> {
     let addr = unsafe {
         let addr_ptr = &req.ifr_ifru.ifru_addr as *const libc::sockaddr;
         let sin_addr = (*(addr_ptr as *const libc::sockaddr_in)).sin_addr;
-        Ipv4Addr::from(sin_addr.s_addr.to_ne_bytes())
+        Ipv4Addr::from(sin_addr.s_addr.to_be_bytes())
     };
     Ok(addr)
 }
