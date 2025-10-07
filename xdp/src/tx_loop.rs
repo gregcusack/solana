@@ -57,13 +57,25 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     });
 
     // Compute a single inner source IPv4 now (or panic with a clear message in dev)
-    // let inner_src_ip = src_ip.unwrap_or_else(|| {
-    //     let r = atomic_router.load();
-    //     get_inner_src_ipv4(&r)
-    //         .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
-    // });
-    let inner_src_ip = Ipv4Addr::new(147, 28, 171, 69);
-    log::info!("xdp: using fixed inner src IPv4 {inner_src_ip}");
+    let inner_src_ip = src_ip.unwrap_or_else(|| {
+        let r = atomic_router.load();
+        get_inner_src_ipv4(&r)
+            .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
+    });
+    log::info!("greg: xdp: using fixed inner src IPv4 {inner_src_ip}");
+
+    let inner_src_ip_v2 = match dev.ipv4_addr() {
+        Ok(ip) => {
+            log::info!("greg: xdp: using dev inner src IPv4 {ip}");
+            ip
+        },
+        Err(e) => {
+            log::error!("greg: xdp: could not determine inner source IPv4: {e}, just returning hard coded ip");
+            Ipv4Addr::new(147, 28, 171, 69) 
+        }
+    };
+    //.unwrap_or(inner_src_ip);
+    log::info!("greg: xdp: dev inner src IPv4 {inner_src_ip_v2}");
 
     // some drivers require frame_size=page_size
     let frame_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
@@ -255,10 +267,21 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         frame.set_len(gre_packet_size);
                         let packet = umem.map_frame_mut(&frame);
 
+                        let use_this_inner_src_ip = match next_hop.preferred_src_ip {
+                            Some(ip) => {
+                                log::info!("greg: xdp: using preferred inner src IPv4 {ip}");
+                                ip
+                            },
+                            None => {
+                                log::info!("greg: xdp: using fallbackinner src IPv4 {inner_src_ip}");
+                                inner_src_ip
+                            },
+                        };
+
                         // Construct the GRE packet
                         let gre_packet_len = construct_gre_packet(
                             packet,
-                            &inner_src_ip,            // inner src ip
+                            &use_this_inner_src_ip,            // inner src ip
                             &dst_ip,            // inner dst ip
                             src_port,
                             addr.port(),

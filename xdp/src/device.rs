@@ -126,7 +126,7 @@ impl NetworkDevice {
             );
         }
 
-        let result = unsafe { syscall(SYS_ioctl, fd.as_raw_fd(), SIOCGIFADDR, &mut req) };
+        let result: i64 = unsafe { syscall(SYS_ioctl, fd.as_raw_fd(), SIOCGIFADDR, &mut req) };
         if result < 0 {
             return Err(io::Error::last_os_error());
         }
