@@ -8,7 +8,7 @@ use {
             construct_gre_packet, write_eth_header, write_ip_header_for_udp, write_udp_header,
             ETH_HEADER_SIZE, GRE_HEADER_SIZE, IP_HEADER_SIZE, UDP_HEADER_SIZE,
         },
-        route::{get_inner_src_ipv4, AtomicRouter},
+        route::AtomicRouter,
         set_cpu_affinity,
         socket::{Socket, Tx, TxRing},
         umem::{PageAlignedMemory, SliceUmem, SliceUmemFrame, Umem as _},

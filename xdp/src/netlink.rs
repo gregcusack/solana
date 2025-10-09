@@ -10,7 +10,8 @@ use {
         RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_F_CLONED, RTM_GETLINK, RTM_GETNEIGH,
         RTM_GETROUTE, RTM_NEWLINK, RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST,
         RTN_LOCAL, RTN_MULTICAST, RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN,
-        RT_TABLE_UNSPEC, SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, IFLA_LINKINFO, IFLA_INFO_DATA, RTA_MULTIPATH
+        RT_TABLE_UNSPEC, SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, IFLA_LINKINFO, IFLA_INFO_DATA, RTA_MULTIPATH,
+        RTM_DELROUTE
     },
     std::{
         collections::HashMap,
@@ -718,13 +719,16 @@ pub fn parse_ifinfomsg(msg: &NetlinkMessage) -> Option<InterfaceInfo> {
     // Parse GRE tunnel information if this is a GRE interface
     let gre_tunnel = parse_gre_tunnel_info_from_linkinfo(&attrs);
 
-    Some(InterfaceInfo {
+    let interface_info = InterfaceInfo {
         if_index: ifi.ifi_index,
         if_name,
         dev_type: ifi_type,
         gre_tunnel,
         primary_ipv4: None,
-    })
+    };
+    // log::info!("greg: interface info: {:?}", interface_info);
+
+    Some(interface_info)
 }
 
 // Parse GRE tunnel information from netlink

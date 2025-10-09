@@ -381,7 +381,6 @@ impl AtomicRouter {
 
     pub fn publish_snapshot(&self, working: &Working) {
         info!("greg: publishing new snapshot");
-        let interfaces_tmp = self.load().interfaces.as_ref().clone();
         let router = Router {
             arp_table: Arc::new(ArpTable {
                 neighbors: working.neigh.clone(),

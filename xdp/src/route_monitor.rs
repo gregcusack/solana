@@ -207,6 +207,7 @@ impl RouteMonitor {
                     if is_valid_link_update(m) {
                         info!("greg: new link");
                         if let Some(interface_info) = parse_ifinfomsg(m) {
+                            info!("greg: new interface: {:?}", interface_info);
                             work.upsert_interface(interface_info);
                         }
                     }
@@ -215,6 +216,7 @@ impl RouteMonitor {
                     if is_valid_link_update(m) {
                         info!("greg: delete link");
                         if let Some(interface_info) = parse_ifinfomsg(m) {
+                            info!("greg: delete interface: {:?}", interface_info);
                             work.delete_interface(interface_info.if_index);
                         }
                     }
