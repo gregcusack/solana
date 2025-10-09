@@ -4,6 +4,7 @@ use {
         MacAddress, NeighborEntry, RouteEntry,
     },
     arc_swap::ArcSwap,
+    log::info,
     libc::{ifreq, syscall, SYS_ioctl, AF_INET, AF_INET6, IF_NAMESIZE, SIOCGIFADDR},
     std::{
         collections::HashMap,
@@ -349,6 +350,7 @@ impl AtomicRouter {
 
     /// update both routes and ARP table
     pub fn resync(&self) -> Result<(), io::Error> {
+        info!("greg: resyncing");
         let mut current_router = (**self.router.load()).clone();
         current_router.routes = Arc::new(netlink_get_routes(AF_INET as u8)?);
         current_router.arp_table = Arc::new(ArpTable {
@@ -359,6 +361,7 @@ impl AtomicRouter {
     }
 
     pub fn publish_snapshot(&self, working: &Working) {
+        info!("greg: publishing new snapshot");
         let interfaces_tmp = self.load().interfaces.as_ref().clone();
         let router = Router {
             arp_table: Arc::new(ArpTable {

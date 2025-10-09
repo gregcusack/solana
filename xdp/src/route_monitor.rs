@@ -50,6 +50,7 @@ impl RouteMonitor {
                     break;
                 }
                 if working.is_none() {
+                    info!("greg: creating working from atomic router");
                     working = Some(Working::from_atomic_router(&atomic_router));
                 }
 
@@ -74,6 +75,7 @@ impl RouteMonitor {
                 if (pfd.revents & POLLIN) == 0 {
                     continue;
                 }
+                info!("greg: poll event: {}", pfd.revents);
 
                 // coalesce update window
                 let start = Instant::now();
@@ -103,6 +105,7 @@ impl RouteMonitor {
                         .checked_duration_since(now)
                         .unwrap_or_default()
                         .as_millis() as i32;
+                    info!("greg: remain_ms: {}", remain_ms);
                     pfd.revents = 0;
                     let rc = loop {
                         let rc = unsafe { poll(&mut pfd as *mut pollfd, 1, remain_ms) };
@@ -118,6 +121,7 @@ impl RouteMonitor {
 
                 if let Some(w) = working.as_mut() {
                     if w.dirty_routes() || w.dirty_neigh() {
+                        info!("greg: dirty_routes: {}, dirty_neigh: {}", w.dirty_routes(), w.dirty_neigh());
                         atomic_router.publish_snapshot(w);
                         w.clear_dirty();
                     }
@@ -132,13 +136,17 @@ impl RouteMonitor {
         working: &mut Working,
         deadline: Instant,
     ) -> bool {
+        info!("greg: draining netlink socket");
         let mut pfd = pollfd {
             fd: sock.as_raw_fd(),
             events: POLLIN,
             revents: 0,
         };
+        let mut outer_count = 0;
         loop {
+            info!("greg: outer count: {}", outer_count);
             if Instant::now() >= deadline {
+                info!("greg: deadline reached");
                 break;
             }
 
@@ -160,6 +168,7 @@ impl RouteMonitor {
                     return false;
                 }
             }
+            outer_count += 1;
         }
         true
     }
@@ -169,21 +178,25 @@ impl RouteMonitor {
         for m in msgs {
             match m.header.nlmsg_type {
                 RTM_NEWROUTE if is_supported_ipv4_route_header(m) => {
+                    info!("greg: new route");
                     if let Some(r) = parse_rtm_newroute(m) {
                         work.upsert_route(r);
                     }
                 }
                 RTM_DELROUTE if is_supported_ipv4_route_header(m) => {
+                    info!("greg: delete route");
                     if let Some(r) = parse_rtm_newroute(m) {
                         work.delete_route(r);
                     }
                 }
                 RTM_NEWNEIGH if is_supported_ipv4_neigh_header(m) => {
+                    info!("greg: new neighbor");
                     if let Some(n) = parse_rtm_newneigh(m, None) {
                         work.upsert_neighbor(n);
                     }
                 }
                 RTM_DELNEIGH if is_supported_ipv4_neigh_header(m) => {
+                    info!("greg: delete neighbor");
                     if let Some(n) = parse_rtm_newneigh(m, None) {
                         if let Some(IpAddr::V4(ip)) = n.destination {
                             work.delete_neighbor(ip, n.ifindex);
