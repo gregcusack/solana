@@ -3,14 +3,14 @@
 use {
     libc::{
         bind, getsockname, nlattr, nlmsgerr, nlmsghdr, recv, send, setsockopt, sockaddr_nl, socket,
-        AF_INET, AF_INET6, AF_NETLINK, NDA_DST, NDA_LLADDR, NETLINK_EXT_ACK, NETLINK_ROUTE,
-        NLA_ALIGNTO, NLA_TYPE_MASK, NLMSG_DONE, NLMSG_ERROR, NLM_F_DUMP, NLM_F_MULTI,
-        NLM_F_REQUEST, NUD_PERMANENT, NUD_REACHABLE, NUD_STALE, RTA_DST, RTA_GATEWAY, RTA_IIF,
-        RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTA_MULTIPATH, RTM_F_CLONED, RTM_GETNEIGH, RTM_GETROUTE,
-        RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST, RTN_LOCAL, RTN_MULTICAST,
-        RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW,
-        SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, ARPHRD_ETHER, ARPHRD_IPGRE, ARPHRD_LOOPBACK, ARPHRD_NETROM,
-        IFLA_IFNAME, IFLA_INFO_DATA, IFLA_LINKINFO, IFNAMSIZ, RTM_GETLINK, RTM_NEWLINK, RTM_DELROUTE,
+        AF_INET, AF_INET6, AF_NETLINK, ARPHRD_ETHER, ARPHRD_IPGRE, ARPHRD_LOOPBACK, ARPHRD_NETROM,
+        IFLA_IFNAME, IFNAMSIZ, NDA_DST, NDA_LLADDR, NETLINK_EXT_ACK, NETLINK_ROUTE, NLA_ALIGNTO,
+        NLA_TYPE_MASK, NLMSG_DONE, NLMSG_ERROR, NLM_F_DUMP, NLM_F_MULTI, NLM_F_REQUEST,
+        NUD_PERMANENT, NUD_REACHABLE, NUD_STALE, RTA_DST, RTA_GATEWAY, RTA_IIF, RTA_OIF,
+        RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_F_CLONED, RTM_GETLINK, RTM_GETNEIGH,
+        RTM_GETROUTE, RTM_NEWLINK, RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST,
+        RTN_LOCAL, RTN_MULTICAST, RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN,
+        RT_TABLE_UNSPEC, SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, IFLA_LINKINFO, IFLA_INFO_DATA, RTA_MULTIPATH
     },
     std::{
         collections::HashMap,
@@ -672,7 +672,7 @@ pub fn netlink_get_interfaces() -> Result<Vec<InterfaceInfo>, io::Error> {
             continue;
         }
 
-        if let Some(if_info) = parse_ifinfomsg(msg) {
+        if let Some(if_info) = parse_ifinfomsg(&msg) {
             interfaces.push(if_info);
         }
     }
@@ -686,7 +686,7 @@ pub fn netlink_get_interfaces() -> Result<Vec<InterfaceInfo>, io::Error> {
 // - if_name
 // - dev_type
 // greg: todo: may need to add more here...see fd code for creating fd_netdev (same as our InterfaceInfo)
-fn parse_ifinfomsg(msg: NetlinkMessage) -> Option<InterfaceInfo> {
+pub fn parse_ifinfomsg(msg: &NetlinkMessage) -> Option<InterfaceInfo> {
     if msg.data.len() < mem::size_of::<ifinfomsg>() {
         return None;
     }
@@ -1118,4 +1118,19 @@ pub fn netlink_get_default_gateway(family: u8) -> Result<Option<RouteEntry>, io:
     }
 
     Ok(None)
+}
+
+pub(crate) fn is_valid_link_update(msg: &NetlinkMessage) -> bool {
+    if let Some(if_info_msg) = parse_into_ifinfomsg(msg) {
+        let ifi_type = if_info_msg.ifi_type;
+        return ifi_type == ARPHRD_ETHER || ifi_type == ARPHRD_LOOPBACK || ifi_type == ARPHRD_IPGRE;
+    }
+    false
+}
+
+fn parse_into_ifinfomsg(msg: &NetlinkMessage) -> Option<ifinfomsg> {
+    if msg.data.len() < mem::size_of::<ifinfomsg>() {
+        return None;
+    }
+    Some(unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const ifinfomsg) })
 }

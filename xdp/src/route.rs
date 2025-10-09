@@ -27,6 +27,9 @@ pub enum RouteError {
 
     #[error("could not resolve MAC address")]
     MacResolutionError,
+
+    #[error("unknown interface index {0}")]
+    UnknownInterfaceIndex(u32),
 }
 
 #[derive(Debug)]
@@ -121,9 +124,9 @@ fn is_ipv6_match(addr: Ipv6Addr, network: Ipv6Addr, prefix_len: u8) -> bool {
 
 #[derive(Clone)]
 pub struct Router {
-    pub(crate) arp_table: Arc<ArpTable>,
-    pub(crate) routes: Arc<Vec<RouteEntry>>,
-    pub(crate) interfaces: Arc<HashMap<u32, InterfaceInfo>>, // if_index (on host) -> InterfaceInfo map
+    arp_table: Arc<ArpTable>,
+    routes: Arc<Vec<RouteEntry>>,
+    interfaces: Arc<HashMap<u32, InterfaceInfo>>, // if_index (on host) -> InterfaceInfo map
 }
 
 impl Router {
@@ -151,6 +154,10 @@ impl Router {
         self.routes.as_ref().clone()
     }
 
+    pub fn clone_interfaces(&self) -> HashMap<u32, InterfaceInfo> {
+        self.interfaces.as_ref().clone()
+    }
+
     pub fn default(&self) -> Result<NextHop, RouteError> {
         let default_route = self
             .routes
@@ -161,6 +168,9 @@ impl Router {
         let if_index = default_route
             .out_if_index
             .ok_or(RouteError::MissingOutputInterface)?;
+        if !self.interfaces.contains_key(&(if_index as u32)) {
+            return Err(RouteError::UnknownInterfaceIndex(if_index as u32));
+        }
 
         let next_hop_ip = match default_route.gateway {
             Some(gateway) => gateway,
@@ -190,6 +200,9 @@ impl Router {
         let if_index = route
             .out_if_index
             .ok_or(RouteError::MissingOutputInterface)?;
+        if !self.interfaces.contains_key(&(if_index as u32)) {
+            return Err(RouteError::UnknownInterfaceIndex(if_index as u32));
+        }
 
         let next_hop_ip = match route.gateway {
             Some(gateway) => gateway,
@@ -356,6 +369,12 @@ impl AtomicRouter {
         current_router.arp_table = Arc::new(ArpTable {
             neighbors: netlink_get_neighbors(None, AF_INET as u8)?,
         });
+        let interfaces = netlink_get_interfaces()?;
+        let interface_map: HashMap<u32, InterfaceInfo> = interfaces
+            .into_iter()
+            .map(|if_info| (if_info.if_index, if_info))
+            .collect();
+        current_router.interfaces = Arc::new(interface_map);
         self.router.store(Arc::new(current_router));
         Ok(())
     }
@@ -368,7 +387,7 @@ impl AtomicRouter {
                 neighbors: working.neigh.clone(),
             }),
             routes: Arc::new(working.routes.clone()),
-            interfaces: Arc::new(interfaces_tmp),
+            interfaces: Arc::new(working.interfaces.clone()),
         };
         self.router.store(Arc::new(router));
     }
@@ -378,8 +397,10 @@ impl AtomicRouter {
 pub struct Working {
     routes: Vec<RouteEntry>,
     neigh: Vec<NeighborEntry>,
+    interfaces: HashMap<u32, InterfaceInfo>,
     dirty_routes: bool,
     dirty_neigh: bool,
+    dirty_interfaces: bool,
 }
 
 impl Working {
@@ -389,13 +410,17 @@ impl Working {
         let router = router.load();
         let mut routes = router.clone_routes();
         let mut neigh = router.clone_neighbors();
+        let mut interfaces = router.clone_interfaces();
         routes.reserve(routes.len().saturating_mul(2).max(512));
         neigh.reserve(neigh.len().saturating_mul(2).max(128));
+        interfaces.reserve(interfaces.len().saturating_mul(2).max(128));
         Self {
             routes,
             neigh,
+            interfaces,
             dirty_routes: false,
             dirty_neigh: false,
+            dirty_interfaces: false,
         }
     }
 
@@ -407,9 +432,14 @@ impl Working {
         self.dirty_neigh
     }
 
+    pub fn dirty_interfaces(&self) -> bool {
+        self.dirty_interfaces
+    }
+
     pub fn clear_dirty(&mut self) {
         self.dirty_routes = false;
         self.dirty_neigh = false;
+        self.dirty_interfaces = false;
     }
 
     #[inline]
@@ -488,6 +518,17 @@ impl Working {
             self.neigh.swap_remove(i);
             self.dirty_neigh = true;
         }
+    }
+
+    pub fn upsert_interface(&mut self, new_interface: InterfaceInfo) {
+        self.interfaces
+            .insert(new_interface.if_index, new_interface);
+        self.dirty_interfaces = true;
+    }
+
+    pub fn delete_interface(&mut self, if_index: u32) {
+        self.interfaces.remove(&if_index);
+        self.dirty_interfaces = true;
     }
 }
 
