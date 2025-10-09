@@ -122,7 +122,7 @@ fn is_ipv6_match(addr: Ipv6Addr, network: Ipv6Addr, prefix_len: u8) -> bool {
 pub struct Router {
     pub(crate) arp_table: Arc<ArpTable>,
     pub(crate) routes: Arc<Vec<RouteEntry>>,
-    interfaces: Arc<HashMap<u32, InterfaceInfo>>, // if_index (on host) -> InterfaceInfo map
+    pub(crate) interfaces: Arc<HashMap<u32, InterfaceInfo>>, // if_index (on host) -> InterfaceInfo map
 }
 
 impl Router {
@@ -166,7 +166,7 @@ impl Router {
             None => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
         };
 
-        let mac_addr = self.arp_table.lookup(next_hop_ip).cloned();
+        let mac_addr = self.arp_table.lookup(next_hop_ip, if_index).cloned();
         let preferred_src_ip = match default_route.pref_src {
             Some(IpAddr::V4(v4)) => Some(v4),
             _ => None,
@@ -175,7 +175,7 @@ impl Router {
         Ok(NextHop {
             ip_addr: next_hop_ip,
             mac_addr,
-            if_index,
+            if_index: if_index as u32,
             preferred_src_ip,
         })
     }
@@ -195,7 +195,7 @@ impl Router {
             None => dest_ip,
         };
 
-        let mac_addr = self.arp_table.lookup(next_hop_ip).cloned();
+        let mac_addr = self.arp_table.lookup(next_hop_ip, if_index).cloned();
         let preferred_src_ip = match route.pref_src {
             Some(IpAddr::V4(v4)) => Some(v4),
             _ => None,
@@ -204,14 +204,14 @@ impl Router {
         let next_hop = NextHop {
             ip_addr: next_hop_ip,
             mac_addr,
-            if_index,
+            if_index: if_index as u32,
             preferred_src_ip,
         };
 
         // Get the interface info for this route
         let interface_info = self
             .interfaces
-            .get(&(if_index))
+            .get(&(if_index as u32))
             .ok_or(RouteError::MissingOutputInterface)?
             .clone();
 
@@ -359,11 +359,13 @@ impl AtomicRouter {
     }
 
     pub fn publish_snapshot(&self, working: &Working) {
+        let interfaces_tmp = self.load().interfaces.as_ref().clone();
         let router = Router {
             arp_table: Arc::new(ArpTable {
                 neighbors: working.neigh.clone(),
             }),
             routes: Arc::new(working.routes.clone()),
+            interfaces: Arc::new(interfaces_tmp),
         };
         self.router.store(Arc::new(router));
     }

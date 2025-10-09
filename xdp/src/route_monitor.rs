@@ -43,21 +43,6 @@ impl RouteMonitor {
                     return;
                 }
             };
-            // Set netlink socket to non-blocking once on creation
-            unsafe {
-                let fd = sock.as_raw_fd();
-                let flags = libc::fcntl(fd, libc::F_GETFL, 0);
-                if flags >= 0 {
-                    let _ = libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                } else {
-                    log::warn!("fcntl(F_GETFL) failed: {}", std::io::Error::last_os_error());
-                }
-            }
-            let snapshot = atomic_router.load();
-            let mut working = WorkingRouter::from_router(&snapshot);
-            let mut routes_changed = false;
-            let mut neigh_changed = false;
-            let mut resync_needed = false;
 
             let mut working = None;
             loop {
@@ -137,97 +122,6 @@ impl RouteMonitor {
                         w.clear_dirty();
                     }
                 }
-                log::info!("greg: got first update");
-                Self::process_msgs(first, &mut refresh_routes, &mut refresh_neighbors);
-                // log::info!(
-                //     "greg: first update route_refresh_pending: {}, neigh_refresh_pending: {}",
-                //     refresh_routes,
-                //     refresh_neighbors
-                // );
-
-                // log::info!(
-                //     "greg: first update routes_changed: {routes_changed}, neigh_changed: \
-                //      {neigh_changed}"
-                // );
-                // read from socket for drain_window time
-                let t0 = Instant::now();
-
-                // Once we have an update, drain the netlink socket for the rest of the window
-                loop {
-                    if exit.load(Ordering::Relaxed) {
-                        break 'outer;
-                    }
-                    let now = Instant::now();
-                    if now.saturating_duration_since(t0) >= drain_window {
-                        break;
-                    }
-
-                    let mut pfd = pollfd {
-                        fd: sock.as_raw_fd(),
-                        events: POLLIN,
-                        revents: 0,
-                    };
-                    let remain_ms = drain_window
-                        .saturating_sub(now.saturating_duration_since(t0))
-                        .as_millis() as i32;
-                    let rc = unsafe { poll(&mut pfd as *mut pollfd, 1, remain_ms) };
-                    if rc < 0 {
-                        let err = std::io::Error::last_os_error();
-                        if let Some(code) = err.raw_os_error() {
-                            if code == libc::EINTR {
-                                continue;
-                            }
-                        }
-                        log::warn!("poll error (non-fatal): {err}");
-                        resync_needed = true;
-                        break;
-                    }
-                    if rc == 0 || (pfd.revents & POLLIN) == 0 {
-                        break;
-                    }
-
-                    // Drain as much as available immediately (non-blocking)
-                    loop {
-                        if Instant::now().saturating_duration_since(t0) >= drain_window {
-                            break;
-                        }
-                        match sock.recv() {
-                            Ok(msgs) => {
-                                if msgs.is_empty() {
-                                    break;
-                                }
-                                Self::apply_msgs(
-                                    &mut working,
-                                    &msgs,
-                                    &mut routes_changed,
-                                    &mut neigh_changed,
-                                );
-                            }
-                            Err(e) => {
-                                if let Some(code) = e.raw_os_error() {
-                                    if code == libc::EAGAIN || code == libc::EWOULDBLOCK {
-                                        break;
-                                    }
-                                }
-                                log::warn!("recv during drain failed: {e}");
-                                resync_needed = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if resync_needed {
-                    let _ = atomic_router.update_routes_and_neighbors();
-                    let snapshot = atomic_router.load();
-                    working = WorkingRouter::from_router(&snapshot);
-                } else if routes_changed || neigh_changed {
-                    atomic_router.publish(working.to_router());
-                }
-
-                routes_changed = false;
-                neigh_changed = false;
-                resync_needed = false;
             }
         })
     }

@@ -56,11 +56,12 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     });
 
     // Compute a single inner source IPv4 now (or panic with a clear message in dev)
-    let inner_src_ip = src_ip.unwrap_or_else(|| {
-        let r = atomic_router.load();
-        get_inner_src_ipv4(&r)
-            .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
-    });
+    // let inner_src_ip = src_ip.unwrap_or_else(|| {
+    //     let r = atomic_router.load();
+    //     get_inner_src_ipv4(&r)
+    //         .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
+    // });
+    let inner_src_ip = Ipv4Addr::from([147, 28, 171, 69]);
     log::info!("xdp: using fixed inner src IPv4 {inner_src_ip}");
 
     // some drivers require frame_size=page_size

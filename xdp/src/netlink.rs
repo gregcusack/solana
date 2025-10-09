@@ -10,7 +10,7 @@ use {
         RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE, RTN_BROADCAST, RTN_LOCAL, RTN_MULTICAST,
         RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL, RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW,
         SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, ARPHRD_ETHER, ARPHRD_IPGRE, ARPHRD_LOOPBACK, ARPHRD_NETROM,
-        IFLA_IFNAME, IFLA_INFO_DATA, IFLA_LINKINFO, IFNAMSIZ,
+        IFLA_IFNAME, IFLA_INFO_DATA, IFLA_LINKINFO, IFNAMSIZ, RTM_GETLINK, RTM_NEWLINK,
     },
     std::{
         collections::HashMap,
@@ -70,66 +70,66 @@ fn is_supported_route_table_id_opt_u32(table: Option<u32>) -> bool {
     }
 }
 
-#[inline]
-fn route_type_str(ty: u8) -> &'static str {
-    match ty {
-        RTN_UNICAST => "UNICAST",
-        RTN_LOCAL => "LOCAL",
-        RTN_BROADCAST => "BROADCAST",
-        RTN_MULTICAST => "MULTICAST",
-        RTN_BLACKHOLE => "BLACKHOLE",
-        RTN_THROW => "THROW",
-        _ => "OTHER",
-    }
-}
+// #[inline]
+// fn route_type_str(ty: u8) -> &'static str {
+//     match ty {
+//         RTN_UNICAST => "UNICAST",
+//         RTN_LOCAL => "LOCAL",
+//         RTN_BROADCAST => "BROADCAST",
+//         RTN_MULTICAST => "MULTICAST",
+//         RTN_BLACKHOLE => "BLACKHOLE",
+//         RTN_THROW => "THROW",
+//         _ => "OTHER",
+//     }
+// }
 
-#[inline]
-fn route_table_str(table: u8) -> &'static str {
-    if table == RT_TABLE_MAIN as u8 {
-        "MAIN"
-    } else if table == RT_TABLE_LOCAL as u8 {
-        "LOCAL"
-    } else if table == RT_TABLE_UNSPEC as u8 {
-        "UNSPEC"
-    } else {
-        "OTHER"
-    }
-}
+// #[inline]
+// fn route_table_str(table: u8) -> &'static str {
+//     if table == RT_TABLE_MAIN as u8 {
+//         "MAIN"
+//     } else if table == RT_TABLE_LOCAL as u8 {
+//         "LOCAL"
+//     } else if table == RT_TABLE_UNSPEC as u8 {
+//         "UNSPEC"
+//     } else {
+//         "OTHER"
+//     }
+// }
 
-#[inline]
-fn route_msg_type_str(ty: u16) -> &'static str {
-    match ty {
-        RTM_NEWROUTE => "RTM_NEWROUTE",
-        RTM_DELROUTE => "RTM_DELROUTE",
-        _ => "OTHER",
-    }
-}
+// #[inline]
+// fn route_msg_type_str(ty: u16) -> &'static str {
+//     match ty {
+//         RTM_NEWROUTE => "RTM_NEWROUTE",
+//         RTM_DELROUTE => "RTM_DELROUTE",
+//         _ => "OTHER",
+//     }
+// }
 
-#[inline]
-fn route_protocol_str(proto: u8) -> &'static str {
-    match proto {
-        2 => "KERNEL",   // RTPROT_KERNEL
-        3 => "BOOT",     // RTPROT_BOOT
-        4 => "STATIC",   // RTPROT_STATIC
-        186 => "BGP",    // RTPROT_BGP
-        187 => "ISIS",   // RTPROT_ISIS
-        188 => "OSPF",   // RTPROT_OSPF
-        189 => "RIP",    // RTPROT_RIP
-        _ => "OTHER",
-    }
-}
+// #[inline]
+// fn route_protocol_str(proto: u8) -> &'static str {
+//     match proto {
+//         2 => "KERNEL",   // RTPROT_KERNEL
+//         3 => "BOOT",     // RTPROT_BOOT
+//         4 => "STATIC",   // RTPROT_STATIC
+//         186 => "BGP",    // RTPROT_BGP
+//         187 => "ISIS",   // RTPROT_ISIS
+//         188 => "OSPF",   // RTPROT_OSPF
+//         189 => "RIP",    // RTPROT_RIP
+//         _ => "OTHER",
+//     }
+// }
 
-#[inline]
-fn route_scope_str(scope: u8) -> &'static str {
-    match scope {
-        0 => "UNIVERSE", // RT_SCOPE_UNIVERSE
-        200 => "SITE",   // RT_SCOPE_SITE
-        253 => "LINK",   // RT_SCOPE_LINK
-        254 => "HOST",   // RT_SCOPE_HOST
-        255 => "NOWHERE",// RT_SCOPE_NOWHERE
-        _ => "OTHER",
-    }
-}
+// #[inline]
+// fn route_scope_str(scope: u8) -> &'static str {
+//     match scope {
+//         0 => "UNIVERSE", // RT_SCOPE_UNIVERSE
+//         200 => "SITE",   // RT_SCOPE_SITE
+//         253 => "LINK",   // RT_SCOPE_LINK
+//         254 => "HOST",   // RT_SCOPE_HOST
+//         255 => "NOWHERE",// RT_SCOPE_NOWHERE
+//         _ => "OTHER",
+//     }
+// }
 
 // Removes cloned routes, non-main/local table routes, and invalid route types
 // Many invisible routes may be inserted, we need to remove them.
@@ -480,30 +480,6 @@ impl NetlinkMessage {
     #[inline]
     pub fn nlmsg_type(&self) -> u16 {
         self.header.nlmsg_type
-    }
-
-    /// Check if this message is relevant to the route/neighbor refresh flags.
-    ///     - NEWROUTE/DELROUTE: set route refresh when IPv4 route header is acceptable
-    ///     - NEWNEIGH/DELNEIGH: set neighbor refresh when IPv4 neighbor header is acceptable
-    ///     - we already filter out errors (NLMSG_ERROR) in NetlinkSocket::recv()
-    pub fn check_if_relevant_message(
-        &self,
-        route_refresh_pending: &mut bool,
-        neigh_refresh_pending: &mut bool,
-    ) {
-        match self.header.nlmsg_type {
-            RTM_NEWROUTE | RTM_DELROUTE => {
-                if is_supported_ipv4_route_header(self) {
-                    *route_refresh_pending = true;
-                }
-            }
-            RTM_NEWNEIGH | RTM_DELNEIGH => {
-                if is_supported_ipv4_neigh_header(self) {
-                    *neigh_refresh_pending = true;
-                }
-            }
-            _ => {}
-        }
     }
 }
 
