@@ -4,11 +4,11 @@ use {
             is_supported_ipv4_neigh_header, is_supported_ipv4_route_header, is_valid_link_update,
             parse_ifinfomsg, parse_rtm_newneigh, parse_rtm_newroute, NetlinkMessage, NetlinkSocket,
         },
-        route::{AtomicRouter, Working},
+        route::{AtomicRouter, WorkingRouter},
     },
     libc::{
-        poll, pollfd, POLLIN, RTMGRP_IPV4_ROUTE, RTMGRP_LINK, RTMGRP_NEIGH, RTM_DELLINK,
-        RTM_DELNEIGH, RTM_DELROUTE, RTM_NEWLINK, RTM_NEWNEIGH, RTM_NEWROUTE,
+        poll, pollfd, POLLERR, POLLHUP, POLLIN, POLLNVAL, RTMGRP_IPV4_ROUTE, RTMGRP_NEIGH,
+        RTM_DELNEIGH, RTM_DELROUTE, RTM_NEWNEIGH, RTM_NEWROUTE, RTM_DELLINK, RTM_NEWLINK, RTMGRP_LINK,
     },
     log::*,
     std::{
@@ -23,6 +23,8 @@ use {
     },
 };
 
+const RECREATE_NETLINK_LISTENER_SLEEP: Duration = Duration::from_millis(100);
+
 pub struct RouteMonitor;
 
 impl RouteMonitor {
@@ -36,7 +38,7 @@ impl RouteMonitor {
     ) -> thread::JoinHandle<()> {
         thread::spawn(move || {
             let groups = (RTMGRP_IPV4_ROUTE | RTMGRP_NEIGH | RTMGRP_LINK) as u32;
-            let sock = match NetlinkSocket::open_multicast_listener(groups) {
+            let mut sock = match NetlinkSocket::open_multicast_listener(groups) {
                 Ok(s) => s,
                 Err(e) => {
                     log::error!("netlink bind failed: {e}");
@@ -51,7 +53,7 @@ impl RouteMonitor {
                 }
                 if working.is_none() {
                     info!("greg: creating working from atomic router");
-                    working = Some(Working::from_atomic_router(&atomic_router));
+                    working = Some(WorkingRouter::from_atomic_router(&atomic_router));
                 }
 
                 let mut pfd = pollfd {
@@ -59,21 +61,36 @@ impl RouteMonitor {
                     events: POLLIN,
                     revents: 0,
                 };
-                let rc = loop {
-                    let rc = unsafe { poll(&mut pfd as *mut pollfd, 1, -1) };
-                    if rc < 0 && Error::last_os_error().kind() == ErrorKind::Interrupted {
+                // block until data is available
+                let rv = match poll_helper(&mut pfd, -1) {
+                    Ok(rv) => rv,
+                    Err(e) => {
+                        warn!("poll error: {e}");
+                        let _ = atomic_router.resync();
+                        working = None;
                         continue;
                     }
-                    break rc;
                 };
-                if rc < 0 {
-                    warn!("poll error: {}", Error::last_os_error());
-                    let _ = atomic_router.resync();
-                    working = None;
-                    continue;
-                }
-                if (pfd.revents & POLLIN) == 0 {
-                    continue;
+
+                match handle_revents(rv, pfd.revents, &atomic_router, &mut working) {
+                    LoopControl::Proceed => (),
+                    LoopControl::Skip => continue,
+                    LoopControl::Recreate => {
+                        drop(sock);
+                        thread::sleep(RECREATE_NETLINK_LISTENER_SLEEP);
+                        match NetlinkSocket::open_multicast_listener(groups) {
+                            Ok(s) => {
+                                sock = s;
+                                let _ = atomic_router.resync();
+                                working = None;
+                            }
+                            Err(e) => {
+                                error!("netlink recreate bind failed after POLLHUP: {e}");
+                                return;
+                            }
+                        }
+                        continue;
+                    }
                 }
                 info!("greg: poll event: {}", pfd.revents);
 
@@ -83,16 +100,40 @@ impl RouteMonitor {
 
                 // drain the netlink socket for the rest of the window
                 loop {
-                    if !Self::drain_netlink_socket(
+                    let rv = match Self::drain_netlink_socket(
                         &sock,
                         working.as_mut().expect("working initialized"),
                         deadline,
                     ) {
-                        if let Err(e) = atomic_router.resync() {
-                            error!("resync failed: {e}");
+                        Ok(rv) => rv,
+                        Err(e) => {
+                            error!("drain netlink socket failed: {e}");
+                            if let Err(e) = atomic_router.resync() {
+                                error!("resync failed: {e}");
+                            }
+                            working = None;
+                            break;
                         }
-                        working = None;
-                        break;
+                    };
+                    match handle_revents(rv, pfd.revents, &atomic_router, &mut working) {
+                        LoopControl::Proceed => (),
+                        LoopControl::Skip => break,
+                        LoopControl::Recreate => {
+                            drop(sock);
+                            thread::sleep(RECREATE_NETLINK_LISTENER_SLEEP);
+                            match NetlinkSocket::open_multicast_listener(groups) {
+                                Ok(s) => {
+                                    sock = s;
+                                    let _ = atomic_router.resync();
+                                    working = None;
+                                }
+                                Err(e) => {
+                                    log::error!("netlink recreate bind failed after POLLHUP: {e}");
+                                    return;
+                                }
+                            }
+                            break;
+                        }
                     }
 
                     let now = Instant::now();
@@ -107,15 +148,34 @@ impl RouteMonitor {
                         .as_millis() as i32;
                     info!("greg: remain_ms: {}", remain_ms);
                     pfd.revents = 0;
-                    let rc = loop {
-                        let rc = unsafe { poll(&mut pfd as *mut pollfd, 1, remain_ms) };
-                        if rc < 0 && Error::last_os_error().kind() == ErrorKind::Interrupted {
-                            continue;
+                    let rv = match poll_helper(&mut pfd, remain_ms) {
+                        Ok(rv) => rv,
+                        Err(e) => {
+                            warn!("poll error during drain window wait: {e}");
+                            let _ = atomic_router.resync();
+                            working = None;
+                            break;
                         }
-                        break rc;
                     };
-                    if rc <= 0 || (pfd.revents & POLLIN) == 0 {
-                        break;
+                    match handle_revents(rv, pfd.revents, &atomic_router, &mut working) {
+                        LoopControl::Proceed => (),
+                        LoopControl::Skip => break,
+                        LoopControl::Recreate => {
+                            drop(sock);
+                            thread::sleep(RECREATE_NETLINK_LISTENER_SLEEP);
+                            match NetlinkSocket::open_multicast_listener(groups) {
+                                Ok(s) => {
+                                    sock = s;
+                                    let _ = atomic_router.resync();
+                                    working = None;
+                                }
+                                Err(e) => {
+                                    log::error!("netlink recreate bind failed after POLLHUP: {e}");
+                                    return;
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
 
@@ -133,9 +193,9 @@ impl RouteMonitor {
     #[inline]
     fn drain_netlink_socket(
         sock: &NetlinkSocket,
-        working: &mut Working,
+        working: &mut WorkingRouter,
         deadline: Instant,
-    ) -> bool {
+    ) -> Result<Revents, Error> {
         info!("greg: draining netlink socket");
         let mut pfd = pollfd {
             fd: sock.as_raw_fd(),
@@ -151,9 +211,16 @@ impl RouteMonitor {
             }
 
             pfd.revents = 0;
-            let rc0 = unsafe { poll(&mut pfd as *mut pollfd, 1, 0) };
-            if rc0 <= 0 || (pfd.revents & POLLIN) == 0 {
-                break;
+            let rv = match poll_helper(&mut pfd, 0) {
+                Ok(rv) => rv,
+                Err(e) => {
+                    warn!("poll error during drain window wait: {e}");
+                    return Err(e);
+                }
+            };
+            match rv {
+                Revents::Ready => (),
+                _ => return Ok(rv),
             }
 
             match sock.recv() {
@@ -165,16 +232,16 @@ impl RouteMonitor {
                 }
                 Err(e) => {
                     warn!("recv during drain failed: {e}");
-                    return false;
+                    return Err(e);
                 }
             }
             outer_count += 1;
         }
-        true
+        Ok(Revents::Ready)
     }
 
     #[inline]
-    fn process_netlink_updates(work: &mut Working, msgs: &[NetlinkMessage]) {
+    fn process_netlink_updates(work: &mut WorkingRouter, msgs: &[NetlinkMessage]) {
         for m in msgs {
             match m.header.nlmsg_type {
                 RTM_NEWROUTE if is_supported_ipv4_route_header(m) => {
@@ -225,4 +292,85 @@ impl RouteMonitor {
             }
         }
     }
+}
+
+#[inline]
+fn handle_revents(
+    rv: Revents,
+    revents_bits: i16,
+    atomic_router: &Arc<AtomicRouter>,
+    working: &mut Option<WorkingRouter>,
+) -> LoopControl {
+    match rv {
+        Revents::Nval => {
+            error!("netlink socket POLLNVAL (invalid fd), revents={revents_bits:#x}",);
+            panic!("RouteMonitor: POLLNVAL on netlink socket (invalid fd)");
+        }
+        Revents::Hup => {
+            warn!("netlink socket POLLHUP; recreating and resyncing");
+            LoopControl::Recreate
+        }
+        Revents::Error => {
+            warn!("netlink socket POLLERR; resyncing router snapshot");
+            let _ = atomic_router.resync();
+            *working = None;
+            LoopControl::Skip
+        }
+        Revents::TimeoutOrNoData => {
+            warn!("poll returned unexpected rc, revents={revents_bits:#x}");
+            LoopControl::Skip
+        }
+        Revents::Ready => LoopControl::Proceed,
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum Revents {
+    Ready,           // POLLIN set
+    TimeoutOrNoData, // no data within timeout or rc!=1
+    Error,           // POLLERR
+    Hup,             // POLLHUP
+    Nval,            // POLLNVAL
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum LoopControl {
+    Proceed,
+    Skip,
+    Recreate,
+}
+
+#[inline]
+fn poll_helper(pfd: &mut pollfd, timeout_ms: i32) -> Result<Revents, Error> {
+    let rc = loop {
+        let rc = unsafe { poll(pfd as *mut pollfd, 1, timeout_ms) };
+        if rc < 0 && Error::last_os_error().kind() == ErrorKind::Interrupted {
+            continue;
+        }
+        break rc;
+    };
+
+    if rc < 0 {
+        return Err(Error::last_os_error());
+    }
+    if rc != 1 {
+        // When polling a single fd, rc should be exactly 1 when not an error.
+        return Ok(Revents::TimeoutOrNoData);
+    }
+
+    let re = pfd.revents;
+    if (re & POLLNVAL) != 0 {
+        return Ok(Revents::Nval);
+    }
+    if (re & POLLHUP) != 0 {
+        return Ok(Revents::Hup);
+    }
+    if (re & POLLERR) != 0 {
+        return Ok(Revents::Error);
+    }
+    if (re & POLLIN) != 0 {
+        return Ok(Revents::Ready);
+    }
+
+    Ok(Revents::TimeoutOrNoData)
 }

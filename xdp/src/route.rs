@@ -233,95 +233,6 @@ impl Router {
     }
 }
 
-#[derive(Clone, Default)]
-pub struct WorkingRouter {
-    pub routes: Vec<RouteEntry>,
-    pub neighbors: Vec<NeighborEntry>,
-    pub interfaces: HashMap<u32, InterfaceInfo>,
-}
-
-impl WorkingRouter {
-    pub fn from_router(router: &Router) -> Self {
-        Self {
-            routes: router.routes.as_ref().clone(),
-            neighbors: router.arp_table.neighbors.clone(),
-            interfaces: router.interfaces.as_ref().clone(),
-        }
-    }
-
-    pub fn to_router(&self) -> Router {
-        Router {
-            arp_table: Arc::new(ArpTable {
-                neighbors: self.neighbors.clone(),
-            }),
-            routes: Arc::new(self.routes.clone()),
-            interfaces: Arc::new(self.interfaces.clone()),
-        }
-    }
-
-    #[inline]
-    fn route_key(r: &RouteEntry) -> (u8, Option<IpAddr>, u8, Option<u32>, Option<i32>) {
-        (r.family, r.destination, r.dst_len, r.table, r.out_if_index)
-    }
-
-    #[inline]
-    fn neigh_key(n: &NeighborEntry) -> (Option<IpAddr>, i32) {
-        (n.destination, n.ifindex)
-    }
-
-    pub fn apply_route_upsert(&mut self, route: RouteEntry) -> bool {
-        let key = Self::route_key(&route);
-        if let Some(idx) = self.routes.iter().position(|r| Self::route_key(r) == key) {
-            if self.routes[idx] != route {
-                self.routes[idx] = route; // route has same key but different value, update in place
-                return true;
-            }
-            return false; // upserting route we already have, nothing to do
-        }
-        self.routes.push(route); // upserting route we don't have, add to end
-        true
-    }
-
-    pub fn apply_route_delete(&mut self, route: &RouteEntry) -> bool {
-        let key = Self::route_key(route);
-        if let Some(idx) = self.routes.iter().position(|r| Self::route_key(r) == key) {
-            self.routes.swap_remove(idx);
-            return true;
-        }
-        false // trying to delete route we don't have, nothing to do
-    }
-
-    pub fn apply_neighbor_update(&mut self, neigh: NeighborEntry) -> bool {
-        let key = Self::neigh_key(&neigh);
-        if let Some(idx) = self
-            .neighbors
-            .iter()
-            .position(|n| Self::neigh_key(n) == key)
-        {
-            if self.neighbors[idx] != neigh {
-                self.neighbors[idx] = neigh; // neighbor has same key but different value, update in place
-                return true;
-            }
-            return false; // upserting neighbor we already have, nothing to do
-        }
-        self.neighbors.push(neigh); // upserting neighbor we don't have, add to end
-        true
-    }
-
-    pub fn apply_neighbor_delete(&mut self, neigh: &NeighborEntry) -> bool {
-        let key = Self::neigh_key(neigh);
-        if let Some(idx) = self
-            .neighbors
-            .iter()
-            .position(|n| Self::neigh_key(n) == key)
-        {
-            self.neighbors.swap_remove(idx);
-            return true;
-        }
-        false // trying to delete neighbor we don't have, nothing to do
-    }
-}
-
 #[derive(Clone)]
 pub(crate) struct ArpTable {
     pub(crate) neighbors: Vec<NeighborEntry>,
@@ -379,11 +290,11 @@ impl AtomicRouter {
         Ok(())
     }
 
-    pub fn publish_snapshot(&self, working: &Working) {
+    pub fn publish_snapshot(&self, working: &WorkingRouter) {
         info!("greg: publishing new snapshot");
         let router = Router {
             arp_table: Arc::new(ArpTable {
-                neighbors: working.neigh.clone(),
+                neighbors: working.neighbors.clone(),
             }),
             routes: Arc::new(working.routes.clone()),
             interfaces: Arc::new(working.interfaces.clone()),
@@ -393,16 +304,16 @@ impl AtomicRouter {
 }
 
 // Working Router used for lock-free updates
-pub struct Working {
+pub struct WorkingRouter {
     routes: Vec<RouteEntry>,
-    neigh: Vec<NeighborEntry>,
+    neighbors: Vec<NeighborEntry>,
     interfaces: HashMap<u32, InterfaceInfo>,
     dirty_routes: bool,
     dirty_neigh: bool,
     dirty_interfaces: bool,
 }
 
-impl Working {
+impl WorkingRouter {
     // create a working router from the atomic router
     // only called on startup and when the atomic router is resynced due to a netlink error
     pub fn from_atomic_router(router: &AtomicRouter) -> Self {
@@ -415,7 +326,7 @@ impl Working {
         interfaces.reserve(interfaces.len().saturating_mul(2).max(128));
         Self {
             routes,
-            neigh,
+            neighbors: neigh,
             interfaces,
             dirty_routes: false,
             dirty_neigh: false,
@@ -494,27 +405,27 @@ impl Working {
         };
 
         if let Some(i) = self
-            .neigh
+            .neighbors
             .iter()
             .position(|old| old.ifindex == ifidx && old.destination == Some(IpAddr::V4(ip)))
         {
-            if self.neigh[i] != new_neighbor {
-                self.neigh[i] = new_neighbor;
+            if self.neighbors[i] != new_neighbor {
+                self.neighbors[i] = new_neighbor;
                 self.dirty_neigh = true;
             }
         } else {
-            self.neigh.push(new_neighbor);
+            self.neighbors.push(new_neighbor);
             self.dirty_neigh = true;
         }
     }
 
     pub fn delete_neighbor(&mut self, ip: Ipv4Addr, if_index: i32) {
         if let Some(i) = self
-            .neigh
+            .neighbors
             .iter()
             .position(|old| old.ifindex == if_index && old.destination == Some(IpAddr::V4(ip)))
         {
-            self.neigh.swap_remove(i);
+            self.neighbors.swap_remove(i);
             self.dirty_neigh = true;
         }
     }
@@ -678,7 +589,7 @@ mod tests {
         let router_before = atomic_router.load();
         let before_routes = router_before.clone_routes();
 
-        let mut working = Working::from_atomic_router(&atomic_router);
+        let mut working = WorkingRouter::from_atomic_router(&atomic_router);
 
         // Create a unique, private IPv4 /32 route to avoid collisions
         let test_dst = Ipv4Addr::new(10, 255, 255, 123);
@@ -728,7 +639,7 @@ mod tests {
         let router_before = atomic_router.load();
         let before_neigh = router_before.clone_neighbors();
 
-        let mut working = Working::from_atomic_router(&atomic_router);
+        let mut working = WorkingRouter::from_atomic_router(&atomic_router);
 
         // Create a unique, private neighbor entry on a dummy ifindex
         let neigh_ip = Ipv4Addr::new(10, 255, 255, 77);
