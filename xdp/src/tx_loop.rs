@@ -35,7 +35,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     queue_id: QueueId,
     zero_copy: bool,
     src_mac: Option<MacAddress>,
-    src_ip: Ipv4Addr,
+    src_ip: Option<Ipv4Addr>,
     src_port: u16,
     dest_mac: Option<MacAddress>,
     receiver: Receiver<(A, T)>,
@@ -56,27 +56,18 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
             .expect("no src_mac provided, device must have a MAC address")
     });
 
-    // // Compute a single inner source IPv4 now (or panic with a clear message in dev)
-    // let inner_src_ip = src_ip.unwrap_or_else(|| {
-    //     let r = atomic_router.load();
-    //     get_inner_src_ipv4(&r)
-    //         .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
-    // });
-    log::info!("greg: xdp: using bind address {src_ip}");
-    let src_ip = Ipv4Addr::new(147, 28, 171, 69);
-
-    // let inner_src_ip_v2 = match dev.ipv4_addr() {
-    //     Ok(ip) => {
-    //         log::info!("greg: xdp: using dev inner src IPv4 {ip}");
-    //         ip
-    //     },
-    //     Err(e) => {
-    //         log::error!("greg: xdp: could not determine inner source IPv4: {e}, just returning hard coded ip");
-    //         Ipv4Addr::new(147, 28, 171, 69) 
-    //     }
-    // };
-    // //.unwrap_or(inner_src_ip);
-    // log::info!("greg: xdp: dev inner src IPv4 {inner_src_ip_v2}");
+    let src_ip = src_ip.unwrap_or_else(|| {
+        log::info!("greg: xdp: no src_ip provided, using device's IPv4 address");
+        dev.ipv4_addr().unwrap_or_else(|_| {
+            log::info!("greg: xdp: no src_ip in device, using router's default source IP");
+            // no IP assigned (e.g., GRE device)
+            let router = atomic_router.load();
+            router
+                .default_source_ip()
+                .unwrap_or_else(|| panic!("no usable src IP"))
+        })
+    });
+    log::info!("greg: xdp: using src ip address {src_ip}");
 
     // some drivers require frame_size=page_size
     let frame_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
@@ -255,21 +246,12 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         frame.set_len(gre_packet_size);
                         let packet = umem.map_frame_mut(&frame);
 
-                        let use_this_inner_src_ip = match next_hop.preferred_src_ip {
-                            Some(ip) => {
-                                // log::info!("greg: xdp: using preferred inner src IPv4 {ip}");
-                                ip
-                            },
-                            None => {
-                                // log::info!("greg: xdp: using fallbackinner src IPv4 {src_ip}");
-                                src_ip
-                            },
-                        };
+                        let inner_src_ip = next_hop.preferred_src_ip.unwrap_or(src_ip);
 
                         // Construct the GRE packet
                         let gre_packet_len = construct_gre_packet(
                             packet,
-                            &use_this_inner_src_ip,            // inner src ip
+                            &inner_src_ip,            // inner src ip
                             &dst_ip,            // inner dst ip
                             src_port,
                             addr.port(),
