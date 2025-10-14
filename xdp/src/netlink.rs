@@ -407,7 +407,7 @@ pub fn netlink_get_interfaces() -> Result<Vec<InterfaceInfo>, io::Error> {
         },
         ifi: ifinfomsg {
             ifi_family: AF_INET as u8,
-            ifi_type: ARPHRD_NETROM,
+            ifi_type: 0,
             ifi_index: 0,
             ifi_flags: 0,
             ifi_change: 0,
