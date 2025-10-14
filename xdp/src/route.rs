@@ -209,29 +209,6 @@ impl Router {
 
         Ok((next_hop, interface_info))
     }
-
-    pub fn default_source_ip(&self) -> Option<Ipv4Addr> {
-        // 1. look for a route with no destination (the default route)
-        if let Some(route) = self.routes.iter().find(|r| r.destination.is_none()) {
-            log::info!("greg: xdp: default route found: {route:?}");
-            if let Some(IpAddr::V4(src)) = route.pref_src {
-                log::info!("greg: xdp: default route preferred source IP found: {src}");
-                return Some(src);
-            }
-        }
-
-        // 2. otherwise, pick the first interface that has a primary IPv4 address
-        for iface in self.interfaces.values() {
-            if let Some(ip) = iface.primary_ipv4 {
-                log::info!("greg: xdp: default interface primary IPv4 found: {ip}");
-                return Some(ip);
-            }
-        }
-        log::info!("greg: xdp: no default source IP found");
-
-        // 3. nothing found
-        None
-    }
 }
 
 struct ArpTable {

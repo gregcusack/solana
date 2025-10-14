@@ -35,7 +35,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     queue_id: QueueId,
     zero_copy: bool,
     src_mac: Option<MacAddress>,
-    src_ip: Option<Ipv4Addr>,
+    src_ip: Ipv4Addr,
     src_port: u16,
     dest_mac: Option<MacAddress>,
     receiver: Receiver<(A, T)>,
@@ -56,17 +56,6 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
             .expect("no src_mac provided, device must have a MAC address")
     });
 
-    let src_ip = src_ip.unwrap_or_else(|| {
-        log::info!("greg: xdp: no src_ip provided, using device's IPv4 address");
-        dev.ipv4_addr().unwrap_or_else(|_| {
-            log::info!("greg: xdp: no src_ip in device, using router's default source IP");
-            // no IP assigned (e.g., GRE device)
-            let router = atomic_router.load();
-            router
-                .default_source_ip()
-                .unwrap_or_else(|| panic!("no usable src IP"))
-        })
-    });
     log::info!("greg: xdp: using src ip address {src_ip}");
 
     // some drivers require frame_size=page_size
@@ -247,6 +236,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         let packet = umem.map_frame_mut(&frame);
 
                         let inner_src_ip = next_hop.preferred_src_ip.unwrap_or(src_ip);
+                        log::info!("greg: xdp: inner src ip: {inner_src_ip}");
 
                         // Construct the GRE packet
                         let gre_packet_len = construct_gre_packet(
