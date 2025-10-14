@@ -307,41 +307,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         continue;
                     }
 
-                    // non-gre tunnel
-                    // log::info!(
-                    //     "greg: non-gre tunnel found: [IBRL] dst={} our={} via_if={}({}) nh_ip={} nh_mac={:?}  kernel={} via_dev={}",
-                    //     dst,
-                    //     our_str,
-                    //     interface_info.if_name,
-                    //     interface_info.if_index,
-                    //     next_hop.ip_addr,
-                    //     next_hop.mac_addr,
-                    //     kern_str,
-                    //     &kern_dev_str
-                    // );
-
-                    // if our_is_gre != kernel_is_gre {
-                    //     log::warn!(
-                    //         "greg: MISMATCH: [IBRL] MISMATCH for dst={}  our={}  kernel={} (kernel dev={}). \
-                    //          If kernel shows dev={} but we said PLAIN: check LINKINFO parsing / route table refresh. \
-                    //          If kernel shows non-{} but we said GRE: check which table our route() used.",
-                    //         dst, our_str, kern_str, &kern_dev_str, DZ_DEV_NAME, DZ_DEV_NAME
-                    //     );
-                    // }
-
                     let mut skip = false;
-
-                    // sanity check that the address is routable through our NIC
-                    // greg: todo. not sure if we actually need this.
-                    // if next_hop.if_index != dev.if_index() {
-                    //     log::warn!(
-                    //         "dropping packet: turbine peer {addr} must be routed through \
-                    //          if_index: {} our if_index: {}",
-                    //         next_hop.if_index,
-                    //         dev.if_index()
-                    //     );
-                    //     skip = true;
-                    // }
 
                     // we need the MAC address to send the packet
                     if next_hop.mac_addr.is_none() {
