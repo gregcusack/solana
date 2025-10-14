@@ -223,27 +223,13 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                     // lock free route lookup
                     let router = atomic_router.load();
                     let dst = addr.ip();
-                    let (next_hop, mut interface_info) = router.route(dst).unwrap();
-                    // log::info!("greg: xdp: next_hop {next_hop:?} interface_info {interface_info:?}");
-                    // Print one line with both decisions
-                    // greg: todo: probably don't need to take this
-                    if let Some(gre) = interface_info.gre_tunnel.take() {
-                        log::info!("greg: xdp: gre tunnel found");
-                        // log::info!(
-                        //     "greg: gre tunnel found: [IBRL] dst={} our={} via_if={}({}) gre.local={} gre.remote={}  kernel={} via_dev={}",
-                        //     dst,
-                        //     our_str,
-                        //     interface_info.if_name,
-                        //     interface_info.if_index,
-                        //     gre.local,
-                        //     gre.remote,
-                        //     kern_str,
-                        //     &kern_dev_str
-                        // );
-
+                    let (next_hop, interface_info) = router.route(dst).unwrap();
+                    if let Some(gre) = interface_info.gre_tunnel.as_ref() {
+                        log::info!("greg: xdp: dst_ip nh: {next_hop:?} iface: {interface_info:?}");
                         // Resolve the UNDERLAY toward the GRE remote (this is where we ARP and enforce ifindex)
                         // greg: todo, we should probably cache this
                         let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
+                        log::info!("greg: xdp: gre nh: {u_nh:?} iface: {u_iface:?}");
 
                         // Need underlay next-hop MAC
                         let outer_dst_mac = match u_nh.mac_addr {
@@ -271,11 +257,11 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
 
                         let use_this_inner_src_ip = match next_hop.preferred_src_ip {
                             Some(ip) => {
-                                log::info!("greg: xdp: using preferred inner src IPv4 {ip}");
+                                // log::info!("greg: xdp: using preferred inner src IPv4 {ip}");
                                 ip
                             },
                             None => {
-                                log::info!("greg: xdp: using fallbackinner src IPv4 {src_ip}");
+                                // log::info!("greg: xdp: using fallbackinner src IPv4 {src_ip}");
                                 src_ip
                             },
                         };

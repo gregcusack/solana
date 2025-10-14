@@ -176,7 +176,7 @@ impl Router {
     // greg: todo: not sure if we should return is_gre here?
     // we may want to return the entire InterfaceInfo
     // InterfaceInfo will have to be expanded to include the src_ip/dst_ip for gre
-    pub fn route(&self, dest_ip: IpAddr) -> Result<(NextHop, InterfaceInfo), RouteError> {
+    pub fn route(&self, dest_ip: IpAddr) -> Result<(NextHop, &InterfaceInfo), RouteError> {
         let route = lookup_route(&self.routes, dest_ip).ok_or(RouteError::NoRouteFound(dest_ip))?;
 
         let if_index = route
@@ -205,8 +205,7 @@ impl Router {
         let interface_info = self
             .interfaces
             .get(&(if_index))
-            .ok_or(RouteError::MissingOutputInterface)?
-            .clone();
+            .ok_or(RouteError::MissingOutputInterface)?;
 
         Ok((next_hop, interface_info))
     }
