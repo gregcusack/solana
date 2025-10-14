@@ -163,7 +163,9 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
         // this is the number of packets after which we commit the ring and kick the driver if
         // necessary
         let mut chunk_remaining = BATCH_SIZE.min(batched_packets);
-
+    
+        // lock free route lookup
+        let router = atomic_router.load();
         for (addrs, payload) in batched_items.drain(..) {
             for addr in addrs.as_ref() {
                 if ring.available() == 0 || umem.available() == 0 {
@@ -200,16 +202,14 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                 let dest_mac = if let Some(mac) = dest_mac {
                     mac
                 } else {
-                    // lock free route lookup
-                    let router = atomic_router.load();
                     let dst = addr.ip();
                     let (next_hop, interface_info) = router.route(dst).unwrap();
                     if let Some(gre) = interface_info.gre_tunnel.as_ref() {
-                        log::info!("greg: xdp: dst_ip nh: {next_hop:?} iface: {interface_info:?}");
+                        // log::info!("greg: xdp: dst_ip nh: {next_hop:?} iface: {interface_info:?}");
                         // Resolve the UNDERLAY toward the GRE remote (this is where we ARP and enforce ifindex)
                         // greg: todo, we should probably cache this
                         let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
-                        log::info!("greg: xdp: gre nh: {u_nh:?} iface: {u_iface:?}");
+                        // log::info!("greg: xdp: gre nh: {u_nh:?} iface: {u_iface:?}");
 
                         // Need underlay next-hop MAC
                         let outer_dst_mac = match u_nh.mac_addr {
@@ -236,7 +236,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         let packet = umem.map_frame_mut(&frame);
 
                         let inner_src_ip = next_hop.preferred_src_ip.unwrap_or(src_ip);
-                        log::info!("greg: xdp: inner src ip: {inner_src_ip}");
+                        // log::info!("greg: xdp: inner src ip: {inner_src_ip}");
 
                         // Construct the GRE packet
                         let gre_packet_len = construct_gre_packet(
