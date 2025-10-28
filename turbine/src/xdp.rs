@@ -10,13 +10,16 @@ use {
         tx_loop::tx_loop,
     },
     crossbeam_channel::TryRecvError,
-    std::{sync::Arc, thread::Builder, time::Duration},
+    std::{thread::Builder, time::Duration},
 };
 use {
     crossbeam_channel::{Sender, TrySendError},
     solana_ledger::shred,
-    std::{error::Error, net::{Ipv4Addr, SocketAddr}, thread},
+    std::{error::Error, net::{Ipv4Addr, SocketAddr}, sync::{atomic::AtomicBool, Arc}, thread},
 };
+
+#[cfg(target_os = "linux")]
+const ROUTE_MONITOR_UPDATE_INTERVAL_MS: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Debug)]
 pub struct XdpConfig {
@@ -107,12 +110,12 @@ pub struct XdpRetransmitter {
 
 impl XdpRetransmitter {
     #[cfg(not(target_os = "linux"))]
-    pub fn new(_config: XdpConfig, _src_port: u16, _src_ip: Ipv4Addr) -> Result<(Self, XdpSender), Box<dyn Error>> {
+    pub fn new(_config: XdpConfig, _src_port: u16, _src_ip: Ipv4Addr, _exit: Arc<AtomicBool>) -> Result<(Self, XdpSender), Box<dyn Error>> {
         Err("XDP is only supported on Linux".into())
     }
 
     #[cfg(target_os = "linux")]
-    pub fn new(config: XdpConfig, src_port: u16, src_ip: Ipv4Addr) -> Result<(Self, XdpSender), Box<dyn Error>> {
+    pub fn new(config: XdpConfig, src_port: u16, src_ip: Ipv4Addr, exit: Arc<AtomicBool>) -> Result<(Self, XdpSender), Box<dyn Error>> {
         use caps::{
             CapSet,
             Capability::{CAP_BPF, CAP_NET_ADMIN, CAP_NET_RAW, CAP_PERFMON},
@@ -148,8 +151,11 @@ impl XdpRetransmitter {
 
         // Create atomic router for lock-free updates
         let atomic_router = Arc::new(AtomicRouter::new()?);
-        let monitor_handle =
-            RouteMonitor::start(Arc::clone(&atomic_router), Duration::from_secs(60));
+        let monitor_handle = RouteMonitor::start(
+            Arc::clone(&atomic_router),
+            exit.clone(),
+            ROUTE_MONITOR_UPDATE_INTERVAL_MS,
+        );
 
         let mut threads = vec![];
         threads.push(monitor_handle); // Add monitor thread
