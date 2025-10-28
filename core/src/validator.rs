@@ -1587,7 +1587,7 @@ impl Validator {
                 let IpAddr::V4(src_ip) = node.bind_ip_addrs.active() else {
                     panic!("IPv6 not supported");
                 };
-                let (rtx, sender) = XdpRetransmitter::new(xdp_config, src_port, src_ip)
+                let (rtx, sender) = XdpRetransmitter::new(xdp_config, src_port, src_ip, exit.clone())
                     .expect("failed to create xdp retransmitter");
                 (Some(rtx), Some(sender))
             } else {
