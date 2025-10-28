@@ -265,6 +265,24 @@ impl AtomicRouter {
         self.router.load().clone()
     }
 
+    // update both routes and ARP table
+    pub fn update_routes_and_neighbors(&self) -> Result<(), io::Error> {
+        let mut current_router = (**self.router.load()).clone();
+        current_router.routes = Self::fetch_routes()?;
+        current_router.arp_table = Self::fetch_arp_table()?;
+        self.router.store(Arc::new(current_router));
+        Ok(())
+    }
+
+    fn fetch_routes() -> Result<Arc<Vec<RouteEntry>>, io::Error> {
+        Ok(Arc::new(netlink_get_routes(AF_INET as u8)?))
+    }
+
+    fn fetch_arp_table() -> Result<Arc<ArpTable>, io::Error> {
+        let neighbors = netlink_get_neighbors(None, AF_INET as u8)?;
+        Ok(Arc::new(ArpTable { neighbors }))
+    }
+
     /// Publish a new snapshot of the router into the fast path
     pub fn publish(&self, new_router: Router) {
         self.router.store(Arc::new(new_router));
