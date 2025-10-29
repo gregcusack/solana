@@ -61,7 +61,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     //     get_inner_src_ipv4(&r)
     //         .unwrap_or_else(|e| panic!("xdp: could not determine inner source IPv4: {e}"))
     // });
-    let inner_src_ip = Ipv4Addr::from([147, 28, 171, 69]);
+    let inner_src_ip = Ipv4Addr::from([64, 130, 41, 170]);
     log::info!("xdp: using fixed inner src IPv4 {inner_src_ip}");
 
     // some drivers require frame_size=page_size
