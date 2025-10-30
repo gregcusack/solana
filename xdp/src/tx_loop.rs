@@ -209,7 +209,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         // Resolve the UNDERLAY toward the GRE remote (this is where we ARP and enforce ifindex)
                         // greg: todo, we should probably cache this
                         let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
-                        // log::info!("greg: xdp: gre nh: {u_nh:?} iface: {u_iface:?}");
+                        log::info!("greg: xdp: gre nh: {u_nh:?} iface: {u_iface:?}");
 
                         // Need underlay next-hop MAC
                         let outer_dst_mac = match u_nh.mac_addr {
