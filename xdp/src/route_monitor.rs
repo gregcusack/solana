@@ -313,7 +313,7 @@ fn handle_revents(
             LoopControl::Skip
         }
         Revents::TimeoutOrNoData => {
-            warn!("poll returned unexpected rc, revents={revents_bits:#x}");
+            debug!("poll timeout or no data, revents={revents_bits:#x}");
             LoopControl::Skip
         }
         Revents::Ready => LoopControl::Proceed,
