@@ -43,7 +43,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     atomic_router: Arc<AtomicRouter>,
 ) {
     log::info!(
-        "starting xdp loop on {} queue {queue_id:?} cpu {cpu_id}",
+        "greg: starting xdp loop on {} queue {queue_id:?} cpu {cpu_id}",
         dev.name()
     );
 
