@@ -63,7 +63,7 @@ const RECREATE_NETLINK_LISTENER_SLEEP: Duration = Duration::from_millis(100);
                     revents: 0,
                 };
                 // block until data is available
-                let rv = match poll_helper(&mut pfd, 1) {
+                let rv = match poll_helper(&mut pfd, -1) {
                     Ok(rv) => rv,
                     Err(e) => {
                         warn!("poll error: {e}");
@@ -369,4 +369,4 @@ fn poll_helper(pfd: &mut pollfd, timeout_ms: i32) -> Result<Revents, Error> {
     }
 
     Ok(Revents::TimeoutOrNoData)
-    }
+}
