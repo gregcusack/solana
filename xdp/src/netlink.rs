@@ -70,38 +70,6 @@ fn is_supported_route_table_id_opt_u32(table: Option<u32>) -> bool {
     }
 }
 
-// Removes cloned routes, non-main/local table routes, and invalid route types
-// Many invisible routes are inserted when doing IPv4 MTU discovery or caching neighbor information
-// pub(crate) fn is_valid_route(route: &RouteEntry) -> bool {
-//     // Filter out cloned routes
-//     if route.flags & RTM_F_CLONED != 0 {
-//         return false;
-//     }
-
-//     // Filter by table ID - only keep main and local tables
-//     if let Some(table) = route.table {
-//         if table != RT_TABLE_UNSPEC as u32
-//             && table != RT_TABLE_MAIN as u32
-//             && table != RT_TABLE_LOCAL as u32
-//         {
-//             return false;
-//         }
-//     }
-
-//     // Filter by route type
-//     match route.type_ {
-//         RTN_UNICAST => true,
-//         RTN_LOCAL => true,
-//         RTN_BROADCAST => true,
-//         RTN_MULTICAST => true,
-//         RTN_BLACKHOLE => true,
-//         RTN_THROW => true,
-//         _ => {
-//             log::info!("greg: Unsupported route type: {}", route.type_);
-//             false
-//         }
-//     }
-// }
 pub(crate) fn is_valid_route(route: &RouteEntry) -> bool {
     if route.flags & RTM_F_CLONED != 0 {
         return false;
@@ -303,71 +271,7 @@ pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
     if !is_supported_route_table_id_u8(rt.rtm_table) {
         return false;
     }
-    let supported = is_supported_route_type(rt.rtm_type);
-    // if supported {
-    //     // Parse attributes for richer logging (only when supported)
-    //     let attrs = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]).unwrap_or_default();
-
-    //     let parse_u32 = |data: &[u8]| -> Option<u32> {
-    //         data.get(..4)
-    //             .map(|d| u32::from_ne_bytes([d[0], d[1], d[2], d[3]]))
-    //     };
-
-    //     let dst_ip = attrs
-    //         .get(&RTA_DST)
-    //         .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
-    //     let gw_ip = attrs
-    //         .get(&RTA_GATEWAY)
-    //         .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
-    //     let oif = attrs.get(&RTA_OIF).and_then(|a| parse_u32(a.data));
-    //     let iif = attrs.get(&RTA_IIF).and_then(|a| parse_u32(a.data));
-    //     let metric = attrs
-    //         .get(&RTA_PRIORITY)
-    //         .and_then(|a| parse_u32(a.data));
-    //     let prefsrc = attrs
-    //         .get(&RTA_PREFSRC)
-    //         .and_then(|a| parse_ip_address(a.data, rt.rtm_family));
-        // let mpath = attrs.contains_key(&RTA_MULTIPATH);
-
-        // let dst_str = match dst_ip {
-        //     Some(ip) => format!("{}/{}", ip, rt.rtm_dst_len),
-        //     None => "0.0.0.0/0".to_string(),
-        // };
-        // let gw_str = gw_ip
-        //     .map(|ip| ip.to_string())
-        //     .unwrap_or_else(|| "-".to_string());
-        // let prefsrc_str = prefsrc
-        //     .map(|ip| ip.to_string())
-        //     .unwrap_or_else(|| "-".to_string());
-        // let oif_str = oif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-        // let iif_str = iif.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-        // let metric_str = metric.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-
-        // log::info!(
-        //     "greg: netlink: {} supported IPv4 route: dst={} gw={} oif={} iif={} metric={} prefsrc={} type={} ({}) table={} ({}) proto={} ({}) scope={} ({}) tos={} flags=0x{:x} seq={} pid={} mpath={}",
-        //     route_msg_type_str(msg.header.nlmsg_type),
-        //     dst_str,
-        //     gw_str,
-        //     oif_str,
-        //     iif_str,
-        //     metric_str,
-        //     prefsrc_str,
-        //     rt.rtm_type,
-        //     route_type_str(rt.rtm_type),
-        //     rt.rtm_table,
-        //     route_table_str(rt.rtm_table),
-        //     rt.rtm_protocol,
-        //     route_protocol_str(rt.rtm_protocol),
-        //     rt.rtm_scope,
-        //     route_scope_str(rt.rtm_scope),
-        //     rt.rtm_tos,
-        //     rt.rtm_flags,
-        //     msg.header.nlmsg_seq,
-        //     msg.header.nlmsg_pid,
-        //     if mpath { "yes" } else { "no" },
-        // );
-    // }
-    supported
+    is_supported_route_type(rt.rtm_type)
 }
 
 #[repr(C)]
@@ -761,18 +665,6 @@ fn parse_gre_tunnel_info_from_linkinfo(
             link_ifindex = Some(u32::from_ne_bytes(a.data[0..4].try_into().unwrap()));
         }
     }
-
-    //greg: todo maybe this is what works? may want to add back in and remove above
-    // if let Some(a) = gre.get(&IFLA_GRE_LOCAL)     { if a.data.len() >= 4 { local  = Ipv4Addr::new(a.data[0], a.data[1], a.data[2], a.data[3]); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_REMOTE)    { if a.data.len() >= 4 { remote = Ipv4Addr::new(a.data[0], a.data[1], a.data[2], a.data[3]); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_IKEY)      { if a.data.len() >= 4 { ikey   = Some(u32::from_be_bytes(a.data[0..4].try_into().unwrap())); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_OKEY)      { if a.data.len() >= 4 { okey   = Some(u32::from_be_bytes(a.data[0..4].try_into().unwrap())); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_TTL)       { if !a.data.is_empty() { ttl   = Some(a.data[0]); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_TOS)       { if !a.data.is_empty() { tos   = Some(a.data[0]); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_PMTUDISC)  { if !a.data.is_empty() { pmtu  = Some(a.data[0]); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_CSUM)      { if !a.data.is_empty() { csum  = Some(a.data[0]); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_SEQ)       { if !a.data.is_empty() { seq   = Some(a.data[0]); } }
-    // if let Some(a) = gre.get(&IFLA_GRE_LINK)      { if a.data.len() >= 4 { link_ifindex = Some(u32::from_ne_bytes(a.data[0..4].try_into().unwrap())); } }
 
     // Must have both endpoints for a valid GRE tunnel.
     if local == Ipv4Addr::UNSPECIFIED || remote == Ipv4Addr::UNSPECIFIED {
