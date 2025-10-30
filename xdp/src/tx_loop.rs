@@ -130,6 +130,10 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     // packets.
     let mut batched_packets = 0;
 
+    // Cache the underlay MAC for the current router epoch and GRE remote.
+    // (Fast-path: single GRE remote per queue. If you have multiple, switch to a small HashMap.)
+    let mut cached_underlay: Option<(usize /*router update counter*/, Ipv4Addr /*gre.remote*/, MacAddress)> = None;
+
     let mut timeouts = 0;
     loop {
         match receiver.try_recv() {
@@ -166,6 +170,7 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
     
         // lock free route lookup
         let router = atomic_router.load();
+        let update_counter = atomic_router.update_counter();
         for (addrs, payload) in batched_items.drain(..) {
             for addr in addrs.as_ref() {
                 if ring.available() == 0 || umem.available() == 0 {
@@ -208,24 +213,35 @@ pub fn tx_loop<T: AsRef<[u8]>, A: AsRef<[SocketAddr]>>(
                         // log::info!("greg: xdp: dst_ip nh: {next_hop:?} iface: {interface_info:?}");
                         // Resolve the UNDERLAY toward the GRE remote (this is where we ARP and enforce ifindex)
                         // greg: todo, we should probably cache this
-                        let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
+                        // let (u_nh, u_iface) = router.route(IpAddr::V4(gre.remote)).unwrap();
                         // this is always the same. so let's cache this
                         /*
                         NextHop { mac_addr: Some(MacAddress([0, 0, 128, 1, 35, 0])), ip_addr: 64.130.41.161, if_index: 4, preferred_src_ip: None } iface: InterfaceInfo { if_index: 4, if_name: "bond0", dev_type: 1, gre_tunnel: None, primary_ipv4: None }
                          */
                         // log::info!("greg: xdp: gre nh: {u_nh:?} iface: {u_iface:?}");
 
-                        // Need underlay next-hop MAC
-                        let outer_dst_mac = match u_nh.mac_addr {
-                            Some(m) => m,
-                            None => {
-                                log::warn!(
-                                    "greg: dropping GRE pkt: missing underlay MAC for next-hop {} on {}({})",
-                                    u_nh.ip_addr, u_iface.if_name, u_iface.if_index
-                                );
-                                batched_packets -= 1;
-                                umem.release(frame.offset());
-                                continue;
+                        let gre_remote = gre.remote;
+                        // Resolve underlay MAC with tiny cache keyed by epoch and gre remote
+                        let outer_dst_mac = match cached_underlay.as_ref() {
+                            Some((uc, ip, mac)) if *uc == update_counter && *ip == gre_remote => *mac,
+                            _ => {
+                                let (nh, iface) = router.route(IpAddr::V4(gre_remote)).unwrap();
+                                match nh.mac_addr {
+                                    Some(m) => {
+                                        cached_underlay = Some((update_counter, gre_remote, m));
+                                        log::info!("greg: xdp: cached underlay MAC: {m}, remote: {gre_remote}");
+                                        m
+                                    }
+                                    None => {
+                                        log::warn!(
+                                            "greg: dropping GRE pkt: missing underlay MAC for next-hop {} on {}({})",
+                                            nh.ip_addr, iface.if_name, iface.if_index
+                                        );
+                                        batched_packets -= 1;
+                                        umem.release(frame.offset());
+                                        continue;
+                                    }
+                                }
                             }
                         };
 

@@ -9,7 +9,7 @@ use {
         collections::HashMap,
         io,
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
-        sync::Arc,
+        sync::{atomic::{AtomicUsize, Ordering}, Arc},
     },
     thiserror::Error,
 };
@@ -232,7 +232,7 @@ impl Router {
 
 #[derive(Clone)]
 pub(crate) struct ArpTable {
-    pub(crate)neighbors: Vec<NeighborEntry>,
+    pub(crate) neighbors: Vec<NeighborEntry>,
 }
 
 impl ArpTable {
@@ -251,12 +251,14 @@ impl ArpTable {
 
 pub struct AtomicRouter {
     router: ArcSwap<Router>,
+    update_counter: AtomicUsize,
 }
 
 impl AtomicRouter {
     pub fn new() -> Result<Self, io::Error> {
         Ok(Self {
             router: ArcSwap::from_pointee(Router::new()?),
+            update_counter: AtomicUsize::new(0),
         })
     }
 
@@ -265,9 +267,8 @@ impl AtomicRouter {
         self.router.load().clone()
     }
 
-    /// Publish a new snapshot of the router into the fast path
-    pub fn publish(&self, new_router: Router) {
-        self.router.store(Arc::new(new_router));
+    pub fn update_counter(&self) -> usize {
+        self.update_counter.load(Ordering::Relaxed)
     }
 
     pub fn resync(&self) -> Result<(), io::Error> {
@@ -297,6 +298,7 @@ impl AtomicRouter {
             interfaces: Arc::new(working.interfaces.clone()),
         };
         self.router.store(Arc::new(router));
+        self.update_counter.fetch_add(1, Ordering::Relaxed);
     }
 }
 
