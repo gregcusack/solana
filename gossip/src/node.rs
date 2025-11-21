@@ -231,12 +231,13 @@ impl Node {
             bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
                 .expect("serve_repair_quic");
 
+        let broadcast_config = SocketConfig::default().set_multicast_ttl(50);
         let (broadcast_port, mut broadcast) =
-            multi_bind_in_range_with_config(bind_ip_addr, port_range, socket_config, 4)
+            multi_bind_in_range_with_config(bind_ip_addr, port_range, broadcast_config, 4)
                 .expect("broadcast multi_bind");
         // Multihoming TX for broadcast
         broadcast.append(
-            &mut Self::bind_to_extra_ip(&bind_ip_addrs, broadcast_port, 4, socket_config)
+            &mut Self::bind_to_extra_ip(&bind_ip_addrs, broadcast_port, 4, broadcast_config)
                 .expect("Secondary bind broadcast"),
         );
 

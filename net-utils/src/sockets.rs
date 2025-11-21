@@ -94,6 +94,7 @@ pub struct SocketConfiguration {
     recv_buffer_size: Option<usize>,
     send_buffer_size: Option<usize>,
     non_blocking: bool,
+    multicast_ttl: Option<u32>,
 }
 
 impl SocketConfiguration {
@@ -124,6 +125,11 @@ impl SocketConfiguration {
         self.non_blocking = non_blocking;
         self
     }
+
+    pub fn set_multicast_ttl(mut self, ttl: u32) -> Self {
+        self.multicast_ttl = Some(ttl);
+        self
+    }
 }
 
 #[cfg(any(windows, target_os = "ios"))]
@@ -147,6 +153,7 @@ pub(crate) fn udp_socket_with_config(config: SocketConfiguration) -> io::Result<
         recv_buffer_size,
         send_buffer_size,
         non_blocking,
+        multicast_ttl,
     } = config;
     let sock = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
     if PLATFORM_SUPPORTS_SOCKET_CONFIGS {
@@ -160,6 +167,15 @@ pub(crate) fn udp_socket_with_config(config: SocketConfiguration) -> io::Result<
 
         if reuseport {
             set_reuse_port(&sock)?;
+        }
+
+        if let Some(multicast_ttl) = multicast_ttl {
+            match sock.set_multicast_ttl_v4(multicast_ttl) {
+                Ok(_) => log::info!("greg: Set multicast TTL to {multicast_ttl}"),
+                Err(e) => {
+                    log::error!("greg: Failed to set multicast TTL: {e}");
+                }
+            }
         }
     }
     sock.set_nonblocking(non_blocking)?;
