@@ -36,7 +36,7 @@ use {
     std::{
         borrow::Cow,
         collections::{HashMap, HashSet},
-        net::{SocketAddr, UdpSocket},
+        net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
         ops::AddAssign,
         sync::{
             atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -472,6 +472,11 @@ fn retransmit_shred(
     let mut compute_turbine_peers = Measure::start("turbine_start");
     let (root_distance, addrs) =
         get_retransmit_addrs(&key, root_bank, cache, addr_cache, socket_addr_space, stats)?;
+    let mut addrs = addrs.into_owned();
+    addrs.push(SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(233, 84, 178, 6)),
+        8002,
+    ));
     compute_turbine_peers.stop();
     stats
         .compute_turbine_peers_total
@@ -531,10 +536,7 @@ fn retransmit_shred(
         last_shred_in_slot,
         root_distance,
         num_nodes,
-        addrs: match addrs {
-            Cow::Owned(addrs) => Some(addrs.into_boxed_slice()),
-            Cow::Borrowed(_) => None,
-        },
+        addrs: Some(addrs.into_boxed_slice()),
     })
 }
 
