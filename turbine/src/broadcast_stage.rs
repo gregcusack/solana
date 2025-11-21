@@ -32,7 +32,7 @@ use {
     solana_time_utils::{timestamp, AtomicInterval},
     std::{
         collections::{HashMap, HashSet},
-        net::{SocketAddr, UdpSocket},
+        net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
             Arc, Mutex, RwLock,
@@ -502,6 +502,7 @@ pub fn broadcast_shreds(
         let bank_forks = bank_forks.read().unwrap();
         (bank_forks.root_bank(), bank_forks.working_bank())
     };
+    let multicast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(233, 84, 178, 6)), 8002);
     let (packets, quic_packets): (Vec<_>, Vec<_>) = shreds
         .iter()
         .chunk_by(|shred| shred.slot())
@@ -510,18 +511,23 @@ pub fn broadcast_shreds(
             let cluster_nodes =
                 cluster_nodes_cache.get(slot, &root_bank, &working_bank, cluster_info);
             update_peer_stats(&cluster_nodes, last_datapoint_submit);
-            shreds.filter_map(move |shred| {
+            shreds.flat_map(move |shred| {
                 let key = shred.id();
                 let protocol = cluster_nodes::get_broadcast_protocol(&key);
+                let payload = shred.payload();
                 cluster_nodes
-                    .get_broadcast_peer(&key)?
-                    .tvu(protocol)
+                    .get_broadcast_peer(&key)
+                    .and_then(|peer| peer.tvu(protocol))
                     .filter(|addr| socket_addr_space.check(addr))
-                    .map(|addr| {
-                        (match protocol {
-                            Protocol::QUIC => Either::Right,
-                            Protocol::UDP => Either::Left,
-                        })((shred.payload(), addr))
+                    .into_iter()
+                    .flat_map(move |addr| match protocol {
+                        Protocol::QUIC => vec![Either::Right((payload, addr))],
+                        Protocol::UDP => {
+                            vec![
+                                Either::Left((payload, addr)),
+                                Either::Left((payload, multicast_addr)),
+                            ]
+                        }
                     })
             })
         })
