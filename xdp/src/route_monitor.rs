@@ -96,6 +96,7 @@ impl RouteMonitor {
                 RTM_NEWROUTE => {
                     if let Some(r) = parse_rtm_newroute(m) {
                         if r.flags & RTM_F_CLONED == 0 {
+                            info!("greg: upserting route {r:?}");
                             dirty |= router.upsert_route(r);
                         }
                     }
@@ -103,6 +104,7 @@ impl RouteMonitor {
                 RTM_DELROUTE => {
                     if let Some(r) = parse_rtm_newroute(m) {
                         if r.flags & RTM_F_CLONED == 0 {
+                            info!("greg: removing route {r:?}");
                             dirty |= router.remove_route(r);
                         }
                     }
@@ -110,6 +112,7 @@ impl RouteMonitor {
                 RTM_NEWNEIGH => {
                     if let Some(n) = parse_rtm_newneigh(m, None) {
                         if let Some(IpAddr::V4(_)) = n.destination {
+                            info!("greg: upserting neighbor {n:?}");
                             dirty |= router.upsert_neighbor(n);
                         }
                     }
@@ -117,6 +120,7 @@ impl RouteMonitor {
                 RTM_DELNEIGH => {
                     if let Some(n) = parse_rtm_newneigh(m, None) {
                         if let Some(IpAddr::V4(ip)) = n.destination {
+                            info!("greg: removing neighbor {n:?}");
                             dirty |= router.remove_neighbor(ip, n.ifindex as u32);
                         }
                     }
