@@ -71,13 +71,14 @@ fn is_supported_route_table_id_opt_u32(table: Option<u32>) -> bool {
 }
 
 pub(crate) fn is_valid_route(route: &RouteEntry) -> bool {
-    if route.flags & RTM_F_CLONED != 0 {
-        return false;
-    }
-    if !is_supported_route_table_id_opt_u32(route.table) {
-        return false;
-    }
-    is_supported_route_type(route.type_)
+    true
+    // if route.flags & RTM_F_CLONED != 0 {
+    //     return false;
+    // }
+    // if !is_supported_route_table_id_opt_u32(route.table) {
+    //     return false;
+    // }
+    // is_supported_route_type(route.type_)
 }
 
 pub struct NetlinkSocket {
@@ -258,20 +259,21 @@ impl NetlinkSocket {
 
 #[inline]
 pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
-    if msg.data.len() < mem::size_of::<rtmsg>() {
-        return false;
-    }
-    let rt = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const rtmsg) };
-    if rt.rtm_family as i32 != AF_INET {
-        return false;
-    }
-    if rt.rtm_flags & RTM_F_CLONED != 0 {
-        return false;
-    }
-    if !is_supported_route_table_id_u8(rt.rtm_table) {
-        return false;
-    }
-    is_supported_route_type(rt.rtm_type)
+    // if msg.data.len() < mem::size_of::<rtmsg>() {
+    //     return false;
+    // }
+    // let rt = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const rtmsg) };
+    // if rt.rtm_family as i32 != AF_INET {
+    //     return false;
+    // }
+    true
+    // if rt.rtm_flags & RTM_F_CLONED != 0 {
+    //     return false;
+    // }
+    // if !is_supported_route_table_id_u8(rt.rtm_table) {
+    //     return false;
+    // }
+    // is_supported_route_type(rt.rtm_type)
 }
 
 #[repr(C)]
@@ -290,15 +292,16 @@ struct ndmsg_hdr {
 // This matches logic in NeighborEntry::is_valid()
 #[inline]
 pub(crate) fn is_supported_ipv4_neigh_header(msg: &NetlinkMessage) -> bool {
-    if msg.data.len() < mem::size_of::<ndmsg_hdr>() {
-        return false;
-    }
-    let nd = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const ndmsg_hdr) };
+    true
+    // if msg.data.len() < mem::size_of::<ndmsg_hdr>() {
+    //     return false;
+    // }
+    // let nd = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const ndmsg_hdr) };
 
-    if nd.ndm_family as i32 != AF_INET {
-        return false;
-    }
-    nd.ndm_state & (NUD_REACHABLE | NUD_PERMANENT | NUD_STALE) != 0
+    // if nd.ndm_family as i32 != AF_INET {
+    //     return false;
+    // }
+    // nd.ndm_state & (NUD_REACHABLE | NUD_PERMANENT | NUD_STALE) != 0
 }
 
 #[derive(Debug, Clone)]
@@ -585,7 +588,7 @@ pub(crate)fn parse_ifinfomsg(msg: &NetlinkMessage) -> Option<InterfaceInfo> {
     
     // Parse GRE tunnel information if this is a GRE interface
     let gre_tunnel = parse_gre_tunnel_info_from_linkinfo(&attrs);
-    log::info!("greg: xdp: interface info: if_index={}, if_name={if_name}, gre_tunnel={gre_tunnel:?}, if_type={ifi_type}, dev_type={ifi_type}", ifi.ifi_index);
+    // log::info!("greg: xdp: interface info: if_index={}, if_name={if_name}, gre_tunnel={gre_tunnel:?}, if_type={ifi_type}, dev_type={ifi_type}", ifi.ifi_index);
     Some(InterfaceInfo {
         if_index: ifi.ifi_index,
         if_name,
@@ -670,7 +673,7 @@ fn parse_gre_tunnel_info_from_linkinfo(
     if local == Ipv4Addr::UNSPECIFIED || remote == Ipv4Addr::UNSPECIFIED {
         return None;
     }
-    log::info!("greg: xdp: gre_tunnel info parsed, adding to interfaces: {local} {remote}, {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}", ikey, okey, ttl, tos, pmtu, csum, seq, link_ifindex);
+    // log::info!("greg: xdp: gre_tunnel info parsed, adding to interfaces: {local} {remote}, {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}", ikey, okey, ttl, tos, pmtu, csum, seq, link_ifindex);
 
     Some(GreTunnelInfo {
         local,
