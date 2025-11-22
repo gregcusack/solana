@@ -35,7 +35,7 @@ use {
         net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
-            Arc, Mutex, RwLock,
+            Arc, Mutex, OnceLock, RwLock,
         },
         thread::{self, Builder, JoinHandle},
         time::{Duration, Instant},
@@ -482,6 +482,23 @@ pub enum BroadcastSocket<'a> {
     Xdp(&'a XdpSender),
 }
 
+// Multicast socket bound to doublezero1 interface for multicast sends
+static MULTICAST_SOCKET: OnceLock<UdpSocket> = OnceLock::new();
+
+fn get_multicast_socket() -> &'static UdpSocket {
+    MULTICAST_SOCKET.get_or_init(|| {
+        // Bind to doublezero1 interface IP (195.12.227.225)
+        let multicast_bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(195, 12, 227, 225)), 0);
+        solana_net_utils::sockets::bind_in_range_with_config(
+            multicast_bind_addr.ip(),
+            (8020, 8050),
+            solana_net_utils::sockets::SocketConfiguration::default().set_multicast_ttl(50),
+        )
+        .map(|(_, socket)| socket)
+        .expect("Failed to create multicast socket")
+    })
+}
+
 /// Broadcasts shreds from the leader (i.e. this node) to the root of the
 /// turbine retransmit tree for each shred.
 pub fn broadcast_shreds(
@@ -538,11 +555,32 @@ pub fn broadcast_shreds(
     match socket {
         BroadcastSocket::Udp(s) => {
             let mut send_mmsg_time = Measure::start("send_mmsg");
-            match batch_send(s, packets) {
-                Ok(()) => (),
-                Err(SendPktsError::IoError(ioerr, num_failed)) => {
-                    transmit_stats.dropped_packets_udp += num_failed;
-                    result = Err(Error::Io(ioerr));
+            let multicast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(233, 84, 178, 6)), 8002);
+            // Separate multicast packets from regular packets
+            let (multicast_packets, regular_packets): (Vec<_>, Vec<_>) = packets
+                .into_iter()
+                .partition(|(_, addr)| *addr == multicast_addr);
+            // Send regular packets through normal socket
+            if !regular_packets.is_empty() {
+                match batch_send(s, regular_packets) {
+                    Ok(()) => (),
+                    Err(SendPktsError::IoError(ioerr, num_failed)) => {
+                        transmit_stats.dropped_packets_udp += num_failed;
+                        result = Err(Error::Io(ioerr));
+                    }
+                }
+            }
+            // Send multicast packets through multicast socket bound to doublezero1
+            if !multicast_packets.is_empty() {
+                let multicast_socket = get_multicast_socket();
+                match batch_send(multicast_socket, multicast_packets) {
+                    Ok(()) => (),
+                    Err(SendPktsError::IoError(ioerr, num_failed)) => {
+                        transmit_stats.dropped_packets_udp += num_failed;
+                        if result.is_ok() {
+                            result = Err(Error::Io(ioerr));
+                        }
+                    }
                 }
             }
             send_mmsg_time.stop();
