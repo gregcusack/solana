@@ -487,8 +487,8 @@ static MULTICAST_SOCKET: OnceLock<UdpSocket> = OnceLock::new();
 
 fn get_multicast_socket() -> &'static UdpSocket {
     MULTICAST_SOCKET.get_or_init(|| {
-        // Bind to doublezero1 interface IP (195.12.227.225)
-        let multicast_bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(195, 12, 227, 225)), 0);
+        // Bind to doublezero1 interface IP (103.88.233.76)
+        let multicast_bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(103, 88, 233, 76)), 0);
         solana_net_utils::sockets::bind_in_range_with_config(
             multicast_bind_addr.ip(),
             (8020, 8050),
@@ -519,7 +519,7 @@ pub fn broadcast_shreds(
         let bank_forks = bank_forks.read().unwrap();
         (bank_forks.root_bank(), bank_forks.working_bank())
     };
-    let multicast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(233, 84, 178, 6)), 8002);
+    let multicast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(233, 84, 178, 6)), 8000);
     let (packets, quic_packets): (Vec<_>, Vec<_>) = shreds
         .iter()
         .chunk_by(|shred| shred.slot())
@@ -555,7 +555,6 @@ pub fn broadcast_shreds(
     match socket {
         BroadcastSocket::Udp(s) => {
             let mut send_mmsg_time = Measure::start("send_mmsg");
-            let multicast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(233, 84, 178, 6)), 8002);
             // Separate multicast packets from regular packets
             let (multicast_packets, regular_packets): (Vec<_>, Vec<_>) = packets
                 .into_iter()
