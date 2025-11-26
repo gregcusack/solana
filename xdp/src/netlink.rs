@@ -455,7 +455,6 @@ pub struct RouteEntry {
     pub family: u8,
     pub dst_len: u8,
     pub flags: u32,
-    pub metrics: Option<u32>,
 }
 
 impl RouteEntry {
@@ -566,7 +565,6 @@ pub fn parse_rtm_newroute(msg: &NetlinkMessage) -> Option<RouteEntry> {
         family: rt_msg.rtm_family,
         dst_len: rt_msg.rtm_dst_len,
         flags: rt_msg.rtm_flags,
-        metrics: None,
     };
     if let Some(dst_attr) = attrs.get(&RTA_DST) {
         route.destination = parse_ip_address(dst_attr.data, rt_msg.rtm_family);
@@ -596,7 +594,7 @@ pub fn parse_rtm_newroute(msg: &NetlinkMessage) -> Option<RouteEntry> {
         route.pref_src = parse_ip_address(prefsrc_attr.data, rt_msg.rtm_family);
     }
     if let Some(metrics) = attrs.get(&RTA_METRICS) {
-        route.metrics = u32_from_ne_bytes(metrics.data);
+        dump_rta_metrics(metrics.data);
     }
     Some(route)
 }
@@ -620,4 +618,59 @@ pub fn netlink_get_default_gateway(family: u8) -> Result<Option<RouteEntry>, io:
     }
 
     Ok(None)
+}
+pub fn dump_rta_metrics(buf: &[u8]) {
+    log::info!("greg: xdp: RTA_METRICS raw len = {}", buf.len());
+
+    for res in NlAttrsIterator::new(buf) {
+        let attr = match res {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("greg: xdp: error parsing nested metric attr: {e:?}");
+                break;
+            }
+        };
+
+        // Inner metrics use RTAX_* in nla_type. Mask off flags just like parse_attrs does.
+        let t = attr.header.nla_type & NLA_TYPE_MASK as u16;
+        let name = rtax_name(t);
+        let data = attr.data;
+
+        log::info!(
+            "greg: xdp: RTA_METRICS: metric type {} ({}) len={} bytes={:?}",
+            name,
+            t,
+            data.len(),
+            data,
+        );
+
+        // Most RTAX_* are u32; for debugging, show that when length matches.
+        if data.len() == 4 {
+            let v = u32::from_ne_bytes([data[0], data[1], data[2], data[3]]);
+            log::info!("greg: xdp: (u32 = {})", v);
+        }
+
+    }
+}
+
+fn rtax_name(t: u16) -> &'static str {
+    match t {
+        1  => "RTAX_MTU",
+        2  => "RTAX_WINDOW",
+        3  => "RTAX_RTT",
+        4  => "RTAX_RTTVAR",
+        5  => "RTAX_SSTHRESH",
+        6  => "RTAX_CWND",
+        7  => "RTAX_ADVMSS",
+        8  => "RTAX_REORDERING",
+        9  => "RTAX_HOPLIMIT",
+        10 => "RTAX_INITCWND",
+        11 => "RTAX_FEATURES",
+        12 => "RTAX_RTO_MIN",
+        13 => "RTAX_INITRWND",
+        14 => "RTAX_QUICKACK",
+        15 => "RTAX_CC_ALGO",
+        16 => "RTAX_FASTOPEN_NO_COOKIE",
+        _  => "RTAX_UNKNOWN",
+    }
 }
