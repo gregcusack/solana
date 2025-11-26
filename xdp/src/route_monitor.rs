@@ -1,7 +1,7 @@
 use {
     crate::{
         netlink::{
-            is_supported_ipv4_neigh_header, is_supported_ipv4_route_header, is_valid_link_update,
+            is_supported_ipv4_neigh_header, dump_rta_metrics_from_nl_msg, is_supported_ipv4_route_header, is_valid_link_update,
             parse_ifinfomsg, parse_rtm_newneigh, parse_rtm_newroute, NetlinkMessage, NetlinkSocket,
         },
         route::{AtomicRouter, WorkingRouter},
@@ -246,14 +246,19 @@ impl RouteMonitor {
         for m in msgs {
             match m.header.nlmsg_type {
                 RTM_NEWROUTE if is_supported_ipv4_route_header(m) => {
-                    // info!("greg: new route");
                     if let Some(r) = parse_rtm_newroute(m) {
+                        log::info!("greg: xdp: RTM_NEWROUTE new route: {r:?}");
+                        dump_rta_metrics_from_nl_msg(m);
+                        log::info!("greg: done dump new route");
                         work.upsert_route(r);
                     }
                 }
                 RTM_DELROUTE if is_supported_ipv4_route_header(m) => {
                     // info!("greg: delete route");
                     if let Some(r) = parse_rtm_newroute(m) {
+                        info!("greg: xdp: RTM_DELROUTE new route: {r:?}");
+                        dump_rta_metrics_from_nl_msg(m);
+                        log::info!("greg: done dump del route");
                         work.delete_route(r);
                     }
                 }

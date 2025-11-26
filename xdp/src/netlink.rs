@@ -10,7 +10,7 @@ use {
         RTA_IIF, RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_F_CLONED, RTM_GETLINK,
         RTM_GETNEIGH, RTM_GETROUTE, RTM_NEWLINK, RTM_NEWNEIGH, RTM_NEWROUTE, RTN_BLACKHOLE,
         RTN_BROADCAST, RTN_LOCAL, RTN_MULTICAST, RTN_THROW, RTN_UNICAST, RT_TABLE_LOCAL,
-        RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF,
+        RT_TABLE_MAIN, RT_TABLE_UNSPEC, SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, RTA_METRICS,
     },
     std::{
         collections::HashMap,
@@ -71,9 +71,9 @@ fn is_supported_route_table_id_opt_u32(table: Option<u32>) -> bool {
 }
 
 pub(crate) fn is_valid_route(route: &RouteEntry) -> bool {
-    if route.flags & RTM_F_CLONED != 0 {
-        return false;
-    }
+    // if route.flags & RTM_F_CLONED != 0 {
+    //     return false;
+    // }
     if !is_supported_route_table_id_opt_u32(route.table) {
         return false;
     }
@@ -265,9 +265,9 @@ pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
     if rt.rtm_family as i32 != AF_INET {
         return false;
     }
-    if rt.rtm_flags & RTM_F_CLONED != 0 {
-        return false;
-    }
+    // if rt.rtm_flags & RTM_F_CLONED != 0 {
+    //     return false;
+    // }
     if !is_supported_route_table_id_u8(rt.rtm_table) {
         return false;
     }
@@ -981,4 +981,73 @@ fn parse_into_ifinfomsg(msg: &NetlinkMessage) -> Option<ifinfomsg> {
         return None;
     }
     Some(unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const ifinfomsg) })
+}
+
+pub fn dump_rta_metrics(buf: &[u8]) {
+    log::info!("greg: xdp: RTA_METRICS raw len = {}", buf.len());
+
+    for res in NlAttrsIterator::new(buf) {
+        let attr = match res {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("greg: xdp: error parsing nested metric attr: {e:?}");
+                break;
+            }
+        };
+
+        // Inner metrics use RTAX_* in nla_type. Mask off flags just like parse_attrs does.
+        let t = attr.header.nla_type & NLA_TYPE_MASK as u16;
+        let name = rtax_name(t);
+        let data = attr.data;
+
+        log::info!(
+            "greg: xdp: RTA_METRICS: metric type {} ({}) len={} bytes={:?}",
+            name,
+            t,
+            data.len(),
+            data,
+        );
+
+        // Most RTAX_* are u32; for debugging, show that when length matches.
+        if data.len() == 4 {
+            let v = u32::from_ne_bytes([data[0], data[1], data[2], data[3]]);
+            log::info!("greg: xdp: (u32 = {})", v);
+        }
+
+    }
+}
+
+fn rtax_name(t: u16) -> &'static str {
+    match t {
+        1  => "RTAX_MTU",
+        2  => "RTAX_WINDOW",
+        3  => "RTAX_RTT",
+        4  => "RTAX_RTTVAR",
+        5  => "RTAX_SSTHRESH",
+        6  => "RTAX_CWND",
+        7  => "RTAX_ADVMSS",
+        8  => "RTAX_REORDERING",
+        9  => "RTAX_HOPLIMIT",
+        10 => "RTAX_INITCWND",
+        11 => "RTAX_FEATURES",
+        12 => "RTAX_RTO_MIN",
+        13 => "RTAX_INITRWND",
+        14 => "RTAX_QUICKACK",
+        15 => "RTAX_CC_ALGO",
+        16 => "RTAX_FASTOPEN_NO_COOKIE",
+        _  => "RTAX_UNKNOWN",
+    }
+}
+
+pub fn dump_rta_metrics_from_nl_msg(msg: &NetlinkMessage) -> Option<()> {
+    if msg.data.len() < mem::size_of::<rtmsg>() {
+        return None;
+    }
+    let Ok(attrs) = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]) else {
+        return None;
+    };
+    if let Some(metrics) = attrs.get(&RTA_METRICS) {
+        dump_rta_metrics(metrics.data);
+    }
+    Some(())
 }
