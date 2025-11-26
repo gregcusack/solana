@@ -98,6 +98,7 @@ impl RouteMonitor {
             match m.header.nlmsg_type {
                 RTM_NEWROUTE => {
                     if let Some(r) = parse_rtm_newroute(m) {
+                        log::info!("greg: xdp: RTM_NEWROUTE raw route: {r:?}");
                         if r.flags & RTM_F_CLONED == 0 {
                             log::info!("greg: xdp: RTM_NEWROUTE new route: {r:?}");
                             dirty |= router.upsert_route(r);
@@ -108,6 +109,7 @@ impl RouteMonitor {
                 }
                 RTM_DELROUTE => {
                     if let Some(r) = parse_rtm_newroute(m) {
+                        log::info!("greg: xdp: RTM_DELROUTE raw route: {r:?}");
                         if r.flags & RTM_F_CLONED == 0 {
                             log::info!("greg: xdp: RTM_DELROUTE route: {r:?}");
                             dirty |= router.remove_route(r);
@@ -118,6 +120,7 @@ impl RouteMonitor {
                 }
                 RTM_NEWNEIGH => {
                     if let Some(n) = parse_rtm_newneigh(m, None) {
+                        log::info!("greg: xdp: RTM_NEWNEIGH neighbor: {n:?}");
                         if let Some(IpAddr::V4(_)) = n.destination {
                             dirty |= router.upsert_neighbor(n);
                         }
@@ -125,6 +128,7 @@ impl RouteMonitor {
                 }
                 RTM_DELNEIGH => {
                     if let Some(n) = parse_rtm_newneigh(m, None) {
+                        log::info!("greg: xdp: RTM_DELNEIGH neighbor: {n:?}");
                         if let Some(IpAddr::V4(ip)) = n.destination {
                             dirty |= router.remove_neighbor(ip, n.ifindex as u32);
                         }
@@ -132,11 +136,13 @@ impl RouteMonitor {
                 }
                 RTM_NEWLINK => {
                     if let Some(interface_info) = parse_ifinfomsg(m) {
+                        log::info!("greg: xdp: RTM_NEWLINK interface: {interface_info:?}");
                         dirty |= router.upsert_interface(interface_info);
                     }
                 }
                 RTM_DELLINK => {
                     if let Some(interface_info) = parse_ifinfomsg(m) {
+                        log::info!("greg: xdp: RTM_DELLINK interface: {interface_info:?}");
                         dirty |= router.remove_interface(interface_info.if_index);
                     }
                 }
