@@ -593,9 +593,6 @@ pub fn parse_rtm_newroute(msg: &NetlinkMessage) -> Option<RouteEntry> {
     if let Some(prefsrc_attr) = attrs.get(&RTA_PREFSRC) {
         route.pref_src = parse_ip_address(prefsrc_attr.data, rt_msg.rtm_family);
     }
-    if let Some(metrics) = attrs.get(&RTA_METRICS) {
-        dump_rta_metrics(metrics.data);
-    }
     Some(route)
 }
 
@@ -673,4 +670,17 @@ fn rtax_name(t: u16) -> &'static str {
         16 => "RTAX_FASTOPEN_NO_COOKIE",
         _  => "RTAX_UNKNOWN",
     }
+}
+
+pub fn dump_rta_metrics_from_nl_msg(msg: &NetlinkMessage) -> Option<()> {
+    if msg.data.len() < mem::size_of::<rtmsg>() {
+        return None;
+    }
+    let Ok(attrs) = parse_attrs(&msg.data[mem::size_of::<rtmsg>()..]) else {
+        return None;
+    };
+    if let Some(metrics) = attrs.get(&RTA_METRICS) {
+        dump_rta_metrics(metrics.data);
+    }
+    Some(())
 }

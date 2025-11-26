@@ -1,6 +1,6 @@
 use {
     crate::{
-        netlink::{parse_rtm_newneigh, parse_rtm_newroute, NetlinkMessage, NetlinkSocket},
+        netlink::{parse_rtm_newneigh, parse_rtm_newroute, dump_rta_metrics_from_nl_msg, NetlinkMessage, NetlinkSocket},
         route::Router,
     },
     arc_swap::ArcSwap,
@@ -95,23 +95,25 @@ impl RouteMonitor {
             match m.header.nlmsg_type {
                 RTM_NEWROUTE => {
                     if let Some(r) = parse_rtm_newroute(m) {
-                        log::info!("greg: xdp: RTM_NEWROUTE raw route: {r:?}");
                         if r.flags & RTM_F_CLONED == 0 {
                             log::info!("greg: xdp: RTM_NEWROUTE new route: {r:?}");
                             dirty |= router.upsert_route(r);
                         } else {
                             log::info!("greg: xdp: cloned RTM_NEWROUTE route: {r:?}");
+                            dump_rta_metrics_from_nl_msg(m);
+                            log::info!("greg: done dump new cloned route");
                         }
                     }
                 }
                 RTM_DELROUTE => {
                     if let Some(r) = parse_rtm_newroute(m) {
-                        log::info!("greg: xdp: RTM_DELROUTE raw route: {r:?}");
                         if r.flags & RTM_F_CLONED == 0 {
                             log::info!("greg: xdp: RTM_DELROUTE route: {r:?}");
                             dirty |= router.remove_route(r);
                         } else {
                             log::info!("greg: xdp: cloned RTM_DELROUTE route: {r:?}");
+                            dump_rta_metrics_from_nl_msg(m);
+                            log::info!("greg: done dump del cloned route");
                         }
                     }
                 }
