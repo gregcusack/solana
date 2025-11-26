@@ -5,9 +5,9 @@ use {
         nlattr, nlmsgerr, nlmsghdr, recv, send, setsockopt, sockaddr_nl, socket, AF_INET, AF_INET6,
         AF_NETLINK, NDA_DST, NDA_LLADDR, NETLINK_EXT_ACK, NETLINK_ROUTE, NLA_ALIGNTO,
         NLA_TYPE_MASK, NLMSG_DONE, NLMSG_ERROR, NLM_F_DUMP, NLM_F_MULTI, NLM_F_REQUEST, RTA_DST,
-        RTA_GATEWAY, RTA_IIF, RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE, RTM_GETNEIGH,
-        RTM_GETROUTE, RTM_NEWNEIGH, RTM_NEWROUTE, RT_TABLE_MAIN, SOCK_RAW, SOL_NETLINK, SOL_SOCKET,
-        SO_RCVBUF,
+        RTA_GATEWAY, RTA_IIF, RTA_OIF, RTA_PREFSRC, RTA_PRIORITY, RTA_TABLE,
+        RTM_GETNEIGH, RTM_GETROUTE, RTM_NEWNEIGH, RTM_NEWROUTE, RT_TABLE_MAIN,
+        SOCK_RAW, SOL_NETLINK, SOL_SOCKET, SO_RCVBUF, RTA_METRICS,
     },
     std::{
         collections::HashMap,
@@ -455,6 +455,7 @@ pub struct RouteEntry {
     pub family: u8,
     pub dst_len: u8,
     pub flags: u32,
+    pub metrics: Option<u32>,
 }
 
 impl RouteEntry {
@@ -565,6 +566,7 @@ pub fn parse_rtm_newroute(msg: &NetlinkMessage) -> Option<RouteEntry> {
         family: rt_msg.rtm_family,
         dst_len: rt_msg.rtm_dst_len,
         flags: rt_msg.rtm_flags,
+        metrics: None,
     };
     if let Some(dst_attr) = attrs.get(&RTA_DST) {
         route.destination = parse_ip_address(dst_attr.data, rt_msg.rtm_family);
@@ -592,6 +594,9 @@ pub fn parse_rtm_newroute(msg: &NetlinkMessage) -> Option<RouteEntry> {
     }
     if let Some(prefsrc_attr) = attrs.get(&RTA_PREFSRC) {
         route.pref_src = parse_ip_address(prefsrc_attr.data, rt_msg.rtm_family);
+    }
+    if let Some(metrics) = attrs.get(&RTA_METRICS) {
+        route.metrics = u32_from_ne_bytes(metrics.data);
     }
     Some(route)
 }

@@ -96,14 +96,20 @@ impl RouteMonitor {
                 RTM_NEWROUTE => {
                     if let Some(r) = parse_rtm_newroute(m) {
                         if r.flags & RTM_F_CLONED == 0 {
+                            log::info!("greg: xdp: RTM_NEWROUTE new route: {r:?}");
                             dirty |= router.upsert_route(r);
+                        } else {
+                            log::info!("greg: xdp: cloned RTM_NEWROUTE route: {r:?}");
                         }
                     }
                 }
                 RTM_DELROUTE => {
                     if let Some(r) = parse_rtm_newroute(m) {
                         if r.flags & RTM_F_CLONED == 0 {
+                            log::info!("greg: xdp: RTM_DELROUTE route: {r:?}");
                             dirty |= router.remove_route(r);
+                        } else {
+                            log::info!("greg: xdp: cloned RTM_DELROUTE route: {r:?}");
                         }
                     }
                 }
