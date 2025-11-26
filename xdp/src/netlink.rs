@@ -258,20 +258,21 @@ impl NetlinkSocket {
 
 #[inline]
 pub(crate) fn is_supported_ipv4_route_header(msg: &NetlinkMessage) -> bool {
-    if msg.data.len() < mem::size_of::<rtmsg>() {
-        return false;
-    }
-    let rt = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const rtmsg) };
-    if rt.rtm_family as i32 != AF_INET {
-        return false;
-    }
-    // if rt.rtm_flags & RTM_F_CLONED != 0 {
+    true
+    // if msg.data.len() < mem::size_of::<rtmsg>() {
     //     return false;
     // }
-    if !is_supported_route_table_id_u8(rt.rtm_table) {
-        return false;
-    }
-    is_supported_route_type(rt.rtm_type)
+    // let rt = unsafe { ptr::read_unaligned(msg.data.as_ptr() as *const rtmsg) };
+    // if rt.rtm_family as i32 != AF_INET {
+    //     return false;
+    // }
+    // // if rt.rtm_flags & RTM_F_CLONED != 0 {
+    // //     return false;
+    // // }
+    // if !is_supported_route_table_id_u8(rt.rtm_table) {
+    //     return false;
+    // }
+    // is_supported_route_type(rt.rtm_type)
 }
 
 #[repr(C)]
@@ -1047,7 +1048,10 @@ pub fn dump_rta_metrics_from_nl_msg(msg: &NetlinkMessage) -> Option<()> {
         return None;
     };
     if let Some(metrics) = attrs.get(&RTA_METRICS) {
+        log::info!("greg: xdp: RTA_METRICS found");
         dump_rta_metrics(metrics.data);
+    } else {
+        log::info!("greg: xdp: RTA_METRICS not found");
     }
     Some(())
 }
