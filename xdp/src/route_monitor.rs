@@ -9,7 +9,7 @@ use {
     libc::{
         poll, pollfd, POLLERR, POLLHUP, POLLIN, POLLNVAL, RTMGRP_IPV4_ROUTE, RTMGRP_LINK,
         RTMGRP_NEIGH, RTM_DELLINK, RTM_DELNEIGH, RTM_DELROUTE, RTM_NEWLINK, RTM_NEWNEIGH,
-        RTM_NEWROUTE,
+        RTM_NEWROUTE, RTM_F_CLONED
     },
     log::*,
     std::{
@@ -248,6 +248,9 @@ impl RouteMonitor {
                 RTM_NEWROUTE if is_supported_ipv4_route_header(m) => {
                     if let Some(r) = parse_rtm_newroute(m) {
                         log::info!("greg: xdp: RTM_NEWROUTE new route: {r:?}");
+                        if r.flags & RTM_F_CLONED == 0 {
+                            log::info!("greg: xdp: cloned new route");
+                        }
                         dump_rta_metrics_from_nl_msg(m);
                         log::info!("greg: done dump new route");
                         work.upsert_route(r);
@@ -257,6 +260,9 @@ impl RouteMonitor {
                     // info!("greg: delete route");
                     if let Some(r) = parse_rtm_newroute(m) {
                         info!("greg: xdp: RTM_DELROUTE new route: {r:?}");
+                        if r.flags & RTM_F_CLONED == 0 {
+                            log::info!("greg: xdp: cloned del route");
+                        }
                         dump_rta_metrics_from_nl_msg(m);
                         log::info!("greg: done dump del route");
                         work.delete_route(r);
