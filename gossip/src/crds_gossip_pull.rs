@@ -488,7 +488,28 @@ impl CrdsGossipPull {
             }
             let caller_wallclock = caller_wallclock.checked_add(jitter).unwrap_or(0);
             let pred = |entry: &&VersionedCrdsValue| {
-                debug_assert!(filter.test_mask(entry.value.hash()));
+                // debug_assert!(filter.test_mask(entry.value.hash()));
+                if !filter.test_mask(entry.value.hash()) {
+                    let h = CrdsFilter::hash_as_u64(entry.value.hash());
+                    let ones = (!0u64)
+                        .checked_shr(filter.mask_bits)
+                        .unwrap_or(!0u64);
+            
+                    error!(
+                        "greg: CrdsFilter mask invariant violated: \
+                         mask_bits={} mask={:#018x} hash_u64={:#018x} \
+                         (hash|ones)={:#018x} (mask|ones)={:#018x}",
+                        filter.mask_bits,
+                        filter.mask,
+                        h,
+                        h | ones,
+                        filter.mask | ones,
+                    );
+            
+                    // If you want it to blow up even in release:
+                    panic!("CrdsFilter::test_mask invariant violated");
+                    // or: assert!(false, "...");
+                }
                 // Skip values that are too new.
                 if entry.value.wallclock() > caller_wallclock {
                     total_skipped.fetch_add(1, Ordering::Relaxed);
