@@ -126,9 +126,9 @@ impl CrdsFilter {
     }
     fn test_mask(&self, item: &Hash) -> bool {
         // only consider the highest mask_bits bits from the hash and set the rest to 1.
-        let ones = (!0u64).checked_shr(self.mask_bits).unwrap_or(!0u64);
+        let ones = (!0u64).checked_shr(self.mask_bits).unwrap_or(0);
         let bits = Self::hash_as_u64(item) | ones;
-        bits == self.mask
+        bits == (self.mask | ones)
     }
     #[cfg(test)]
     fn add(&mut self, item: &Hash) {
