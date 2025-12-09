@@ -2473,7 +2473,13 @@ fn discard_different_shred_version(
     };
     let num_values = values.len();
     values.retain(|value| match value.data() {
-        CrdsData::ContactInfo(ci) => ci.shred_version() == self_shred_version,
+        CrdsData::ContactInfo(ci) => {
+            if ci.shred_version() != self_shred_version {
+                info!("dropping ci w/ wrong shred version: {}", ci.shred_version());
+                return false;
+            }
+            true
+        }
         _ => crds.get_shred_version(&value.pubkey()) == Some(self_shred_version),
     });
     let num_skipped = num_values - values.len();

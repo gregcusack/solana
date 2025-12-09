@@ -2798,7 +2798,7 @@ fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: boo
         .filter(|node| {
             let age = now.saturating_sub(node.wallclock());
             if age > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS {
-                stale_nodes.push((node.pubkey().clone(), node.wallclock().clone()));
+                stale_nodes.push((node.pubkey().clone(), age));
                 false
             } else {
                 true
@@ -2811,9 +2811,11 @@ fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: boo
     let my_shred_version = cluster_info.my_shred_version();
     let my_id = cluster_info.id();
 
-    info!("Stale nodes:");
-    for (pubkey, wallclock) in stale_nodes {
-        info!("    Stale: {pubkey}: {wallclock}");
+    if !stale_nodes.is_empty() {
+        info!("Stale nodes:");
+        for (pubkey, age) in stale_nodes {
+            info!("    Stale: {pubkey}: {age}");
+        }
     }
 
     for (activated_stake, vote_account) in bank.vote_accounts().values() {
