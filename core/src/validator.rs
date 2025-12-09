@@ -2791,18 +2791,30 @@ fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: boo
     // Nodes contact infos are saved to disk and restored on validator startup.
     // Staked nodes entries will not expire until an epoch after. So it
     // is necessary here to filter for recent entries to establish liveness.
+    let mut stale_nodes = vec![];
     let peers: HashMap<_, _> = cluster_info
         .tvu_peers(ContactInfo::clone)
         .into_iter()
         .filter(|node| {
             let age = now.saturating_sub(node.wallclock());
+            if age > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS {
+                stale_nodes.push((node.pubkey().clone(), node.wallclock().clone()));
+                false
+            } else {
+                true
+            }
             // Contact infos are refreshed twice during this period.
-            age < CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+            // age < CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
         })
         .map(|node| (*node.pubkey(), node))
         .collect();
     let my_shred_version = cluster_info.my_shred_version();
     let my_id = cluster_info.id();
+
+    info!("Stale nodes:");
+    for (pubkey, wallclock) in stale_nodes {
+        info!("    Stale: {pubkey}: {wallclock}");
+    }
 
     for (activated_stake, vote_account) in bank.vote_accounts().values() {
         let activated_stake = *activated_stake;
