@@ -1842,11 +1842,23 @@ impl ClusterInfo {
     ) {
         let _st = ScopedTimer::from(&self.stats.handle_batch_ping_messages_time);
         let keypair = self.keypair();
-        let pongs = pings.into_iter().map(|(addr, ping)| {
-            let pong = Pong::new(&ping, &keypair);
-            (addr, Protocol::PongMessage(pong))
-        });
-        send_gossip_packets(pongs, recycler, response_sender, &self.stats);
+        let my_contact_info =
+            CrdsValue::new(CrdsData::ContactInfo(self.my_contact_info()), &keypair);
+        let messages: Vec<_> = pings
+            .into_iter()
+            .flat_map(|(addr, ping)| {
+                let addr = *addr.borrow();
+                let pong = Pong::new(&ping, &keypair);
+                [
+                    (addr, Protocol::PongMessage(pong)),
+                    (
+                        addr,
+                        Protocol::PushMessage(keypair.pubkey(), vec![my_contact_info.clone()]),
+                    ),
+                ]
+            })
+            .collect(); // possible try and avoid the collect here but we don't send many of these so may not be necessary
+        send_gossip_packets(messages, recycler, response_sender, &self.stats);
     }
 
     fn handle_batch_pong_messages<I>(&self, pongs: I, now: Instant)
@@ -2082,6 +2094,8 @@ impl ClusterInfo {
             .map(|(addr, ping)| (addr, Protocol::PingMessage(ping)));
         send_gossip_packets(pings, recycler, response_sender, &self.stats);
         self.handle_batch_ping_messages(ping_messages, recycler, response_sender);
+        // Process pongs before push messages so ping cache is updated before receiving contactinfo
+        self.handle_batch_pong_messages(pong_messages, Instant::now());
         self.handle_batch_prune_messages(prune_messages, stakes);
         self.handle_batch_push_messages(
             push_messages,
@@ -2092,7 +2106,6 @@ impl ClusterInfo {
         );
         self.handle_batch_pull_responses(pull_responses, stakes, epoch_duration);
         self.trim_crds_table(CRDS_UNIQUE_PUBKEY_CAPACITY, stakes);
-        self.handle_batch_pong_messages(pong_messages, Instant::now());
         self.handle_batch_pull_requests(
             pull_requests,
             thread_pool,
