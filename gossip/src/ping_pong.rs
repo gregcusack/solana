@@ -253,16 +253,14 @@ impl<const N: usize> PingCache<N> {
                         stats.ping_pong_expired_pong_pop_count.add_relaxed(1);
                     }
                     log::info!(
-                        "pop expired pong, sender must resent pull request: pubkey={} age_s={}",
+                        "no_fix: pop expired pong, sender must resent pull request: pubkey={} age_s={}",
                         remote_node.0,
                         age.as_secs()
                     );
-                    (false, true)
-                } else {
-                    // If the pong message is not too recent, generate a new ping
-                    // message to extend remote node verification. If the pong message is too recent,
-                    (true, age > self.ttl / 8)
                 }
+                // If the pong message is not too recent, generate a new ping
+                // message to extend remote node verification. If the pong message is too recent,
+                (true, age > self.ttl / 8)
             }
         };
         let ping = should_ping
