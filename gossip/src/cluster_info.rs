@@ -124,7 +124,7 @@ const CHANNEL_CONSUME_CAPACITY: usize = 1024;
 /// of `MAX_GOSSIP_TRAFFIC` (103,896).
 pub(crate) const GOSSIP_CHANNEL_CAPACITY: usize = 4096; // 2^12
 const GOSSIP_PING_CACHE_CAPACITY: usize = 126976;
-const GOSSIP_PING_CACHE_TTL: Duration = Duration::from_secs(1280);
+const GOSSIP_PING_CACHE_TTL: Duration = Duration::from_secs(60);
 const GOSSIP_PING_CACHE_RATE_LIMIT_DELAY: Duration = Duration::from_secs(1280 / 64);
 pub const DEFAULT_CONTACT_DEBUG_INTERVAL_MILLIS: u64 = 10_000;
 pub const DEFAULT_CONTACT_SAVE_INTERVAL_MILLIS: u64 = 60_000;
@@ -1654,7 +1654,7 @@ impl ClusterInfo {
         let mut cache = HashMap::<(Pubkey, SocketAddr), bool>::new();
         let mut ping_cache = self.ping_cache.lock().unwrap();
         let mut hard_check = move |node| {
-            let (check, ping) = ping_cache.check(rng, &self.keypair(), now, node);
+            let (check, ping) = ping_cache.check(rng, &self.keypair(), now, node, Some(&self.stats));
             if let Some(ping) = ping {
                 let ping = Protocol::PingMessage(ping);
                 if let Some(pkt) = make_gossip_packet(node.1, &ping, &self.stats) {
@@ -2027,6 +2027,7 @@ impl ClusterInfo {
                 &self.socket_addr_space,
                 &self.ping_cache,
                 &mut pings,
+                Some(&self.stats),
             ) {
                 true
             } else {
@@ -2512,6 +2513,7 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
     socket_addr_space: &SocketAddrSpace,
     ping_cache: &Mutex<PingCache>,
     pings: &mut Vec<(SocketAddr, Ping)>,
+    stats: Option<&GossipStats>,
 ) -> bool {
     let (pubkey, addr) = match value.data() {
         CrdsData::ContactInfo(node) => (node.pubkey(), node.gossip()),
@@ -2524,7 +2526,7 @@ fn verify_gossip_addr<R: Rng + CryptoRng>(
     let (out, ping) = {
         let node = (*pubkey, addr);
         let mut ping_cache = ping_cache.lock().unwrap();
-        ping_cache.check(rng, keypair, Instant::now(), node)
+        ping_cache.check(rng, keypair, Instant::now(), node, stats)
     };
     if let Some(ping) = ping {
         pings.push((addr, ping));
@@ -2698,7 +2700,8 @@ mod tests {
                 .iter()
                 .map(|(keypair, socket)| {
                     let node = (keypair.pubkey(), *socket);
-                    let (check, ping) = ping_cache.check(&mut rng, &this_node, now, node);
+                    let (check, ping) =
+                        ping_cache.check(&mut rng, &this_node, now, node, None);
                     // Assert that initially remote nodes will not pass the
                     // ping/pong check.
                     assert!(!check);
@@ -2718,7 +2721,7 @@ mod tests {
             let mut ping_cache = cluster_info.ping_cache.lock().unwrap();
             for (keypair, socket) in &remote_nodes {
                 let node = (keypair.pubkey(), *socket);
-                let (check, _) = ping_cache.check(&mut rng, &this_node, now, node);
+                let (check, _) = ping_cache.check(&mut rng, &this_node, now, node, None);
                 assert!(check);
             }
         }
@@ -2727,7 +2730,7 @@ mod tests {
             let mut ping_cache = cluster_info.ping_cache.lock().unwrap();
             let (keypair, socket) = new_rand_remote_node(&mut rng);
             let node = (keypair.pubkey(), socket);
-            let (check, _) = ping_cache.check(&mut rng, &this_node, now, node);
+            let (check, _) = ping_cache.check(&mut rng, &this_node, now, node, None);
             assert!(!check);
         }
     }

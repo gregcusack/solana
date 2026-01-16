@@ -399,7 +399,7 @@ pub(crate) fn maybe_ping_gossip_addresses<R: Rng + CryptoRng>(
             };
             let (check, ping) = {
                 let node = (*node.pubkey(), node_gossip);
-                ping_cache.check(rng, keypair, now, node)
+                ping_cache.check(rng, keypair, now, node, None)
             };
             if let Some(ping) = ping {
                 pings.push((node_gossip, ping));

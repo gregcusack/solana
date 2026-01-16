@@ -1,5 +1,5 @@
 use {
-    crate::cluster_info_metrics::should_report_message_signature,
+    crate::cluster_info_metrics::{should_report_message_signature, GossipStats},
     lru::LruCache,
     rand::{CryptoRng, Rng},
     serde::{Deserialize, Serialize},
@@ -240,6 +240,7 @@ impl<const N: usize> PingCache<N> {
         keypair: &Keypair,
         now: Instant,
         remote_node: (Pubkey, SocketAddr),
+        stats: Option<&GossipStats>,
     ) -> (bool, Option<Ping<N>>) {
         let (check, should_ping) = match self.pongs.get(&remote_node) {
             None => (false, true),
@@ -248,6 +249,10 @@ impl<const N: usize> PingCache<N> {
                 // Pop if the pong message has expired.
                 if age > self.ttl {
                     self.pongs.pop(&remote_node);
+                    if let Some(stats) = stats {
+                        stats.ping_pong_expired_pong_pop_count.add_relaxed(1);
+                    }
+                    log::info!("pop expired pong, sender must resent pull request");
                     (false, true)
                 } else {
                     // If the pong message is not too recent, generate a new ping
@@ -353,7 +358,7 @@ mod tests {
             .iter()
             .map(|(keypair, socket)| {
                 let node = (keypair.pubkey(), *socket);
-                let (check, ping) = cache.check(&mut rng, &this_node, now, node);
+                let (check, ping) = cache.check(&mut rng, &this_node, now, node, None);
                 assert!(!check);
                 assert_eq!(seen_nodes.insert(node), ping.is_some());
                 ping
@@ -367,7 +372,7 @@ mod tests {
                     // Already have a recent ping packets for nodes, so no new
                     // ping packet will be generated.
                     let node = (keypair.pubkey(), *socket);
-                    let (check, ping) = cache.check(&mut rng, &this_node, now, node);
+                    let (check, ping) = cache.check(&mut rng, &this_node, now, node, None);
                     assert!(check);
                     assert!(ping.is_none());
                 }
@@ -382,7 +387,7 @@ mod tests {
         // All nodes now have a recent pong packet.
         for (keypair, socket) in &remote_nodes {
             let node = (keypair.pubkey(), *socket);
-            let (check, ping) = cache.check(&mut rng, &this_node, now, node);
+            let (check, ping) = cache.check(&mut rng, &this_node, now, node, None);
             assert!(check);
             assert!(ping.is_none());
         }
@@ -393,7 +398,7 @@ mod tests {
         seen_nodes.clear();
         for (keypair, socket) in &remote_nodes {
             let node = (keypair.pubkey(), *socket);
-            let (check, ping) = cache.check(&mut rng, &this_node, now, node);
+            let (check, ping) = cache.check(&mut rng, &this_node, now, node, None);
             assert!(check);
             assert_eq!(seen_nodes.insert(node), ping.is_some());
         }
@@ -403,7 +408,7 @@ mod tests {
         // packet pending response. So no new ping packet will be created.
         for (keypair, socket) in &remote_nodes {
             let node = (keypair.pubkey(), *socket);
-            let (check, ping) = cache.check(&mut rng, &this_node, now, node);
+            let (check, ping) = cache.check(&mut rng, &this_node, now, node, None);
             assert!(check);
             assert!(ping.is_none());
         }
@@ -415,7 +420,7 @@ mod tests {
         seen_nodes.clear();
         for (keypair, socket) in &remote_nodes {
             let node = (keypair.pubkey(), *socket);
-            let (check, ping) = cache.check(&mut rng, &this_node, now, node);
+            let (check, ping) = cache.check(&mut rng, &this_node, now, node, None);
             if seen_nodes.insert(node) {
                 assert!(!check, "Expired pong should return check=false");
                 assert!(
@@ -433,7 +438,7 @@ mod tests {
         // created, so no new one will be created.
         for (keypair, socket) in &remote_nodes {
             let node = (keypair.pubkey(), *socket);
-            let (check, ping) = cache.check(&mut rng, &this_node, now, node);
+            let (check, ping) = cache.check(&mut rng, &this_node, now, node, None);
             assert!(!check);
             assert!(ping.is_none());
         }
@@ -444,7 +449,7 @@ mod tests {
         seen_nodes.clear();
         for (keypair, socket) in &remote_nodes {
             let node = (keypair.pubkey(), *socket);
-            let (check, ping) = cache.check(&mut rng, &this_node, now, node);
+            let (check, ping) = cache.check(&mut rng, &this_node, now, node, None);
             assert!(!check);
             assert_eq!(seen_nodes.insert(node), ping.is_some());
         }
@@ -469,7 +474,7 @@ mod tests {
         cache.mock_pong(remote_node.0, remote_node.1, now);
 
         // Verify the pong is valid. `check` should return true
-        let (check, ping) = cache.check(&mut rng, &this_node, now, remote_node);
+        let (check, ping) = cache.check(&mut rng, &this_node, now, remote_node, None);
         assert!(check, "Pong should be valid immediately after adding");
         assert!(ping.is_none(), "Should not generate ping for recent pong");
 
@@ -477,7 +482,7 @@ mod tests {
         now = now + ttl + Duration::from_secs(1);
 
         // After expiration, check should return false but should_ping should be true (to re-verify)
-        let (check, ping) = cache.check(&mut rng, &this_node, now, remote_node);
+        let (check, ping) = cache.check(&mut rng, &this_node, now, remote_node, None);
         assert!(!check, "Expired pong should return check=false");
         assert!(
             ping.is_some(),
