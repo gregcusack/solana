@@ -212,6 +212,8 @@ impl XdpRetransmitter {
                 Builder::new()
                     .name(format!("solRetransmIO{i:02}"))
                     .spawn(move || {
+                        let route_router = Arc::clone(&atomic_router);
+                        let interface_router = Arc::clone(&atomic_router);
                         tx_loop(
                             cpu_id,
                             &dev,
@@ -223,8 +225,12 @@ impl XdpRetransmitter {
                             receiver,
                             drop_sender,
                             move |ip| {
-                                let r = atomic_router.load();
+                                let r = route_router.load();
                                 r.route(*ip).ok()
+                            },
+                            move |if_index| {
+                                let r = interface_router.load();
+                                r.interface_info(if_index).ok().cloned()
                             },
                         )
                     })

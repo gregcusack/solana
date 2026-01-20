@@ -250,7 +250,7 @@ impl Router {
         })
     }
 
-    pub fn route(&self, dest_ip: IpAddr) -> Result<(NextHop, Arc<InterfaceInfo>), RouteError> {
+    pub fn route(&self, dest_ip: IpAddr) -> Result<NextHop, RouteError> {
         let route = lookup_route(self.route_table.iter(), dest_ip)
             .ok_or(RouteError::NoRouteFound(dest_ip))?;
 
@@ -275,16 +275,15 @@ impl Router {
             if_index,
             preferred_src_ip,
         };
+        Ok(next_hop)
+    }
 
-        // Get the interface info for this route
-        let interface_info = self
-            .interface_table
+    pub fn interface_info(&self, if_index: u32) -> Result<&InterfaceInfo, RouteError> {
+        self.interface_table
             .iter()
             .find(|i| i.if_index == if_index)
-            .ok_or(RouteError::UnknownInterfaceIndex(if_index))?
-            .clone();
-
-        Ok((next_hop, interface_info))
+            .map(|i| i.as_ref())
+            .ok_or(RouteError::UnknownInterfaceIndex(if_index))
     }
 
     pub fn upsert_route(&mut self, new_route: RouteEntry) -> bool {

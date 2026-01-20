@@ -3,7 +3,7 @@
 use {
     crate::{
         device::{NetworkDevice, QueueId, RingSizes},
-        gre::{construct_gre_packet, gre_packet_size, GreRouteCache, TunnelInfo},
+        gre::{construct_gre_packet, gre_packet_size, GreRouteCache, InterfaceInfoCache},
         netlink::{InterfaceInfo, MacAddress},
         packet::{
             write_eth_header, write_ip_header_for_udp, write_udp_header, ETH_HEADER_SIZE,
@@ -22,7 +22,6 @@ use {
     libc::{sysconf, _SC_PAGESIZE},
     std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
-        sync::Arc,
         thread,
         time::Duration,
     },
@@ -32,7 +31,8 @@ use {
 pub fn tx_loop<
     T: AsRef<[u8]>,
     A: AsRef<[SocketAddr]>,
-    R: Fn(&IpAddr) -> Option<(NextHop, Arc<InterfaceInfo>)>,
+    R: Fn(&IpAddr) -> Option<NextHop>,
+    I: Fn(u32) -> Option<InterfaceInfo>,
 >(
     cpu_id: usize,
     dev: &NetworkDevice,
@@ -44,6 +44,7 @@ pub fn tx_loop<
     receiver: Receiver<(A, T)>,
     drop_sender: Sender<(A, T)>,
     route_fn: R,
+    interface_fn: I,
 ) {
     log::info!(
         "starting xdp loop on {} queue {queue_id:?} cpu {cpu_id}",
@@ -139,6 +140,7 @@ pub fn tx_loop<
 
     // GRE route cache resolves outer tunnel MACs
     let mut gre_route_cache = GreRouteCache::new();
+    let mut interface_info_cache = InterfaceInfoCache::new();
 
     let mut timeouts = 0;
     loop {
@@ -209,26 +211,27 @@ pub fn tx_loop<
                 let len = payload.as_ref().len();
                 let dest_mac = {
                     let dst = addr.ip();
-                    let Some((next_hop, interface_info)) = route_fn(&dst) else {
+                    let Some(next_hop) = route_fn(&dst) else {
                         log::warn!("dropping packet: no route for peer {addr}");
                         batched_packets -= 1;
                         umem.release(frame.offset());
                         continue;
                     };
+                    let Some(interface_info) =
+                        interface_info_cache.get(next_hop.if_index, &interface_fn)
+                    else {
+                        log::warn!(
+                            "dropping packet: unknown interface index {}",
+                            next_hop.if_index
+                        );
+                        batched_packets -= 1;
+                        umem.release(frame.offset());
+                        continue;
+                    };
                     // Handle GRE tunnel encapsulation if needed
-                    if interface_info.is_gre() {
-                        let Some(gre) = interface_info.gre_tunnel.as_ref() else {
-                            log::warn!(
-                                "dropping packet: GRE interface missing tunnel configuration"
-                            );
-                            batched_packets -= 1;
-                            umem.release(frame.offset());
-                            continue;
-                        };
-
-                        // Convert to GreConfig and calculate packet size
-                        let Ok(tunnel_info) = TunnelInfo::try_from(gre) else {
-                            log::warn!("dropping packet: invalid GRE tunnel endpoints");
+                    if let Some(gre) = interface_info.gre_tunnel.as_ref() {
+                        let Some(IpAddr::V4(outer_remote)) = gre.remote else {
+                            log::warn!("dropping packet: invalid GRE tunnel remote endpoint");
                             batched_packets -= 1;
                             umem.release(frame.offset());
                             continue;
@@ -237,12 +240,9 @@ pub fn tx_loop<
                         let packet = umem.map_frame_mut(&frame);
 
                         let Some(outer_dst_mac) =
-                            gre_route_cache.resolve_outer_dst_mac(tunnel_info.remote, &route_fn)
+                            gre_route_cache.resolve_outer_dst_mac(outer_remote, &route_fn)
                         else {
-                            log::warn!(
-                                "dropping packet: no route for GRE remote {}",
-                                tunnel_info.remote
-                            );
+                            log::warn!("dropping packet: no route for GRE remote {outer_remote}");
                             batched_packets -= 1;
                             umem.release(frame.offset());
                             continue;
@@ -258,7 +258,7 @@ pub fn tx_loop<
                             payload.as_ref(),
                             &src_mac.0,
                             &outer_dst_mac.0,
-                            &tunnel_info,
+                            gre,
                         ) {
                             log::warn!("dropping packet: {err}");
                             batched_packets -= 1;
