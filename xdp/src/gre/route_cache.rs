@@ -11,7 +11,14 @@ use {
 /// Cache for resolving the outer GRE destination MAC address.
 #[derive(Default)]
 pub struct GreRouteCache {
-    cached_remote: Option<(Ipv4Addr, MacAddress)>,
+    cached_remote: Option<CachedGreRoute>,
+}
+
+#[derive(Clone, Copy)]
+struct CachedGreRoute {
+    remote: Ipv4Addr,
+    mac: MacAddress,
+    route_version: u64,
 }
 
 impl GreRouteCache {
@@ -25,20 +32,26 @@ impl GreRouteCache {
     pub fn resolve_outer_dst_mac<R>(
         &mut self,
         gre_remote: Ipv4Addr,
+        route_version: u64,
         route_fn: &R,
     ) -> Option<MacAddress>
     where
-        R: Fn(&IpAddr) -> Option<NextHop>,
+        R: Fn(&IpAddr) -> Option<(NextHop, u64)>,
     {
-        if let Some((cached_remote, cached_mac)) = self.cached_remote.as_ref() {
-            if *cached_remote == gre_remote {
-                return Some(*cached_mac);
+        if let Some(cached) = self.cached_remote.as_ref() {
+            if cached.remote == gre_remote && cached.route_version == route_version {
+                return Some(cached.mac);
             }
         }
 
-        let mac = route_fn(&IpAddr::V4(gre_remote))?.mac_addr?;
+        let (next_hop, route_version) = route_fn(&IpAddr::V4(gre_remote))?;
+        let mac = next_hop.mac_addr?;
 
-        self.cached_remote = Some((gre_remote, mac));
+        self.cached_remote = Some(CachedGreRoute {
+            remote: gre_remote,
+            mac,
+            route_version,
+        });
         Some(mac)
     }
 }

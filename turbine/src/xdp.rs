@@ -226,7 +226,9 @@ impl XdpRetransmitter {
                             drop_sender,
                             move |ip| {
                                 let r = route_router.load();
-                                r.route(*ip).ok()
+                                r.route(*ip)
+                                    .ok()
+                                    .map(|next_hop| (next_hop, r.route_version()))
                             },
                             move |if_index| {
                                 let r = interface_router.load();

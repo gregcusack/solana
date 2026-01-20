@@ -209,6 +209,7 @@ pub struct Router {
     arp_table: ArpTable,
     route_table: RouteTable,
     interface_table: InterfaceTable,
+    route_version: u64,
 }
 
 impl Router {
@@ -217,6 +218,7 @@ impl Router {
             arp_table: ArpTable::new()?,
             route_table: RouteTable::new()?,
             interface_table: InterfaceTable::new()?,
+            route_version: 0,
         })
     }
 
@@ -278,6 +280,14 @@ impl Router {
         Ok(next_hop)
     }
 
+    pub fn route_version(&self) -> u64 {
+        self.route_version
+    }
+
+    fn bump_route_version(&mut self) {
+        self.route_version = self.route_version.wrapping_add(1);
+    }
+
     pub fn interface_info(&self, if_index: u32) -> Result<&InterfaceInfo, RouteError> {
         self.interface_table
             .iter()
@@ -287,27 +297,51 @@ impl Router {
     }
 
     pub fn upsert_route(&mut self, new_route: RouteEntry) -> bool {
-        self.route_table.upsert(new_route)
+        let updated = self.route_table.upsert(new_route);
+        if updated {
+            self.bump_route_version();
+        }
+        updated
     }
 
     pub fn remove_route(&mut self, new_route: RouteEntry) -> bool {
-        self.route_table.remove(new_route)
+        let updated = self.route_table.remove(new_route);
+        if updated {
+            self.bump_route_version();
+        }
+        updated
     }
 
     pub fn upsert_neighbor(&mut self, new_neighbor: NeighborEntry) -> bool {
-        self.arp_table.upsert(new_neighbor)
+        let updated = self.arp_table.upsert(new_neighbor);
+        if updated {
+            self.bump_route_version();
+        }
+        updated
     }
 
     pub fn remove_neighbor(&mut self, ip: Ipv4Addr, if_index: u32) -> bool {
-        self.arp_table.remove(ip, if_index)
+        let updated = self.arp_table.remove(ip, if_index);
+        if updated {
+            self.bump_route_version();
+        }
+        updated
     }
 
     pub fn upsert_interface(&mut self, new_interface: InterfaceInfo) -> bool {
-        self.interface_table.upsert(new_interface)
+        let updated = self.interface_table.upsert(new_interface);
+        if updated {
+            self.bump_route_version();
+        }
+        updated
     }
 
     pub fn remove_interface(&mut self, if_index: u32) -> bool {
-        self.interface_table.remove(if_index)
+        let updated = self.interface_table.remove(if_index);
+        if updated {
+            self.bump_route_version();
+        }
+        updated
     }
 }
 

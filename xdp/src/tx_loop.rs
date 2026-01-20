@@ -31,7 +31,7 @@ use {
 pub fn tx_loop<
     T: AsRef<[u8]>,
     A: AsRef<[SocketAddr]>,
-    R: Fn(&IpAddr) -> Option<NextHop>,
+    R: Fn(&IpAddr) -> Option<(NextHop, u64)>,
     I: Fn(u32) -> Option<InterfaceInfo>,
 >(
     cpu_id: usize,
@@ -211,7 +211,7 @@ pub fn tx_loop<
                 let len = payload.as_ref().len();
                 let dest_mac = {
                     let dst = addr.ip();
-                    let Some(next_hop) = route_fn(&dst) else {
+                    let Some((next_hop, route_version)) = route_fn(&dst) else {
                         log::warn!("dropping packet: no route for peer {addr}");
                         batched_packets -= 1;
                         umem.release(frame.offset());
@@ -239,9 +239,11 @@ pub fn tx_loop<
                         frame.set_len(gre_packet_size(len));
                         let packet = umem.map_frame_mut(&frame);
 
-                        let Some(outer_dst_mac) =
-                            gre_route_cache.resolve_outer_dst_mac(outer_remote, &route_fn)
-                        else {
+                        let Some(outer_dst_mac) = gre_route_cache.resolve_outer_dst_mac(
+                            outer_remote,
+                            route_version,
+                            &route_fn,
+                        ) else {
                             log::warn!("dropping packet: no route for GRE remote {outer_remote}");
                             batched_packets -= 1;
                             umem.release(frame.offset());
