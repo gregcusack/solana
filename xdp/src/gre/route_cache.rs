@@ -44,6 +44,7 @@ impl GreRouteCache {
             }
         }
 
+        log::info!("greg: invalid greroutecache");
         let (next_hop, route_version) = route_fn(&IpAddr::V4(gre_remote))?;
         let mac = next_hop.mac_addr?;
 
@@ -84,6 +85,7 @@ impl InterfaceInfoCache {
                 .as_ref()
                 .map(|(_, cached_info)| cached_info);
         }
+        log::info!("greg: cache miss first index. if_index: {if_index}");
 
         let second_index = self.cached_interfaces[1]
             .as_ref()
@@ -93,6 +95,7 @@ impl InterfaceInfoCache {
                 .as_ref()
                 .map(|(_, cached_info)| cached_info);
         }
+        log::info!("greg: cache miss second index. if_index: {if_index}");
 
         let info = interface_fn(if_index)?;
         if let Some(empty_index) = self
@@ -100,6 +103,7 @@ impl InterfaceInfoCache {
             .iter()
             .position(|slot| slot.is_none())
         {
+            log::info!("greg: empty index. filling w/ if_index: {if_index}");
             self.cached_interfaces[empty_index] = Some((if_index, info));
             return self.cached_interfaces[empty_index]
                 .as_ref()
@@ -107,6 +111,7 @@ impl InterfaceInfoCache {
         }
 
         // If no empty slot is found, replace the first slot
+        log::info!("greg: no empty index. replacing first slot with if_index: {if_index}");
         self.cached_interfaces[0] = Some((if_index, info));
         self.cached_interfaces[0]
             .as_ref()
