@@ -1,7 +1,7 @@
 use {
     crate::repair::{quic_endpoint::RemoteRequest, serve_repair::ServeRepair},
     bytes::Bytes,
-    crossbeam_channel::{bounded, Receiver, Sender},
+    crossbeam_channel::{bounded, Receiver, Sender, TrySendError},
     solana_net_utils::SocketAddrSpace,
     solana_perf::{packet::PacketBatch, recycler::Recycler},
     solana_streamer::{
@@ -95,9 +95,16 @@ pub(crate) fn adapt_repair_requests_packets(
                 remote_address: packet.meta().socket_addr(),
                 bytes: Bytes::from(bytes),
             };
-            if remote_request_sender.try_send(request).is_err() {
-                // The receiver end of the channel is disconnected or full, discard this request.
-                return;
+            match remote_request_sender.try_send(request) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_request)) => {
+                    // Channel is full; drop this request and keep processing.
+                    continue;
+                }
+                Err(TrySendError::Disconnected(_request)) => {
+                    // The receiver end of the channel is disconnected.
+                    return;
+                }
             }
         }
     }
