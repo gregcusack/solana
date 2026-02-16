@@ -553,7 +553,7 @@ pub fn responder(
 fn responder_loop<P: SocketProvider>(
     provider: P,
     name: &'static str,
-    r: PacketBatchReceiver,
+    receiver: PacketBatchReceiver,
     socket_addr_space: SocketAddrSpace,
     stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
 ) {
@@ -568,7 +568,7 @@ fn responder_loop<P: SocketProvider>(
 
     loop {
         let sock = provider.current_socket_ref();
-        if let Err(e) = recv_send(sock, &r, &socket_addr_space, &mut stats) {
+        if let Err(e) = recv_send(sock, &receiver, &socket_addr_space, &mut stats) {
             match e {
                 StreamerError::RecvTimeout(RecvTimeoutError::Disconnected) => break,
                 StreamerError::RecvTimeout(RecvTimeoutError::Timeout) => (),

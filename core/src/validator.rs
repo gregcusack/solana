@@ -1454,8 +1454,8 @@ impl Validator {
                 bank_forks_r.migration_status(),
             )
         };
-        let (repair_request_quic_sender, repair_request_quic_receiver) = unbounded();
-        let (repair_response_quic_sender, repair_response_quic_receiver) = unbounded();
+        let (repair_request_quic_sender, repair_request_quic_receiver) = bounded(10240);
+        let (repair_response_quic_sender, repair_response_quic_receiver) = bounded(10240);
         let (ancestor_hashes_response_quic_sender, ancestor_hashes_response_quic_receiver) =
             unbounded();
 
@@ -1575,8 +1575,8 @@ impl Validator {
             serve_repair,
             // Incoming UDP repair requests are adapted into RemoteRequest
             // and also sent through the same channel.
-            repair_request_quic_sender,
-            repair_request_quic_receiver,
+            repair_request_quic_sender, // greg: this is actually not quic only
+            repair_request_quic_receiver, // greg: this is actually not quic only
             repair_quic_async_senders.repair_response_quic_sender,
             node.sockets.serve_repair,
             socket_addr_space,
