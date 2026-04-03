@@ -667,7 +667,10 @@ pub(crate) fn get_max_bloom_filter_bytes(caller: &CrdsValue) -> usize {
 pub(crate) mod tests {
     use {
         super::*,
-        crate::{crds_data::CrdsData, protocol::Protocol},
+        crate::{
+            crds_data::{CrdsData, LowestSlot},
+            protocol::Protocol,
+        },
         itertools::Itertools,
         rand::{SeedableRng, prelude::IndexedRandom as _},
         rand_chacha::ChaChaRng,
@@ -1180,6 +1183,77 @@ pub(crate) mod tests {
         assert!(rsp.iter().take(MIN_NUM_BLOOM_FILTERS).all(|r| r.is_empty()));
         assert_eq!(rsp.iter().filter(|r| r.is_empty()).count(), rsp.len() - 1);
         assert_eq!(rsp.iter().find(|r| r.len() == 1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_generate_pull_responses_excludes_ipv6_records() {
+        let thread_pool = ThreadPoolBuilder::new().build().unwrap();
+        let now = timestamp();
+        let mut crds = Crds::default();
+
+        let ipv4_pubkey = Pubkey::new_unique();
+        let ipv4_contact_info = ContactInfo::new_localhost(&ipv4_pubkey, now);
+        let ipv4_contact_info = CrdsValue::new_unsigned(CrdsData::from(ipv4_contact_info));
+        let ipv4_lowest_slot = CrdsValue::new_unsigned(CrdsData::LowestSlot(
+            0,
+            LowestSlot::new(ipv4_pubkey, 1, now),
+        ));
+
+        let ipv6_pubkey = Pubkey::new_unique();
+        let socket = SocketAddr::new(
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
+            8000,
+        );
+        let mut ipv6_contact_info = ContactInfo::new_with_socketaddr(&ipv6_pubkey, &socket);
+        ipv6_contact_info.set_wallclock(now);
+        let ipv6_contact_info = CrdsValue::new_unsigned(CrdsData::from(ipv6_contact_info));
+        let ipv6_lowest_slot = CrdsValue::new_unsigned(CrdsData::LowestSlot(
+            0,
+            LowestSlot::new(ipv6_pubkey, 2, now),
+        ));
+
+        for value in [
+            ipv4_contact_info.clone(),
+            ipv4_lowest_slot.clone(),
+            ipv6_contact_info.clone(),
+            ipv6_lowest_slot.clone(),
+        ] {
+            crds.insert(value, now, GossipRoute::LocalMessage).unwrap();
+        }
+
+        let crds = RwLock::new(crds);
+        let caller_crds = RwLock::<Crds>::default();
+        let pull = CrdsGossipPull::default();
+        let requests: Vec<_> = pull
+            .build_crds_filters(&thread_pool, &caller_crds, PACKET_DATA_SIZE)
+            .into_iter()
+            .map(|filter| PullRequest {
+                pubkey: Pubkey::new_unique(),
+                addr: SocketAddr::from(([127, 0, 0, 1], 1234)),
+                wallclock: now,
+                filter,
+            })
+            .collect();
+        let rsp = CrdsGossipPull::generate_pull_responses(
+            &thread_pool,
+            &crds,
+            &requests,
+            usize::MAX,
+            now,
+            |_| true,
+            &GossipStats::default(),
+        );
+
+        let labels: HashSet<_> = rsp
+            .into_iter()
+            .flatten()
+            .map(|value| value.label())
+            .collect();
+        assert_eq!(labels.len(), 2);
+        assert!(labels.contains(&ipv4_contact_info.label()));
+        assert!(labels.contains(&ipv4_lowest_slot.label()));
+        assert!(!labels.contains(&ipv6_contact_info.label()));
+        assert!(!labels.contains(&ipv6_lowest_slot.label()));
     }
 
     #[test]

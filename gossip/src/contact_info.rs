@@ -413,6 +413,11 @@ impl ContactInfo {
         !(addr.is_unspecified() || addr.is_multicast())
     }
 
+    #[inline]
+    pub(crate) fn has_ipv6_addr(&self) -> bool {
+        self.addrs.iter().any(IpAddr::is_ipv6)
+    }
+
     /// New random ContactInfo for tests and simulations.
     pub fn new_rand<R: rand::Rng>(rng: &mut R, pubkey: Option<Pubkey>) -> Self {
         let delay = 10 * 60 * 1000; // 10 minutes
