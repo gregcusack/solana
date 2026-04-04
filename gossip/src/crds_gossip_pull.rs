@@ -502,7 +502,8 @@ impl CrdsGossipPull {
                     total_skipped.fetch_add(1, Ordering::Relaxed);
                     false
                 } else {
-                    !filter.filter_contains(entry.value.hash())
+                    crds_gossip::should_egress_gossip_value(&crds, &entry.value)
+                        && !filter.filter_contains(entry.value.hash())
                         && should_retain_crds_value(&entry.value)
                 }
             };

@@ -7,6 +7,7 @@
 use {
     crate::{
         cluster_info_metrics::GossipStats,
+        contact_info::ContactInfo,
         crds::{Crds, GossipRoute},
         crds_data::CrdsData,
         crds_gossip_error::CrdsGossipError,
@@ -42,6 +43,14 @@ pub struct CrdsGossip {
     pub crds: RwLock<Crds>,
     pub push: CrdsGossipPush,
     pub pull: CrdsGossipPull,
+}
+
+pub(crate) fn should_egress_gossip_value(crds: &Crds, value: &CrdsValue) -> bool {
+    !value.data().is_deprecated()
+        && value
+            .contact_info()
+            .or_else(|| crds.get::<&ContactInfo>(value.pubkey()))
+            .is_none_or(|node| !node.has_ipv6_addr())
 }
 
 impl CrdsGossip {

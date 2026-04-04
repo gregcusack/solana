@@ -78,8 +78,6 @@ pub struct Crds {
     duplicate_shreds: BTreeMap<u64 /*insert order*/, usize /*index*/>,
     // Indices of all crds values associated with a node.
     records: HashMap<Pubkey, IndexSet<usize>>,
-    // Pubkeys whose ContactInfo should not be sent on gossip egress.
-    egress_restricted_pubkeys: HashSet<Pubkey>,
     // Indices of all entries keyed by insert order.
     entries: BTreeMap<u64 /*insert order*/, usize /*index*/>,
     // Hash of recently purged values.
@@ -177,7 +175,6 @@ impl Default for Crds {
             epoch_slots: BTreeMap::default(),
             duplicate_shreds: BTreeMap::default(),
             records: HashMap::default(),
-            egress_restricted_pubkeys: HashSet::default(),
             entries: BTreeMap::default(),
             purged: VecDeque::default(),
             stats: Mutex::<CrdsStats>::default(),
@@ -209,15 +206,6 @@ fn overrides(value: &CrdsValue, other: &VersionedCrdsValue) -> bool {
 }
 
 impl Crds {
-    #[inline]
-    fn is_egress_restricted_contact_info(node: &ContactInfo) -> bool {
-        node.has_ipv6_addr()
-    }
-
-    pub(crate) fn should_egress_gossip_value(&self, value: &CrdsValue) -> bool {
-        !value.data().is_deprecated() && !self.egress_restricted_pubkeys.contains(&value.pubkey())
-    }
-
     /// Returns true if the given value updates an existing one in the table.
     /// The value is outdated and fails to insert, if it already exists in the
     /// table with a more recent wallclock.
@@ -237,10 +225,6 @@ impl Crds {
         let label = value.label();
         let pubkey = value.pubkey();
         let value = VersionedCrdsValue::new(value, self.cursor, now, route);
-        let should_mark_egress_restricted = matches!(
-            value.value.data(),
-            CrdsData::ContactInfo(node) if Self::is_egress_restricted_contact_info(node)
-        );
         let mut stats = self.stats.lock().unwrap();
         match self.table.entry(label) {
             Entry::Vacant(entry) => {
@@ -266,9 +250,6 @@ impl Crds {
                 self.records.entry(pubkey).or_default().insert(entry_index);
                 self.cursor.consume(value.ordinal);
                 entry.insert(value);
-                if should_mark_egress_restricted {
-                    self.egress_restricted_pubkeys.insert(pubkey);
-                }
                 Ok(())
             }
             Entry::Occupied(mut entry) if overrides(&value.value, entry.get()) => {
@@ -305,9 +286,6 @@ impl Crds {
                 let purged_hash = *entry.get().value.hash();
                 entry.insert(value);
                 self.purged.push_back((purged_hash, now));
-                if should_mark_egress_restricted {
-                    self.egress_restricted_pubkeys.insert(pubkey);
-                }
                 Ok(())
             }
             Entry::Occupied(mut entry) => {
@@ -474,9 +452,8 @@ impl Crds {
         self.purged.drain(..count);
     }
 
-    /// Returns all crds values which the first 'mask_bits'
+    /// Returns all non-deprecated crds values which the first 'mask_bits'
     /// of their hash value is equal to 'mask'.
-    /// Excludes deprecated and egress-restricted values.
     pub(crate) fn filter_bitmask(
         &self,
         mask: u64,
@@ -485,7 +462,7 @@ impl Crds {
         self.shards
             .find(mask, mask_bits)
             .map(move |i| self.table.index(i))
-            .filter(move |VersionedCrdsValue { value, .. }| self.should_egress_gossip_value(value))
+            .filter(move |VersionedCrdsValue { value, .. }| !value.data().is_deprecated())
     }
 
     /// Update the timestamp's of all the labels that are associated with Pubkey
@@ -571,7 +548,6 @@ impl Crds {
         match value.value.data() {
             CrdsData::ContactInfo(_) => {
                 self.nodes.swap_remove(&index);
-                self.egress_restricted_pubkeys.remove(&value.value.pubkey());
             }
             CrdsData::Vote(_, _) => {
                 self.votes.remove(&value.ordinal);
@@ -809,7 +785,7 @@ impl CrdsStats {
 mod tests {
     use {
         super::*,
-        crate::crds_data::{AccountsHashes, LowestSlot, new_rand_timestamp},
+        crate::crds_data::{AccountsHashes, new_rand_timestamp},
         rand::{Rng, rng},
         rayon::ThreadPoolBuilder,
         solana_keypair::Keypair,
@@ -818,7 +794,7 @@ mod tests {
         std::{
             collections::{HashMap, HashSet},
             iter::repeat_with,
-            net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+            net::Ipv4Addr,
             time::Duration,
         },
     };
@@ -1359,41 +1335,6 @@ mod tests {
         // Remove the remaining entry with the same pubkey.
         crds.remove(&CrdsValueLabel::AccountsHashes(pubkey), timestamp());
         assert_eq!(crds.get_records(&pubkey).count(), 0);
-    }
-
-    #[test]
-    fn test_egress_restriction_tracks_contact_info() {
-        let pubkey = Pubkey::new_unique();
-        let now = timestamp();
-        let mut crds = Crds::default();
-        let socket = SocketAddr::new(
-            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
-            8000,
-        );
-        let mut contact_info = ContactInfo::new_with_socketaddr(&pubkey, &socket);
-        contact_info.set_wallclock(now);
-        let contact_info = CrdsValue::new_unsigned(CrdsData::from(contact_info));
-        let lowest_slot =
-            CrdsValue::new_unsigned(CrdsData::LowestSlot(0, LowestSlot::new(pubkey, 1, now)));
-        crds.insert(contact_info.clone(), now, GossipRoute::LocalMessage)
-            .unwrap();
-        crds.insert(lowest_slot.clone(), now, GossipRoute::LocalMessage)
-            .unwrap();
-        assert!(crds.egress_restricted_pubkeys.contains(&pubkey));
-        assert!(!crds.should_egress_gossip_value(&contact_info));
-        assert!(!crds.should_egress_gossip_value(&lowest_slot));
-
-        let contact_info =
-            CrdsValue::new_unsigned(CrdsData::from(ContactInfo::new_localhost(&pubkey, now + 1)));
-        crds.insert(contact_info.clone(), now + 1, GossipRoute::LocalMessage)
-            .unwrap();
-        assert!(crds.egress_restricted_pubkeys.contains(&pubkey));
-        assert!(!crds.should_egress_gossip_value(&contact_info));
-        assert!(!crds.should_egress_gossip_value(&lowest_slot));
-
-        crds.remove(&CrdsValueLabel::ContactInfo(pubkey), now + 2);
-        assert!(!crds.egress_restricted_pubkeys.contains(&pubkey));
-        assert!(crds.should_egress_gossip_value(&lowest_slot));
     }
 
     #[test]

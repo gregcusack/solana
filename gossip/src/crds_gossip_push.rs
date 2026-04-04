@@ -190,6 +190,7 @@ impl CrdsGossipPush {
             .get_entries(crds_cursor.deref_mut())
             .map(|entry| &entry.value)
             .filter(|value| wallclock_window.contains(&value.wallclock()))
+            .filter(|value| crds_gossip::should_egress_gossip_value(&crds, value))
             .filter(|value| should_retain_crds_value(value));
         'outer: for value in entries {
             let origin = value.pubkey();
@@ -288,8 +289,14 @@ impl CrdsGossipPush {
 mod tests {
     use {
         super::*,
-        crate::{contact_info::ContactInfo, crds_data::CrdsData},
-        std::time::{Duration, Instant},
+        crate::{
+            contact_info::ContactInfo,
+            crds_data::{CrdsData, LowestSlot},
+        },
+        std::{
+            net::{IpAddr, Ipv6Addr},
+            time::{Duration, Instant},
+        },
     };
 
     fn new_ping_cache() -> PingCache {
@@ -466,6 +473,75 @@ mod tests {
             ),
             expected
         );
+    }
+
+    #[test]
+    fn test_new_push_messages_excludes_ipv6_records() {
+        let now = timestamp();
+        let mut crds = Crds::default();
+        let push = CrdsGossipPush::default();
+        let mut ping_cache = new_ping_cache();
+        let peer = ContactInfo::new_localhost(&solana_pubkey::new_rand(), now);
+        ping_cache.mock_pong(*peer.pubkey(), peer.gossip().unwrap(), Instant::now());
+        let peer = CrdsValue::new_unsigned(CrdsData::from(peer));
+        assert_eq!(
+            crds.insert(peer.clone(), now, GossipRoute::LocalMessage),
+            Ok(())
+        );
+
+        let ipv4_pubkey = Pubkey::new_unique();
+        let ipv4_contact_info = CrdsValue::new_unsigned(CrdsData::from(
+            ContactInfo::new_localhost(&ipv4_pubkey, now),
+        ));
+        let ipv4_lowest_slot = CrdsValue::new_unsigned(CrdsData::LowestSlot(
+            0,
+            LowestSlot::new(ipv4_pubkey, 1, now),
+        ));
+
+        let ipv6_pubkey = Pubkey::new_unique();
+        let socket = SocketAddr::new(
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
+            8000,
+        );
+        let mut ipv6_contact_info = ContactInfo::new_with_socketaddr(&ipv6_pubkey, &socket);
+        ipv6_contact_info.set_wallclock(now);
+        let ipv6_contact_info = CrdsValue::new_unsigned(CrdsData::from(ipv6_contact_info));
+        let ipv6_lowest_slot = CrdsValue::new_unsigned(CrdsData::LowestSlot(
+            0,
+            LowestSlot::new(ipv6_pubkey, 2, now),
+        ));
+
+        for value in [
+            ipv4_contact_info.clone(),
+            ipv4_lowest_slot.clone(),
+            ipv6_contact_info.clone(),
+            ipv6_lowest_slot.clone(),
+        ] {
+            assert_eq!(crds.insert(value, now, GossipRoute::LocalMessage), Ok(()));
+        }
+        let crds = RwLock::new(crds);
+        let ping_cache = Mutex::new(ping_cache);
+        push.refresh_push_active_set(
+            &crds,
+            &HashMap::new(),
+            None,
+            &Keypair::new(),
+            0,
+            &ping_cache,
+            &mut Vec::new(),
+            &SocketAddrSpace::Unspecified,
+        );
+
+        let values: HashSet<_> = push
+            .old_new_push_messages(&Pubkey::default(), &crds, now, &HashMap::default())
+            .into_values()
+            .flatten()
+            .map(|value| value.label())
+            .collect();
+        assert!(values.contains(&ipv4_contact_info.label()));
+        assert!(values.contains(&ipv4_lowest_slot.label()));
+        assert!(!values.contains(&ipv6_contact_info.label()));
+        assert!(!values.contains(&ipv6_lowest_slot.label()));
     }
     #[test]
     fn test_personalized_push_messages() {
