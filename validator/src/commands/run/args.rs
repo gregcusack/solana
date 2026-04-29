@@ -789,11 +789,7 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .takes_value(true)
             .validator(solana_net_utils::is_host)
             .default_value(&default_args.bind_address)
-            .multiple(true)
-            .help(
-                "Repeatable. IP addresses to bind the validator ports on. First is primary (used \
-                 on startup), the rest may be switched to during operation.",
-            ),
+            .help("IP address to bind the validator ports on."),
     )
     .arg(
         Arg::with_name("rpc_bind_address")
@@ -1411,6 +1407,14 @@ mod tests {
                 &args[..],
             ]
             .concat(),
+        );
+    }
+
+    #[test]
+    fn verify_args_struct_by_command_run_rejects_repeated_bind_address() {
+        verify_args_struct_by_command_run_is_error_with_identity_setup(
+            RunArgs::default(),
+            vec!["--bind-address", "127.0.0.1", "--bind-address", "127.0.0.2"],
         );
     }
 

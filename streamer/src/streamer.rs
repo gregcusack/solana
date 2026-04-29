@@ -11,13 +11,7 @@ use {
     },
     crossbeam_channel::{Receiver, RecvTimeoutError, SendError, Sender, TrySendError},
     histogram::Histogram,
-    solana_net_utils::{
-        SocketAddrSpace,
-        multihomed_sockets::{
-            BindIpAddrs, CurrentSocket, FixedSocketProvider, MultihomedSocketProvider,
-            SocketProvider,
-        },
-    },
+    solana_net_utils::SocketAddrSpace,
     solana_pubkey::Pubkey,
     solana_time_utils::timestamp,
     std::{
@@ -157,8 +151,8 @@ impl StreamerReceiveStats {
 
 pub type Result<T> = std::result::Result<T, StreamerError>;
 
-fn recv_loop<P: SocketProvider>(
-    provider: &mut P,
+fn recv_loop(
+    socket: &UdpSocket,
     exit: &AtomicBool,
     packet_batch_sender: &impl ChannelSend<PacketBatch>,
     recycler: &PacketBatchRecycler,
@@ -179,7 +173,6 @@ fn recv_loop<P: SocketProvider>(
         Ok(())
     }
 
-    let mut socket = provider.current_socket_ref();
     setup_socket(socket)?;
     #[cfg(unix)]
     let mut poll_fd = [PollFd::new(socket.as_fd(), PollFlags::POLLIN)];
@@ -236,16 +229,6 @@ fn recv_loop<P: SocketProvider>(
                 break;
             }
         }
-
-        if let CurrentSocket::Changed(s) = provider.current_socket() {
-            socket = s;
-            setup_socket(socket)?;
-
-            #[cfg(unix)]
-            {
-                poll_fd = [PollFd::new(socket.as_fd(), PollFlags::POLLIN)];
-            }
-        }
     }
 }
 
@@ -264,40 +247,8 @@ pub fn receiver(
     Builder::new()
         .name(thread_name)
         .spawn(move || {
-            let mut provider = FixedSocketProvider::new(socket);
             let _ = recv_loop(
-                &mut provider,
-                &exit,
-                &packet_batch_sender,
-                &recycler,
-                &stats,
-                coalesce,
-                use_pinned_memory,
-                is_staked_service,
-            );
-        })
-        .unwrap()
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn receiver_atomic(
-    thread_name: String,
-    sockets: Arc<[UdpSocket]>,
-    bind_ip_addrs: Arc<BindIpAddrs>,
-    exit: Arc<AtomicBool>,
-    packet_batch_sender: impl ChannelSend<PacketBatch>,
-    recycler: PacketBatchRecycler,
-    stats: Arc<StreamerReceiveStats>,
-    coalesce: Option<Duration>,
-    use_pinned_memory: bool,
-    is_staked_service: bool,
-) -> JoinHandle<()> {
-    Builder::new()
-        .name(thread_name)
-        .spawn(move || {
-            let mut provider = MultihomedSocketProvider::new(sockets, bind_ip_addrs);
-            let _ = recv_loop(
-                &mut provider,
+                &socket,
                 &exit,
                 &packet_batch_sender,
                 &recycler,
@@ -507,28 +458,6 @@ pub fn recv_packet_batches(
     Ok((packet_batches, num_packets, recv_duration))
 }
 
-pub fn responder_atomic(
-    name: &'static str,
-    sockets: Arc<[UdpSocket]>,
-    bind_ip_addrs: Arc<BindIpAddrs>,
-    r: PacketBatchReceiver,
-    socket_addr_space: SocketAddrSpace,
-    stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
-) -> JoinHandle<()> {
-    Builder::new()
-        .name(format!("solRspndr{name}"))
-        .spawn(move || {
-            responder_loop(
-                MultihomedSocketProvider::new(sockets, bind_ip_addrs),
-                name,
-                r,
-                socket_addr_space,
-                stats_reporter_sender,
-            );
-        })
-        .unwrap()
-}
-
 pub fn responder(
     name: &'static str,
     sock: Arc<UdpSocket>,
@@ -539,19 +468,13 @@ pub fn responder(
     Builder::new()
         .name(format!("solRspndr{name}"))
         .spawn(move || {
-            responder_loop(
-                FixedSocketProvider::new(sock),
-                name,
-                r,
-                socket_addr_space,
-                stats_reporter_sender,
-            );
+            responder_loop(sock, name, r, socket_addr_space, stats_reporter_sender);
         })
         .unwrap()
 }
 
-fn responder_loop<P: SocketProvider>(
-    provider: P,
+fn responder_loop(
+    sock: Arc<UdpSocket>,
     name: &'static str,
     r: PacketBatchReceiver,
     socket_addr_space: SocketAddrSpace,
@@ -567,8 +490,7 @@ fn responder_loop<P: SocketProvider>(
     }
 
     loop {
-        let sock = provider.current_socket_ref();
-        if let Err(e) = recv_send(sock, &r, &socket_addr_space, &mut stats) {
+        if let Err(e) = recv_send(&sock, &r, &socket_addr_space, &mut stats) {
             match e {
                 StreamerError::RecvTimeout(RecvTimeoutError::Disconnected) => break,
                 StreamerError::RecvTimeout(RecvTimeoutError::Timeout) => (),

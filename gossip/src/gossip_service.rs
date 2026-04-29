@@ -39,7 +39,7 @@ impl GossipService {
     pub fn new(
         cluster_info: &Arc<ClusterInfo>,
         mut epoch_specs: Option<Box<dyn EpochSpecs>>,
-        gossip_sockets: Arc<[UdpSocket]>,
+        gossip_socket: Arc<UdpSocket>,
         gossip_validators: Option<HashSet<Pubkey>>,
         should_check_duplicate_instance: bool,
         stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
@@ -48,18 +48,15 @@ impl GossipService {
         let (request_sender, request_receiver) =
             EvictingSender::new_bounded(GOSSIP_CHANNEL_CAPACITY);
         trace!(
-            "GossipService: id: {}, listening on primary interface: {:?}, all available \
-             interfaces: {:?}",
+            "GossipService: id: {}, listening on: {:?}",
             &cluster_info.id(),
-            gossip_sockets[0].local_addr().unwrap(),
-            gossip_sockets,
+            gossip_socket.local_addr().unwrap(),
         );
         let socket_addr_space = *cluster_info.socket_addr_space();
         let gossip_receiver_stats = Arc::new(StreamerReceiveStats::new("gossip_receiver"));
-        let t_receiver = streamer::receiver_atomic(
+        let t_receiver = streamer::receiver(
             "solRcvrGossip".to_string(),
-            gossip_sockets.clone(),
-            cluster_info.bind_ip_addrs(),
+            gossip_socket.clone(),
             exit.clone(),
             request_sender,
             Recycler::default(),
@@ -91,10 +88,9 @@ impl GossipService {
             gossip_validators,
             exit.clone(),
         );
-        let t_responder = streamer::responder_atomic(
+        let t_responder = streamer::responder(
             "Gossip",
-            gossip_sockets,
-            cluster_info.bind_ip_addrs(),
+            gossip_socket,
             response_receiver,
             socket_addr_space,
             stats_reporter_sender,
@@ -322,12 +318,12 @@ pub fn make_node(
             .map(ContactInfo::new_gossip_entry_point)
             .collect::<Vec<_>>(),
     );
-    let gossip_sockets = Arc::new([gossip_socket]);
+    let gossip_socket = Arc::new(gossip_socket);
     let cluster_info = Arc::new(cluster_info);
     let gossip_service = GossipService::new(
         &cluster_info,
         None,
-        gossip_sockets,
+        gossip_socket,
         None,
         should_check_duplicate_instance,
         None,

@@ -60,7 +60,6 @@ use {
         blockstore_cleanup_service::{DEFAULT_MAX_LEDGER_SHREDS, DEFAULT_MIN_MAX_LEDGER_SHREDS},
         use_snapshot_archives_at_startup::{self, UseSnapshotArchivesAtStartup},
     },
-    solana_net_utils::multihomed_sockets::BindIpAddrs,
     solana_poh::poh_service,
     solana_pubkey::Pubkey,
     solana_runtime::{runtime_config::RuntimeConfig, snapshot_utils},
@@ -140,14 +139,11 @@ pub fn execute(
     solana_metrics::set_panic_hook("validator", Some(String::from(solana_version)));
     solana_entry::entry::init_poh();
 
-    let bind_addresses = {
-        let parsed = matches
-            .values_of("bind_address")
-            .expect("bind_address should always be present due to default")
-            .map(solana_net_utils::parse_host)
-            .collect::<Result<Vec<_>, _>>()?;
-        BindIpAddrs::new(parsed).map_err(|err| format!("invalid bind_addresses: {err}"))?
-    };
+    let bind_address = solana_net_utils::parse_host(
+        matches
+            .value_of("bind_address")
+            .expect("bind_address should always be present due to default"),
+    )?;
 
     let entrypoint_addrs = run_args.entrypoints;
     for addr in &entrypoint_addrs {
@@ -180,8 +176,8 @@ pub fn execute(
 
     let advertised_ip = if let Some(cli_ip) = advertised_ip {
         cli_ip
-    } else if !bind_addresses.active().is_unspecified() && !bind_addresses.active().is_loopback() {
-        bind_addresses.active()
+    } else if !bind_address.is_unspecified() && !bind_address.is_loopback() {
+        bind_address
     } else if !entrypoint_addrs.is_empty() {
         let mut order: Vec<_> = (0..entrypoint_addrs.len()).collect();
         order.shuffle(&mut rng());
@@ -193,24 +189,21 @@ pub fn execute(
                 info!(
                     "Contacting {entrypoint_addr} to determine the validator's public IP address"
                 );
-                solana_net_utils::get_public_ip_addr_with_binding(
-                    entrypoint_addr,
-                    bind_addresses.active(),
-                )
-                .map_or_else(
-                    |err| {
-                        warn!("Failed to contact cluster entrypoint {entrypoint_addr}: {err}");
-                        None
-                    },
-                    Some,
-                )
+                solana_net_utils::get_public_ip_addr_with_binding(entrypoint_addr, bind_address)
+                    .map_or_else(
+                        |err| {
+                            warn!("Failed to contact cluster entrypoint {entrypoint_addr}: {err}");
+                            None
+                        },
+                        Some,
+                    )
             })
             .ok_or_else(|| "unable to determine the validator's public IP address".to_string())?
     } else {
         IpAddr::V4(Ipv4Addr::LOCALHOST)
     };
     let gossip_port = value_t!(matches, "gossip_port", u16).or_else(|_| {
-        solana_net_utils::find_available_port_in_range(bind_addresses.active(), (0, 1))
+        solana_net_utils::find_available_port_in_range(bind_address, (0, 1))
             .map_err(|err| format!("unable to find an available gossip port: {err}"))
     })?;
 
@@ -238,19 +231,13 @@ pub fn execute(
         })
         .transpose()?;
 
-    if bind_addresses.len() > 1 && public_tvu_addr.is_some() {
-        Err(String::from(
-            "--public-tvu-address can not be used in a multihoming context",
-        ))?;
-    }
-
     let num_quic_endpoints = value_t_or_exit!(matches, "num_quic_endpoints", NonZeroUsize);
 
     let node_config = NodeConfig {
         advertised_ip,
         gossip_port,
         port_range: dynamic_port_range,
-        bind_ip_addrs: bind_addresses.clone(),
+        bind_ip_addr: bind_address,
         public_tpu_addr,
         public_tpu_forwards_addr,
         public_tvu_addr,
@@ -359,7 +346,7 @@ pub fn execute(
                 .local_addr()
                 .expect("failed to get local address")
                 .port();
-            let src_ip = match node.bind_ip_addrs.active() {
+            let src_ip = match node.bind_ip_addr {
                 IpAddr::V4(ip) if !ip.is_unspecified() => ip,
                 IpAddr::V4(_unspecified) => {
                     if let Some(interface) = xdp_config.interface.as_ref() {
@@ -487,32 +474,13 @@ pub fn execute(
         "--gossip-validator",
     )?;
 
-    if bind_addresses.len() > 1 {
-        for (flag, msg) in [
-            (
-                "advertised_ip",
-                "--advertised-ip cannot be used in a multihoming context. In multihoming, the \
-                 validator will advertise the first --bind-address as this node's public IP \
-                 address.",
-            ),
-            (
-                "public_tpu_addr",
-                "--public-tpu-address can not be used in a multihoming context",
-            ),
-        ] {
-            if matches.is_present(flag) {
-                Err(String::from(msg))?;
-            }
-        }
-    }
-
     let rpc_bind_address = if matches.is_present("rpc_bind_address") {
         solana_net_utils::parse_host(matches.value_of("rpc_bind_address").unwrap())
             .expect("invalid rpc_bind_address")
     } else if private_rpc {
         solana_net_utils::parse_host("127.0.0.1").unwrap()
     } else {
-        bind_addresses.active()
+        bind_address
     };
 
     let contact_debug_interval = value_t_or_exit!(matches, "contact_debug_interval", u64);
@@ -549,7 +517,7 @@ pub fn execute(
     // version can then be deleted from gossip and get_rpc_node above.
     let expected_shred_version = value_t!(matches, "expected_shred_version", u16)
         .ok()
-        .or_else(|| get_cluster_shred_version(&entrypoint_addrs, bind_addresses.active()));
+        .or_else(|| get_cluster_shred_version(&entrypoint_addrs, bind_address));
 
     let tower_path = value_t!(matches, "tower", PathBuf)
         .ok()

@@ -34,7 +34,7 @@ use {
         collections::{HashMap, HashSet},
         env, error,
         fmt::{self, Display},
-        net::{IpAddr, SocketAddr},
+        net::SocketAddr,
         num::NonZeroUsize,
         path::{Path, PathBuf},
         sync::{
@@ -234,9 +234,6 @@ pub trait AdminRpc {
 
     #[rpc(meta, name = "contactInfo")]
     fn contact_info(&self, meta: Self::Metadata) -> Result<AdminRpcContactInfo>;
-
-    #[rpc(meta, name = "selectActiveInterface")]
-    fn select_active_interface(&self, meta: Self::Metadata, interface: IpAddr) -> Result<()>;
 
     #[rpc(meta, name = "repairShredFromPeer")]
     fn repair_shred_from_peer(
@@ -608,24 +605,6 @@ impl AdminRpc for AdminRpcImpl {
 
     fn contact_info(&self, meta: Self::Metadata) -> Result<AdminRpcContactInfo> {
         meta.with_post_init(|post_init| Ok(post_init.cluster_info.my_contact_info().into()))
-    }
-
-    fn select_active_interface(&self, meta: Self::Metadata, interface: IpAddr) -> Result<()> {
-        debug!("select_active_interface received: {interface}");
-        meta.with_post_init(|post_init| {
-            let node = post_init.node.as_ref().ok_or_else(|| {
-                jsonrpc_core::Error::invalid_params("`Node` not initialized in post_init")
-            })?;
-
-            node.switch_active_interface(interface, &post_init.cluster_info)
-                .map_err(|e| {
-                    jsonrpc_core::Error::invalid_params(format!(
-                        "Switching failed due to error {e}"
-                    ))
-                })?;
-            info!("Switched primary interface to {interface}");
-            Ok(())
-        })
     }
 
     fn repair_shred_from_peer(
@@ -1160,7 +1139,6 @@ mod tests {
                     cluster_slots: Arc::new(
                         solana_core::cluster_slots_service::cluster_slots::ClusterSlots::default_for_tests(),
                     ),
-                    node: None,
                     banking_control_sender: mpsc::channel(1).0,
                     snapshot_controller,
                     blockstore,

@@ -51,7 +51,6 @@ use {
     solana_ledger::shred::Shred,
     solana_net_utils::{
         PortRange, SocketAddrSpace, VALIDATOR_PORT_RANGE, bind_in_range,
-        multihomed_sockets::BindIpAddrs,
         sockets::{bind_gossip_port_in_range, bind_to_localhost_unique},
     },
     solana_perf::{
@@ -164,7 +163,6 @@ pub struct ClusterInfo {
     contact_save_interval: u64,  // milliseconds, 0 = disabled
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
-    bind_ip_addrs: Arc<BindIpAddrs>,
 }
 
 impl ClusterInfo {
@@ -194,7 +192,6 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
-            bind_ip_addrs: Arc::new(BindIpAddrs::default()),
         };
         me.refresh_my_gossip_contact_info();
         me
@@ -206,14 +203,6 @@ impl ClusterInfo {
 
     pub fn socket_addr_space(&self) -> &SocketAddrSpace {
         &self.socket_addr_space
-    }
-
-    pub fn set_bind_ip_addrs(&mut self, ip_addrs: Arc<BindIpAddrs>) {
-        self.bind_ip_addrs = ip_addrs;
-    }
-
-    pub fn bind_ip_addrs(&self) -> Arc<BindIpAddrs> {
-        self.bind_ip_addrs.clone()
     }
 
     fn refresh_push_active_set(
@@ -2330,7 +2319,7 @@ impl ClusterInfo {
 
 #[derive(Debug)]
 pub struct Sockets {
-    pub gossip: Arc<[UdpSocket]>,     // udp read/write
+    pub gossip: Arc<UdpSocket>,       // udp read/write
     pub ip_echo: Option<TcpListener>, // read/write (tcp)
     pub tvu: Vec<UdpSocket>,          // udp read only
     pub tpu_vote: Vec<UdpSocket>,     // udp read only
@@ -2352,7 +2341,7 @@ pub struct Sockets {
     /// Client-side socket for ForwardingStage vote transactions
     pub tpu_vote_forwarding_client: UdpSocket, // udp write only
     /// Client-side socket for ForwardingStage non-vote transactions
-    pub tpu_transaction_forwarding_clients: Box<[UdpSocket]>, // quic write only
+    pub tpu_transaction_forwarding_client: UdpSocket, // quic write only
     /// Socket for alpenglow consensus logic
     pub alpenglow: Option<UdpSocket>, // udp read/write
     /// Connection cache endpoint for QUIC-based Vote
@@ -2369,8 +2358,8 @@ pub struct NodeConfig {
     /// The gossip port advertised to the cluster
     pub gossip_port: u16,
     pub port_range: PortRange,
-    /// Multihoming: The IP addresses the node can bind to
-    pub bind_ip_addrs: BindIpAddrs,
+    /// The IP address this node binds to
+    pub bind_ip_addr: IpAddr,
     pub public_tpu_addr: Option<SocketAddr>,
     pub public_tpu_forwards_addr: Option<SocketAddr>,
     pub public_tvu_addr: Option<SocketAddr>,
@@ -2841,7 +2830,7 @@ mod tests {
         if let Some(alpenglow_port) = &node.sockets.alpenglow {
             check_socket(alpenglow_port, ip, range);
         }
-        check_sockets(&node.sockets.gossip, ip, range);
+        check_socket(&node.sockets.gossip, ip, range);
         check_sockets(&node.sockets.tvu, ip, range);
         check_sockets(&node.sockets.tpu_quic, ip, range);
     }
@@ -2854,7 +2843,7 @@ mod tests {
             advertised_ip: IpAddr::V4(ip),
             gossip_port: 0,
             port_range,
-            bind_ip_addrs: BindIpAddrs::new(vec![IpAddr::V4(ip)]).unwrap(),
+            bind_ip_addr: IpAddr::V4(ip),
             public_tpu_addr: None,
             public_tpu_forwards_addr: None,
             public_tvu_addr: None,
@@ -2879,7 +2868,7 @@ mod tests {
             advertised_ip: ip,
             gossip_port: port,
             port_range,
-            bind_ip_addrs: BindIpAddrs::new(vec![ip]).unwrap(),
+            bind_ip_addr: ip,
             public_tpu_addr: None,
             public_tpu_forwards_addr: None,
             public_tvu_addr: None,
@@ -2891,7 +2880,7 @@ mod tests {
         let node = Node::new_with_external_ip(&solana_pubkey::new_rand(), config);
 
         check_node_sockets(&node, ip, port_range);
-        check_sockets(&node.sockets.gossip, ip, port_range);
+        check_socket(&node.sockets.gossip, ip, port_range);
     }
 
     //test that all cluster_info objects only generate signed messages
