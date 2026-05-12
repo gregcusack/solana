@@ -165,6 +165,8 @@ impl<T> ClusterNodes<T> {
         let mut num_nodes_stale = 0;
         let mut stake_dead = 0;
         let mut stake_stale = 0;
+        let log_dead_staked_pubkeys = name == "cluster_nodes_broadcast";
+        let mut dead_staked_pubkeys = Vec::new();
         for node in &self.nodes {
             epoch_stakes += node.stake;
             if node.stake != 0u64 {
@@ -174,6 +176,9 @@ impl<T> ClusterNodes<T> {
                 None => {
                     num_nodes_dead += 1;
                     stake_dead += node.stake;
+                    if log_dead_staked_pubkeys && node.stake != 0 {
+                        dead_staked_pubkeys.push(*node.pubkey());
+                    }
                 }
                 Some(wallclock) => {
                     let age = now.saturating_sub(wallclock);
@@ -196,6 +201,14 @@ impl<T> ClusterNodes<T> {
             ("stake_dead", stake_dead / LAMPORTS_PER_SOL, i64),
             ("stake_stale", stake_stale / LAMPORTS_PER_SOL, i64),
         );
+        if !dead_staked_pubkeys.is_empty() {
+            info!(
+                "{name}: dead staked pubkeys without contact-info; stake_dead: {} SOL, pubkeys: \
+                 {:?}",
+                stake_dead / LAMPORTS_PER_SOL,
+                dead_staked_pubkeys
+            );
+        }
     }
 }
 
