@@ -14,8 +14,8 @@ use {
 };
 
 struct StakedValidatorsCacheEntry {
-    /// Alpenglow Sockets associated with the staked validators
-    alpenglow_sockets: Vec<SocketAddr>,
+    /// (Pubkey, Alpenglow socket) pairs for the staked validators.
+    peers: Vec<(Pubkey, SocketAddr)>,
 
     /// The time at which this entry was created
     creation_time: Instant,
@@ -126,7 +126,7 @@ impl StakedValidatorsCache {
         nodes.dedup_by_key(|node| node.alpenglow_socket);
         nodes.sort_unstable_by_key(|a| a.stake);
 
-        let mut alpenglow_sockets = Vec::with_capacity(nodes.len());
+        let mut peers = Vec::with_capacity(nodes.len());
         let override_map = self
             .alpenglow_port_override
             .as_ref()
@@ -142,12 +142,12 @@ impl StakedValidatorsCache {
             } else {
                 alpenglow_socket
             };
-            alpenglow_sockets.push(socket);
+            peers.push((node.pubkey, socket));
         }
         self.cache.put(
             epoch,
             StakedValidatorsCacheEntry {
-                alpenglow_sockets,
+                peers,
                 creation_time: update_time,
             },
         );
@@ -158,7 +158,7 @@ impl StakedValidatorsCache {
         slot: Slot,
         cluster_info: &ClusterInfo,
         access_time: Instant,
-    ) -> (&[SocketAddr], bool) {
+    ) -> (&[(Pubkey, SocketAddr)], bool) {
         // Check if self.alpenglow_port_override has a different last_modified.
         // Immediately refresh the cache if it does.
         if let Some(alpenglow_port_override) = &self.alpenglow_port_override {
@@ -183,7 +183,7 @@ impl StakedValidatorsCache {
         epoch: Epoch,
         cluster_info: &ClusterInfo,
         access_time: Instant,
-    ) -> (&[SocketAddr], bool) {
+    ) -> (&[(Pubkey, SocketAddr)], bool) {
         // For a given epoch, if we either:
         //
         // (1) have a cache entry that has expired
@@ -203,10 +203,7 @@ impl StakedValidatorsCache {
         (
             // Unwrapping is fine here, since update_cache guarantees that we push a cache entry to
             // self.cache[epoch].
-            self.cache
-                .get(&epoch)
-                .map(|v| &*v.alpenglow_sockets)
-                .unwrap(),
+            self.cache.get(&epoch).map(|v| &*v.peers).unwrap(),
             refresh_cache,
         )
     }
@@ -239,7 +236,7 @@ mod tests {
             bank::Bank,
             bank_forks::BankForks,
             genesis_utils::{
-                ValidatorVoteKeypairs, create_genesis_config_with_alpenglow_vote_accounts,
+                create_genesis_config_with_alpenglow_vote_accounts, ValidatorVoteKeypairs,
             },
         },
         solana_signer::Signer,
@@ -265,14 +262,12 @@ mod tests {
                 .map(|(node_ix, pubkey)| {
                     let mut contact_info = ContactInfo::new(*pubkey, 0_u64, 0_u16);
 
-                    assert!(
-                        contact_info
-                            .set_alpenglow((
-                                Ipv4Addr::LOCALHOST,
-                                8080_u16.saturating_add(node_ix as u16)
-                            ))
-                            .is_ok()
-                    );
+                    assert!(contact_info
+                        .set_alpenglow((
+                            Ipv4Addr::LOCALHOST,
+                            8080_u16.saturating_add(node_ix as u16)
+                        ))
+                        .is_ok());
 
                     contact_info
                 });
@@ -479,18 +474,16 @@ mod tests {
 
         // Epochs 1-5 should have been evicted (LRU).
         for entry_ix in 1_u64..=5_u64 {
-            assert!(
-                !svc.cache
-                    .contains_key(&svc.cur_epoch(entry_ix.saturating_mul(base_slot)))
-            );
+            assert!(!svc
+                .cache
+                .contains_key(&svc.cur_epoch(entry_ix.saturating_mul(base_slot))));
         }
 
         // Epochs 6-10 should have entries.
         for entry_ix in 6_u64..=10_u64 {
-            assert!(
-                svc.cache
-                    .contains_key(&svc.cur_epoch(entry_ix.saturating_mul(base_slot)))
-            );
+            assert!(svc
+                .cache
+                .contains_key(&svc.cur_epoch(entry_ix.saturating_mul(base_slot))));
         }
 
         // Re-accessing entries 1-5 after TTL re-inserts them. With 5 already in cache (entries
@@ -552,7 +545,7 @@ mod tests {
         let (sockets, _) =
             svc.get_staked_validators_by_slot(slot_num, &cluster_info, Instant::now());
         assert_eq!(sockets.len(), num_nodes);
-        assert!(sockets.contains(&my_socket_addr));
+        assert!(sockets.iter().any(|(_, socket)| socket == &my_socket_addr));
 
         // Create our staked validators cache - set include_self to false
         let mut svc =
@@ -562,7 +555,7 @@ mod tests {
             svc.get_staked_validators_by_slot(slot_num, &cluster_info, Instant::now());
         // We should have num_nodes - 1 sockets, since we exclude our own socket address.
         assert_eq!(sockets.len(), num_nodes.checked_sub(1).unwrap());
-        assert!(!sockets.contains(&my_socket_addr));
+        assert!(!sockets.iter().any(|(_, socket)| socket == &my_socket_addr));
     }
 
     #[test]
@@ -585,14 +578,14 @@ mod tests {
         // Nothing in the override, so we should get the original socket addresses.
         let (sockets, _) = svc.get_staked_validators_by_slot(0, &cluster_info, Instant::now());
         assert_eq!(sockets.len(), 2);
-        assert!(!sockets.contains(&blackhole_addr));
+        assert!(!sockets.iter().any(|(_, socket)| socket == &blackhole_addr));
 
         // Add an override for pubkey_B, and check that we get the overridden socket address.
         alpenglow_port_override.update_override(HashMap::from([(pubkey_b, blackhole_addr)]));
         let (sockets, _) = svc.get_staked_validators_by_slot(0, &cluster_info, Instant::now());
         assert_eq!(sockets.len(), 2);
         // Sort sockets to ensure the blackhole address is at index 0.
-        let mut sockets: Vec<_> = sockets.to_vec();
+        let mut sockets: Vec<_> = sockets.iter().map(|(_, socket)| *socket).collect();
         sockets.sort();
         assert_eq!(sockets[0], blackhole_addr);
         assert_ne!(sockets[1], blackhole_addr);
@@ -601,6 +594,6 @@ mod tests {
         alpenglow_port_override.clear();
         let (sockets, _) = svc.get_staked_validators_by_slot(0, &cluster_info, Instant::now());
         assert_eq!(sockets.len(), 2);
-        assert!(!sockets.contains(&blackhole_addr));
+        assert!(!sockets.iter().any(|(_, socket)| socket == &blackhole_addr));
     }
 }
