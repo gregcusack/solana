@@ -5,7 +5,9 @@ use {
     crate::{
         block_creation_loop::rewards::msg_types::AddVoteMessage,
         bls_sigverify::{
-            bls_sigverifier::{BAN_TIMEOUT, NUM_SLOTS_FOR_VERIFY, SigVerifierChannels},
+            bls_sigverifier::{
+                BAN_TIMEOUT, NUM_SLOTS_FOR_VERIFY, SigVerifierBanlist, SigVerifierChannels,
+            },
             utils::{
                 send_votes_to_metrics, send_votes_to_pool, send_votes_to_repair,
                 send_votes_to_rewards,
@@ -32,7 +34,6 @@ use {
     solana_measure::{measure::Measure, measure_us},
     solana_pubkey::Pubkey,
     solana_runtime::bank::Bank,
-    solana_streamer::nonblocking::simple_qos::SimpleQosBanlist,
     std::{collections::HashMap, sync::Arc},
 };
 
@@ -76,7 +77,7 @@ pub(super) fn verify_and_send_votes(
     root_bank: &Bank,
     cluster_info: &ClusterInfo,
     leader_schedule: &LeaderScheduleCache,
-    banlist: &SimpleQosBanlist,
+    banlist: &dyn SigVerifierBanlist,
     thread_pool: &ThreadPool,
     channels: &SigVerifierChannels,
 ) -> Result<SigVerifyVoteStats, SigVerifyVoteError> {
@@ -181,7 +182,7 @@ fn verify_votes(
     root_bank: &Bank,
     votes_to_verify: Vec<VotePayload>,
     stats: &mut SigVerifyVoteStats,
-    banlist: &SimpleQosBanlist,
+    banlist: &dyn SigVerifierBanlist,
     thread_pool: &ThreadPool,
 ) -> Vec<VotePayload> {
     // Filter votes too far in the future.

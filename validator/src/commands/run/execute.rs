@@ -45,7 +45,7 @@ use {
         validator::{
             BlockProductionMethod, BlockVerificationMethod, SchedulerPacing, Validator,
             ValidatorConfig, ValidatorLogConfig, ValidatorStartProgress, ValidatorTpuConfig,
-            is_snapshot_config_valid,
+            VotorTransportProtocol, is_snapshot_config_valid,
         },
     },
     solana_genesis_utils::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
@@ -867,6 +867,7 @@ pub fn execute(
             Arc::new(AtomicBool::new(false)),
         )]
         .into(),
+        votor_transport_protocol: VotorTransportProtocol::default(),
         voting_service_test_override: None,
         snapshot_packager_niceness_adj: value_t_or_exit!(
             matches,
