@@ -318,8 +318,8 @@ pub struct ValidatorLogConfig {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum VotorTransportProtocol {
-    #[default]
     QuicStream,
+    #[default]
     QuicDatagram,
 }
 
