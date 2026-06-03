@@ -2,8 +2,8 @@
 
 use {
     super::{
-        bls_cert_sigverify::{verify_and_send_certificates, CertPayload},
-        bls_vote_sigverify::{verify_and_send_votes, VotePayload},
+        bls_cert_sigverify::{CertPayload, verify_and_send_certificates},
+        bls_vote_sigverify::{VotePayload, verify_and_send_votes},
         errors::SigVerifyError,
         stats::SigVerifierStats,
     },
@@ -27,13 +27,14 @@ use {
     solana_ledger::leader_schedule_cache::LeaderScheduleCache,
     solana_measure::measure_us,
     solana_pubkey::Pubkey,
+    solana_quic_datagram::{Banlist, endpoint::Datagram},
     solana_runtime::{bank::Bank, bank_forks::SharableBanks},
     solana_streamer::{nonblocking::simple_qos::SimpleQosBanlist, packet::PacketBatch},
     std::{
         collections::HashSet,
         sync::{
-            atomic::{AtomicBool, Ordering},
             Arc,
+            atomic::{AtomicBool, Ordering},
         },
         thread::{self, Builder},
         time::Duration,
@@ -50,9 +51,25 @@ pub(super) const NUM_SLOTS_FOR_VERIFY: Slot = 90_000;
 /// We ban the sender for 2 days which roughly corresponds to an epoch
 pub(super) const BAN_TIMEOUT: Duration = Duration::from_hours(48);
 
+pub(crate) trait SigVerifierBanlist: Send + Sync {
+    fn ban(&self, pubkey: Pubkey, timeout: Duration) -> bool;
+}
+
+impl SigVerifierBanlist for SimpleQosBanlist {
+    fn ban(&self, pubkey: Pubkey, timeout: Duration) -> bool {
+        SimpleQosBanlist::ban(self, pubkey, timeout)
+    }
+}
+
+impl SigVerifierBanlist for Banlist<Pubkey> {
+    fn ban(&self, pubkey: Pubkey, timeout: Duration) -> bool {
+        Banlist::ban(self, pubkey, timeout)
+    }
+}
+
 pub(crate) struct SigVerifierContext {
     pub(crate) migration_status: Arc<MigrationStatus>,
-    pub(crate) banlist: Arc<SimpleQosBanlist>,
+    pub(crate) banlist: Arc<dyn SigVerifierBanlist>,
     pub(crate) sharable_banks: SharableBanks,
     pub(crate) cluster_info: Arc<ClusterInfo>,
     pub(crate) leader_schedule: Arc<LeaderScheduleCache>,
@@ -60,8 +77,13 @@ pub(crate) struct SigVerifierContext {
     pub(crate) generated_cert_types: Arc<GeneratedCertTypes>,
 }
 
+pub(crate) enum SigVerifierInputReceiver {
+    PacketBatches(Receiver<PacketBatch>),
+    Datagrams(Receiver<Datagram>),
+}
+
 pub(crate) struct SigVerifierChannels {
-    pub(crate) packet_receiver: Receiver<PacketBatch>,
+    pub(crate) input_receiver: SigVerifierInputReceiver,
     pub(crate) channel_to_repair: VerifiedVoterSlotsSender,
     pub(crate) channel_to_reward: Sender<AddVoteMessage>,
     pub(crate) channel_to_pool: Sender<Vec<ConsensusMessage>>,
@@ -84,7 +106,7 @@ pub(crate) fn spawn_service(
 
 struct SigVerifier {
     migration_status: Arc<MigrationStatus>,
-    banlist: Arc<SimpleQosBanlist>,
+    banlist: Arc<dyn SigVerifierBanlist>,
     channels: SigVerifierChannels,
     /// Container to look up root banks from.
     sharable_banks: SharableBanks,
@@ -140,15 +162,16 @@ impl SigVerifier {
     fn run(mut self, exit: Arc<AtomicBool>) {
         while !exit.load(Ordering::Relaxed) {
             const SOFT_RECEIVE_CAP: usize = 5000;
-            let Ok(batches) = recv_batches(&self.channels.packet_receiver, SOFT_RECEIVE_CAP) else {
-                error!("packet_receiver disconnected:  Exiting.");
+            let Ok(input) = recv_input(&self.channels.input_receiver, SOFT_RECEIVE_CAP) else {
+                error!("sigverify input receiver disconnected:  Exiting.");
                 break;
             };
-            if batches.is_empty() || self.migration_status.is_pre_feature_activation() {
+            if input.is_empty() || self.migration_status.is_pre_feature_activation() {
                 continue;
             }
+            let items = self.input_to_sigverify_items(input);
 
-            let (verify_res, verify_time_us) = measure_us!(self.verify_and_send_batches(batches));
+            let (verify_res, verify_time_us) = measure_us!(self.verify_and_send_items(items));
             self.stats
                 .verify_and_send_batch_us
                 .add_sample(verify_time_us);
@@ -161,12 +184,18 @@ impl SigVerifier {
         self.stats.do_report(self.sharable_banks.root().slot());
     }
 
+    #[cfg(test)]
     fn verify_and_send_batches(&mut self, batches: Vec<PacketBatch>) -> Result<(), SigVerifyError> {
+        let items = self.packet_batches_to_sigverify_items(batches);
+        self.verify_and_send_items(items)
+    }
+
+    fn verify_and_send_items(&mut self, items: Vec<SigverifyItem>) -> Result<(), SigVerifyError> {
         let root_bank = self.sharable_banks.root();
         self.maybe_prune_caches(root_bank.slot());
 
         let ((certs_to_verify, votes_to_verify), extract_msgs_us) =
-            measure_us!(self.extract_and_filter_msgs(batches, &root_bank));
+            measure_us!(self.extract_and_filter_sigverify_items(items, &root_bank));
         self.stats
             .extract_filter_msgs_us
             .add_sample(extract_msgs_us);
@@ -178,7 +207,7 @@ impl SigVerifier {
                     &root_bank,
                     &self.cluster_info,
                     &self.leader_schedule,
-                    &self.banlist,
+                    self.banlist.as_ref(),
                     &self.thread_pool,
                     &self.channels,
                 )
@@ -189,7 +218,7 @@ impl SigVerifier {
                     certs_to_verify,
                     &root_bank,
                     &self.channels.channel_to_pool,
-                    &self.banlist,
+                    self.banlist.as_ref(),
                     &self.thread_pool,
                 )
             },
@@ -235,13 +264,32 @@ impl SigVerifier {
         items
     }
 
-    fn extract_and_filter_msgs(
-        &mut self,
-        batches: Vec<PacketBatch>,
-        root_bank: &Bank,
-    ) -> (Vec<CertPayload>, Vec<VotePayload>) {
-        let items = self.packet_batches_to_sigverify_items(batches);
-        self.extract_and_filter_sigverify_items(items, root_bank)
+    fn datagrams_to_sigverify_items(&mut self, datagrams: Vec<Datagram>) -> Vec<SigverifyItem> {
+        let mut items = Vec::with_capacity(datagrams.len());
+        let mut num_pkts = 0u64;
+        for Datagram {
+            peer_pubkey,
+            message,
+            ..
+        } in datagrams
+        {
+            num_pkts = num_pkts.saturating_add(1);
+            items.push(SigverifyItem {
+                remote_pubkey: Some(peer_pubkey),
+                bytes: message.to_vec(),
+            });
+        }
+        self.stats.num_pkts.add_sample(num_pkts);
+        items
+    }
+
+    fn input_to_sigverify_items(&mut self, input: SigVerifierInput) -> Vec<SigverifyItem> {
+        match input {
+            SigVerifierInput::PacketBatches(batches) => {
+                self.packet_batches_to_sigverify_items(batches)
+            }
+            SigVerifierInput::Datagrams(datagrams) => self.datagrams_to_sigverify_items(datagrams),
+        }
     }
 
     fn extract_and_filter_sigverify_items(
@@ -330,15 +378,40 @@ impl SigVerifier {
     }
 }
 
-/// Receives a `Vec<PacketBatch>` from the `receiver` while adhering to the `soft_receive_cap` limit.
+enum SigVerifierInput {
+    PacketBatches(Vec<PacketBatch>),
+    Datagrams(Vec<Datagram>),
+}
+
+impl SigVerifierInput {
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::PacketBatches(batches) => batches.is_empty(),
+            Self::Datagrams(datagrams) => datagrams.is_empty(),
+        }
+    }
+}
+
+fn recv_input(
+    receiver: &SigVerifierInputReceiver,
+    soft_receive_cap: usize,
+) -> Result<SigVerifierInput, ()> {
+    match receiver {
+        SigVerifierInputReceiver::PacketBatches(receiver) => {
+            recv_items(receiver, soft_receive_cap).map(SigVerifierInput::PacketBatches)
+        }
+        SigVerifierInputReceiver::Datagrams(receiver) => {
+            recv_items(receiver, soft_receive_cap).map(SigVerifierInput::Datagrams)
+        }
+    }
+}
+
+/// Receives items from `receiver` while adhering to the `soft_receive_cap` limit.
 ///
 /// Returns `Err(())` if the channel disconnected.
-fn recv_batches(
-    receiver: &Receiver<PacketBatch>,
-    soft_receive_cap: usize,
-) -> Result<Vec<PacketBatch>, ()> {
-    let batch = match receiver.recv_timeout(Duration::from_secs(1)) {
-        Ok(b) => b,
+fn recv_items<T>(receiver: &Receiver<T>, soft_receive_cap: usize) -> Result<Vec<T>, ()> {
+    let first = match receiver.recv_timeout(Duration::from_secs(1)) {
+        Ok(item) => item,
         Err(e) => match e {
             RecvTimeoutError::Timeout => {
                 return Ok(vec![]);
@@ -348,20 +421,20 @@ fn recv_batches(
             }
         },
     };
-    let mut batches = Vec::with_capacity(soft_receive_cap);
-    batches.push(batch);
-    while batches.len() < soft_receive_cap {
+    let mut items = Vec::with_capacity(soft_receive_cap);
+    items.push(first);
+    while items.len() < soft_receive_cap {
         match receiver.try_recv() {
-            Ok(b) => {
-                batches.push(b);
+            Ok(item) => {
+                items.push(item);
             }
             Err(e) => match e {
-                TryRecvError::Empty => return Ok(batches),
+                TryRecvError::Empty => return Ok(items),
                 TryRecvError::Disconnected => return Err(()),
             },
         }
     }
-    Ok(batches)
+    Ok(items)
 }
 
 #[cfg(test)]
@@ -380,7 +453,7 @@ mod tests {
         },
         bitvec::prelude::{BitVec, Lsb0},
         crossbeam_channel::{Receiver, TryRecvError},
-        solana_bls_signatures::{Signature, BLS_SIGNATURE_AFFINE_SIZE},
+        solana_bls_signatures::{BLS_SIGNATURE_AFFINE_SIZE, Signature},
         solana_epoch_schedule::EpochSchedule,
         solana_gossip::contact_info::ContactInfo,
         solana_hash::Hash,
@@ -392,7 +465,7 @@ mod tests {
             bank::{Bank, SlotLeader},
             bank_forks::BankForks,
             genesis_utils::{
-                create_genesis_config_with_alpenglow_vote_accounts, ValidatorVoteKeypairs,
+                ValidatorVoteKeypairs, create_genesis_config_with_alpenglow_vote_accounts,
             },
         },
         solana_signer::Signer,
@@ -471,7 +544,7 @@ mod tests {
                     generated_cert_types: generated_cert_types.clone(),
                 },
                 SigVerifierChannels {
-                    packet_receiver,
+                    input_receiver: SigVerifierInputReceiver::PacketBatches(packet_receiver),
                     channel_to_repair,
                     channel_to_reward,
                     channel_to_pool,
@@ -1347,7 +1420,7 @@ mod tests {
                 generated_cert_types: Arc::new(GeneratedCertTypes::default()),
             },
             SigVerifierChannels {
-                packet_receiver,
+                input_receiver: SigVerifierInputReceiver::PacketBatches(packet_receiver),
                 channel_to_repair: votes_for_repair_sender,
                 channel_to_reward: reward_votes_sender,
                 channel_to_pool: message_sender,

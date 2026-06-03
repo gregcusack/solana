@@ -7836,6 +7836,7 @@ dependencies = [
  "solana-poh-config",
  "solana-program-binaries",
  "solana-pubkey 4.2.0",
+ "solana-quic-datagram",
  "solana-rayon-threadlimit",
  "solana-rent",
  "solana-rpc",

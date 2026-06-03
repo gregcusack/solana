@@ -27,7 +27,7 @@ use {
             SystemMonitorService, SystemMonitorStatsReportConfig, verify_net_stats_access,
         },
         tpu::{Tpu, TpuSockets},
-        tvu::{AlpenglowInitializationState, Tvu, TvuConfig, TvuSockets},
+        tvu::{AlpenglowInitializationState, AlpenglowTransport, Tvu, TvuConfig, TvuSockets},
     },
     agave_snapshots::{
         SnapshotInterval, snapshot_archive_info::SnapshotArchiveInfoGetter as _,
@@ -316,6 +316,13 @@ pub struct ValidatorLogConfig {
     pub logrotate_flag: Arc<AtomicBool>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum VotorTransportProtocol {
+    #[default]
+    QuicStream,
+    QuicDatagram,
+}
+
 pub struct ValidatorConfig {
     /// Log messages go to `stderr` if `None`
     pub log_config: Option<ValidatorLogConfig>,
@@ -393,6 +400,7 @@ pub struct ValidatorConfig {
     pub tvu_shred_sigverify_threads: NonZeroUsize,
     pub tvu_bls_sigverify_threads: NonZeroUsize,
     pub delay_leader_block_for_pending_fork: bool,
+    pub votor_transport_protocol: VotorTransportProtocol,
     pub voting_service_test_override: Option<VotingServiceOverride>,
     pub repair_handler_type: RepairHandlerType,
     // Thread niceness adjustment for snapshot packager service
@@ -478,6 +486,7 @@ impl ValidatorConfig {
             tvu_shred_sigverify_threads: NonZeroUsize::new(2).expect("2 is non-zero"),
             tvu_bls_sigverify_threads: NonZeroUsize::new(2).expect("2 is non-zero"),
             delay_leader_block_for_pending_fork: false,
+            votor_transport_protocol: VotorTransportProtocol::default(),
             voting_service_test_override: None,
             repair_handler_type: RepairHandlerType::default(),
             snapshot_packager_niceness_adj: 0,
@@ -1187,30 +1196,7 @@ impl Validator {
             ))
         };
 
-        let bls_connection_cache = Arc::new(ConnectionCache::new_with_client_options(
-            "connection_cache_bls_quic",
-            // BLS consensus messaging is extremely low throughput (5 PPS). Even during standstill operations
-            // we wouldn't expect more than a 100 PPS. 1 connection is enough.
-            1, /* connection_pool_size */
-            Some(node.sockets.quic_alpenglow_client),
-            Some((
-                &identity_keypair,
-                node.info
-                    .alpenglow()
-                    .ok_or_else(|| {
-                        ValidatorError::Other(String::from(
-                            "Invalid QUIC address for Alpenglow BLS",
-                        ))
-                    })?
-                    .ip(),
-            )),
-            Some((&staked_nodes, &identity_keypair.pubkey())),
-        ));
         let key_notifiers = Arc::new(RwLock::new(KeyUpdaters::default()));
-        key_notifiers.write().unwrap().add(
-            KeyUpdaterType::BlsConnectionCache,
-            bls_connection_cache.clone(),
-        );
 
         // test-validator crate may start the validator in a tokio runtime
         // context which forces us to use the same runtime because a nested
@@ -1226,6 +1212,97 @@ impl Validator {
                 .build()
                 .unwrap()
         });
+
+        let alpenglow_transport = match config.votor_transport_protocol {
+            VotorTransportProtocol::QuicStream => {
+                let bls_connection_cache = Arc::new(ConnectionCache::new_with_client_options(
+                    "connection_cache_bls_quic",
+                    // BLS consensus messaging is extremely low throughput (5 PPS). Even during
+                    // standstill operations we would not expect more than 100 PPS. One connection
+                    // is enough.
+                    1, /* connection_pool_size */
+                    Some(node.sockets.quic_alpenglow_client),
+                    Some((
+                        &identity_keypair,
+                        node.info
+                            .alpenglow()
+                            .ok_or_else(|| {
+                                ValidatorError::Other(String::from(
+                                    "Invalid QUIC address for Alpenglow BLS",
+                                ))
+                            })?
+                            .ip(),
+                    )),
+                    Some((&staked_nodes, &identity_keypair.pubkey())),
+                ));
+                key_notifiers.write().unwrap().add(
+                    KeyUpdaterType::BlsConnectionCache,
+                    bls_connection_cache.clone(),
+                );
+                AlpenglowTransport::QuicStream {
+                    bls_connection_cache,
+                    cancel: cancel.clone(),
+                    staked_nodes: staked_nodes.clone(),
+                    key_notifiers: key_notifiers.clone(),
+                }
+            }
+            VotorTransportProtocol::QuicDatagram => {
+                let alpenglow_socket = if matches!(
+                    genesis_config.cluster_type,
+                    ClusterType::Testnet | ClusterType::Development,
+                ) {
+                    node.sockets.alpenglow.take()
+                } else {
+                    None
+                };
+
+                let (egress, ingress, banlist, allowlist, _alpenglow_endpoint_task) =
+                    if let Some(socket) = alpenglow_socket {
+                        let votor_rt_handle = tpu_client_next_runtime
+                            .as_ref()
+                            .map(TokioRuntime::handle)
+                            .unwrap_or_else(|| current_runtime_handle.as_ref().unwrap());
+                        let (ingress_tx, ingress_rx) =
+                            crossbeam_channel::bounded(crate::tvu::MAX_ALPENGLOW_PACKET_NUM);
+                        let banlist = Arc::new(solana_quic_datagram::Banlist::<Pubkey>::default());
+                        let allowlist =
+                            agave_votor::datagram_endpoint::build_allowlist(&bank_forks);
+                        let solana_quic_datagram::QuicDatagramEndpoint {
+                            endpoint: _quic_endpoint,
+                            egress,
+                            key_updater,
+                            task,
+                        } = agave_votor::datagram_endpoint::spawn(
+                            votor_rt_handle,
+                            &identity_keypair,
+                            socket,
+                            ingress_tx,
+                            allowlist.clone(),
+                            banlist.clone(),
+                        )
+                        .map_err(|e| ValidatorError::Other(format!("alpenglow endpoint: {e:?}")))?;
+                        key_notifiers
+                            .write()
+                            .unwrap()
+                            .add(KeyUpdaterType::VotorDatagram, key_updater);
+                        (egress, ingress_rx, banlist, Some(allowlist), Some(task))
+                    } else {
+                        let (egress, _) = tokio::sync::mpsc::channel(1);
+                        let (_, ingress) = crossbeam_channel::bounded::<
+                            solana_quic_datagram::endpoint::Datagram,
+                        >(1);
+                        let banlist = Arc::new(solana_quic_datagram::Banlist::<Pubkey>::default());
+                        (egress, ingress, banlist, None, None)
+                    };
+
+                AlpenglowTransport::QuicDatagram {
+                    egress,
+                    ingress,
+                    banlist,
+                    allowlist,
+                }
+            }
+        };
 
         let rpc_override_health_check =
             Arc::new(AtomicBool::new(config.rpc_config.disable_health_check));
@@ -1647,10 +1724,7 @@ impl Validator {
                 bank_forks_controller_receiver,
                 votor_event_sender: votor_event_sender.clone(),
                 votor_event_receiver,
-                cancel: cancel.clone(),
-                staked_nodes: staked_nodes.clone(),
-                key_notifiers: key_notifiers.clone(),
-                bls_connection_cache,
+                alpenglow_transport,
                 voting_service_test_override: config.voting_service_test_override.clone(),
                 highest_finalized,
             },
