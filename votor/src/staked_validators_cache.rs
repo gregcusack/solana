@@ -1,12 +1,13 @@
 use {
-    crate::voting_service::AlpenglowPortOverride,
+    crate::{datagram_endpoint, voting_service::AlpenglowPortOverride},
     lazy_lru::LruCache,
     solana_clock::{Epoch, Slot},
     solana_gossip::cluster_info::ClusterInfo,
     solana_pubkey::Pubkey,
+    solana_quic_datagram::StakedNodesAllowlist,
     solana_runtime::bank_forks::BankForks,
     std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         net::SocketAddr,
         sync::{Arc, RwLock},
         time::{Duration, Instant},
@@ -46,15 +47,44 @@ pub struct StakedValidatorsCache {
 
     /// timestamp of the last alpenglow port override we read
     alpenglow_port_override_last_modified: Instant,
+
+    /// Optional datagram endpoint allowlist kept current on epoch refresh.
+    allowlist: Option<Arc<StakedNodesAllowlist>>,
+    last_allowlist_epoch: Option<Epoch>,
+
+    /// Extra non-staked peers to admit, used by test-only additional listeners.
+    extra_admit: HashSet<Pubkey>,
 }
 
 impl StakedValidatorsCache {
+    #[cfg(test)]
     pub fn new(
         bank_forks: Arc<RwLock<BankForks>>,
         ttl: Duration,
         target_cache_size: usize,
         include_self: bool,
         alpenglow_port_override: Option<AlpenglowPortOverride>,
+    ) -> Self {
+        Self::new_with_allowlist(
+            bank_forks,
+            ttl,
+            target_cache_size,
+            include_self,
+            alpenglow_port_override,
+            None,
+            HashSet::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_allowlist(
+        bank_forks: Arc<RwLock<BankForks>>,
+        ttl: Duration,
+        target_cache_size: usize,
+        include_self: bool,
+        alpenglow_port_override: Option<AlpenglowPortOverride>,
+        allowlist: Option<Arc<StakedNodesAllowlist>>,
+        extra_admit: HashSet<Pubkey>,
     ) -> Self {
         Self {
             cache: LruCache::new(target_cache_size),
@@ -63,7 +93,23 @@ impl StakedValidatorsCache {
             include_self,
             alpenglow_port_override,
             alpenglow_port_override_last_modified: Instant::now(),
+            allowlist,
+            last_allowlist_epoch: None,
+            extra_admit,
         }
+    }
+
+    fn maybe_refresh_allowlist(&mut self, epoch: Epoch) {
+        let Some(allowlist) = self.allowlist.as_ref() else {
+            return;
+        };
+        if self.last_allowlist_epoch == Some(epoch) {
+            return;
+        }
+        let mut map = datagram_endpoint::current_admit_set(&self.bank_forks);
+        map.extend(self.extra_admit.iter().map(|pk| (*pk, 0u64)));
+        allowlist.swap(map);
+        self.last_allowlist_epoch = Some(epoch);
     }
 
     #[inline]
@@ -82,6 +128,8 @@ impl StakedValidatorsCache {
         cluster_info: &ClusterInfo,
         update_time: Instant,
     ) {
+        self.maybe_refresh_allowlist(epoch);
+
         let banks = {
             let bank_forks = self.bank_forks.read().unwrap();
             [bank_forks.root_bank(), bank_forks.working_bank()]
