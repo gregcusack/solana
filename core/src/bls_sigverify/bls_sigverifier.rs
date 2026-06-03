@@ -2,8 +2,8 @@
 
 use {
     super::{
-        bls_cert_sigverify::{CertPayload, verify_and_send_certificates},
-        bls_vote_sigverify::{VotePayload, verify_and_send_votes},
+        bls_cert_sigverify::{verify_and_send_certificates, CertPayload},
+        bls_vote_sigverify::{verify_and_send_votes, VotePayload},
         errors::SigVerifyError,
         stats::SigVerifierStats,
     },
@@ -32,8 +32,8 @@ use {
     std::{
         collections::HashSet,
         sync::{
-            Arc,
             atomic::{AtomicBool, Ordering},
+            Arc,
         },
         thread::{self, Builder},
         time::Duration,
@@ -98,6 +98,11 @@ struct SigVerifier {
     /// thread pool to use for all parallel tasks
     thread_pool: ThreadPool,
     generated_cert_types: Arc<GeneratedCertTypes>,
+}
+
+struct SigverifyItem {
+    remote_pubkey: Option<Pubkey>,
+    bytes: Vec<u8>,
 }
 
 impl SigVerifier {
@@ -205,14 +210,11 @@ impl SigVerifier {
         }
     }
 
-    fn extract_and_filter_msgs(
+    fn packet_batches_to_sigverify_items(
         &mut self,
         batches: Vec<PacketBatch>,
-        root_bank: &Bank,
-    ) -> (Vec<CertPayload>, Vec<VotePayload>) {
-        let root_slot = root_bank.slot();
-        let mut certs = Vec::new();
-        let mut votes = Vec::new();
+    ) -> Vec<SigverifyItem> {
+        let mut items = Vec::new();
         let mut num_pkts = 0u64;
         for packet in batches.iter().flatten() {
             num_pkts = num_pkts.saturating_add(1);
@@ -220,11 +222,46 @@ impl SigVerifier {
                 self.stats.num_discarded_pkts += 1;
                 continue;
             }
-            let Ok(msg) = packet.deserialize_slice::<ConsensusMessage, _>(..) else {
+            let Some(bytes) = packet.data(..) else {
                 self.stats.num_malformed_pkts += 1;
                 continue;
             };
-            let Some(remote_pubkey) = packet.meta().remote_pubkey() else {
+            items.push(SigverifyItem {
+                remote_pubkey: packet.meta().remote_pubkey(),
+                bytes: bytes.to_vec(),
+            });
+        }
+        self.stats.num_pkts.add_sample(num_pkts);
+        items
+    }
+
+    fn extract_and_filter_msgs(
+        &mut self,
+        batches: Vec<PacketBatch>,
+        root_bank: &Bank,
+    ) -> (Vec<CertPayload>, Vec<VotePayload>) {
+        let items = self.packet_batches_to_sigverify_items(batches);
+        self.extract_and_filter_sigverify_items(items, root_bank)
+    }
+
+    fn extract_and_filter_sigverify_items(
+        &mut self,
+        items: Vec<SigverifyItem>,
+        root_bank: &Bank,
+    ) -> (Vec<CertPayload>, Vec<VotePayload>) {
+        let root_slot = root_bank.slot();
+        let mut certs = Vec::new();
+        let mut votes = Vec::new();
+        for SigverifyItem {
+            remote_pubkey,
+            bytes,
+        } in items
+        {
+            let Ok(msg) = wincode::deserialize_exact::<ConsensusMessage>(&bytes) else {
+                self.stats.num_malformed_pkts += 1;
+                continue;
+            };
+            let Some(remote_pubkey) = remote_pubkey else {
                 debug_assert!(false, "BLS packet missing remote pubkey");
                 self.stats.num_malformed_pkts += 1;
                 continue;
@@ -261,7 +298,6 @@ impl SigVerifier {
                 }
             }
         }
-        self.stats.num_pkts.add_sample(num_pkts);
         (certs, votes)
     }
 
@@ -344,7 +380,7 @@ mod tests {
         },
         bitvec::prelude::{BitVec, Lsb0},
         crossbeam_channel::{Receiver, TryRecvError},
-        solana_bls_signatures::{BLS_SIGNATURE_AFFINE_SIZE, Signature},
+        solana_bls_signatures::{Signature, BLS_SIGNATURE_AFFINE_SIZE},
         solana_epoch_schedule::EpochSchedule,
         solana_gossip::contact_info::ContactInfo,
         solana_hash::Hash,
@@ -356,7 +392,7 @@ mod tests {
             bank::{Bank, SlotLeader},
             bank_forks::BankForks,
             genesis_utils::{
-                ValidatorVoteKeypairs, create_genesis_config_with_alpenglow_vote_accounts,
+                create_genesis_config_with_alpenglow_vote_accounts, ValidatorVoteKeypairs,
             },
         },
         solana_signer::Signer,
