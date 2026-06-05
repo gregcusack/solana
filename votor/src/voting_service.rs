@@ -42,14 +42,21 @@ pub enum BLSOp {
     },
 }
 
+pub enum VotingServiceTransport {
+    QuicStream(Arc<ConnectionCache>),
+}
+
 fn send_message(
     buf: Vec<u8>,
     socket: &SocketAddr,
-    connection_cache: &ConnectionCache,
+    transport: &VotingServiceTransport,
 ) -> Result<(), TransportError> {
-    let client = connection_cache.get_connection(socket);
-
-    client.send_data_async(Arc::new(buf))
+    match transport {
+        VotingServiceTransport::QuicStream(connection_cache) => {
+            let client = connection_cache.get_connection(socket);
+            client.send_data_async(Arc::new(buf))
+        }
+    }
 }
 
 pub struct VotingService {
@@ -122,7 +129,7 @@ impl VotingService {
         bls_receiver: Receiver<BLSOp>,
         cluster_info: Arc<ClusterInfo>,
         vote_history_storage: Arc<dyn VoteHistoryStorage>,
-        connection_cache: Arc<ConnectionCache>,
+        transport: VotingServiceTransport,
         bank_forks: Arc<RwLock<BankForks>>,
         test_override: Option<VotingServiceOverride>,
     ) -> Self {
@@ -151,7 +158,7 @@ impl VotingService {
                         &cluster_info,
                         vote_history_storage.as_ref(),
                         bls_op,
-                        &connection_cache,
+                        &transport,
                         &additional_listeners,
                         &mut staked_validators_cache,
                     );
@@ -166,7 +173,7 @@ impl VotingService {
         slot: Slot,
         cluster_info: &ClusterInfo,
         message: &ConsensusMessage,
-        connection_cache: &ConnectionCache,
+        transport: &VotingServiceTransport,
         additional_listeners: &[SocketAddr],
         staked_validators_cache: &mut StakedValidatorsCache,
     ) {
@@ -188,7 +195,7 @@ impl VotingService {
         // will cause a packet spike and overwhelm the network. If we later find out that this is
         // not an issue, we can optimize this by using multi_targret_send or similar methods.
         for socket in sockets {
-            if let Err(e) = send_message(buf.clone(), socket, connection_cache) {
+            if let Err(e) = send_message(buf.clone(), socket, transport) {
                 warn!("Failed to send alpenglow message to {socket}: {e:?}");
             }
         }
@@ -198,7 +205,7 @@ impl VotingService {
         cluster_info: &ClusterInfo,
         vote_history_storage: &dyn VoteHistoryStorage,
         bls_op: BLSOp,
-        connection_cache: &ConnectionCache,
+        transport: &VotingServiceTransport,
         additional_listeners: &[SocketAddr],
         staked_validators_cache: &mut StakedValidatorsCache,
     ) {
@@ -220,7 +227,7 @@ impl VotingService {
                     slot,
                     cluster_info,
                     &msg,
-                    connection_cache,
+                    transport,
                     additional_listeners,
                     staked_validators_cache,
                 );
@@ -233,7 +240,7 @@ impl VotingService {
                         slot,
                         cluster_info,
                         &message,
-                        connection_cache,
+                        transport,
                         additional_listeners,
                         staked_validators_cache,
                     );
@@ -313,10 +320,10 @@ mod tests {
                 bls_receiver,
                 Arc::new(cluster_info),
                 Arc::new(NullVoteHistoryStorage::default()),
-                Arc::new(ConnectionCache::new_quic(
+                VotingServiceTransport::QuicStream(Arc::new(ConnectionCache::new_quic(
                     "TestAlpenglowConnectionCache",
                     10,
-                )),
+                ))),
                 bank_forks,
                 Some(VotingServiceOverride {
                     additional_listeners: vec![listener],

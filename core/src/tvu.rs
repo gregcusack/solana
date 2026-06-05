@@ -34,7 +34,9 @@ use {
         generated_cert_types::GeneratedCertTypes,
         vote_history::VoteHistory,
         vote_history_storage::VoteHistoryStorage,
-        voting_service::{VotingService as BLSVotingService, VotingServiceOverride},
+        voting_service::{
+            VotingService as BLSVotingService, VotingServiceOverride, VotingServiceTransport,
+        },
         votor::{Votor, VotorConfig},
     },
     agave_votor_messages::consensus_message::Block,
@@ -595,7 +597,7 @@ impl Tvu {
             bls_receiver,
             cluster_info.clone(),
             vote_history_storage,
-            bls_connection_cache,
+            VotingServiceTransport::QuicStream(bls_connection_cache),
             bank_forks.clone(),
             voting_service_test_override,
         );
