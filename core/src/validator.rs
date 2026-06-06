@@ -36,11 +36,14 @@ use {
     agave_votor::{
         vote_history::{VoteHistory, VoteHistoryError},
         vote_history_storage::{NullVoteHistoryStorage, VoteHistoryStorage},
-        voting_service::VotingServiceOverride,
+        voting_service::{
+            QuicDatagramClientKeyUpdater, QuicDatagramSenderConfig, VotingServiceOverride,
+            VotingServiceTransport,
+        },
     },
     agave_xdp::transmitter::{Transmitter, TransmitterBuilder},
-    arc_swap::ArcSwap,
     anyhow::{Result, anyhow},
+    arc_swap::ArcSwap,
     crossbeam_channel::{Receiver, bounded, unbounded},
     serde::{Deserialize, Serialize},
     solana_account::ReadableAccount,
@@ -1189,30 +1192,17 @@ impl Validator {
             ))
         };
 
-        let bls_connection_cache = Arc::new(ConnectionCache::new_with_client_options(
-            "connection_cache_bls_quic",
-            // BLS consensus messaging is extremely low throughput (5 PPS). Even during standstill operations
-            // we wouldn't expect more than a 100 PPS. 1 connection is enough.
-            1, /* connection_pool_size */
-            Some(node.sockets.quic_alpenglow_client),
-            Some((
-                &identity_keypair,
-                node.info
-                    .alpenglow()
-                    .ok_or_else(|| {
-                        ValidatorError::Other(String::from(
-                            "Invalid QUIC address for Alpenglow BLS",
-                        ))
-                    })?
-                    .ip(),
-            )),
-            Some((&staked_nodes, &identity_keypair.pubkey())),
-        ));
+        let bls_datagram_key_updater =
+            Arc::new(QuicDatagramClientKeyUpdater::new(&identity_keypair));
+        let bls_transport = VotingServiceTransport::QuicDatagram(QuicDatagramSenderConfig {
+            client_socket: node.sockets.quic_alpenglow_client,
+            key_updater: bls_datagram_key_updater.clone(),
+        });
         let key_notifiers = Arc::new(RwLock::new(KeyUpdaters::default()));
-        key_notifiers.write().unwrap().add(
-            KeyUpdaterType::BlsConnectionCache,
-            bls_connection_cache.clone(),
-        );
+        key_notifiers
+            .write()
+            .unwrap()
+            .add(KeyUpdaterType::BlsDatagramClient, bls_datagram_key_updater);
 
         // test-validator crate may start the validator in a tokio runtime
         // context which forces us to use the same runtime because a nested
@@ -1650,9 +1640,9 @@ impl Validator {
                 votor_event_sender: votor_event_sender.clone(),
                 votor_event_receiver,
                 cancel: cancel.clone(),
-                staked_nodes: staked_nodes.clone(),
                 key_notifiers: key_notifiers.clone(),
-                bls_connection_cache,
+                bls_datagram_staked_nodes: bls_datagram_staked_nodes.clone(),
+                bls_transport,
                 voting_service_test_override: config.voting_service_test_override.clone(),
                 highest_finalized,
             },

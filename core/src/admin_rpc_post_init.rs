@@ -32,8 +32,8 @@ pub enum KeyUpdaterType {
     RpcService,
     /// BLS all-to-all streamer key updater
     Bls,
-    /// BLS all-to-all connection cache key updater
-    BlsConnectionCache,
+    /// BLS all-to-all QUIC datagram client key updater
+    BlsDatagramClient,
 }
 
 /// Responsible for managing the updaters for identity key change

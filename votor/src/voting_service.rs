@@ -9,14 +9,11 @@ use {
         consensus_message::{ConsensusMessage, VoteMessage},
     },
     crossbeam_channel::{Receiver, TryRecvError},
-    solana_client::connection_cache::ConnectionCache,
     solana_clock::Slot,
-    solana_connection_cache::client_connection::ClientConnection,
     solana_gossip::cluster_info::ClusterInfo,
     solana_measure::measure::Measure,
     solana_pubkey::Pubkey,
     solana_runtime::bank_forks::BankForks,
-    solana_transaction_error::TransportError,
     std::{
         collections::HashMap,
         net::SocketAddr,
@@ -46,7 +43,6 @@ pub enum BLSOp {
 pub use crate::quic_datagram_sender::{QuicDatagramClientKeyUpdater, QuicDatagramSenderConfig};
 
 pub enum VotingServiceTransport {
-    QuicStream(Arc<ConnectionCache>),
     QuicDatagram(QuicDatagramSenderConfig),
 }
 
@@ -144,16 +140,6 @@ impl VotingService {
                 );
 
                 match transport {
-                    VotingServiceTransport::QuicStream(connection_cache) => {
-                        Self::run_quic_stream_loop(
-                            connection_cache,
-                            bls_receiver,
-                            cluster_info,
-                            vote_history_storage,
-                            additional_listeners,
-                            staked_validators_cache,
-                        )
-                    }
                     VotingServiceTransport::QuicDatagram(config) => Self::run_quic_datagram_loop(
                         config,
                         bls_receiver,
@@ -166,115 +152,6 @@ impl VotingService {
             })
             .unwrap();
         Self { thread_hdl }
-    }
-
-    fn run_quic_stream_loop(
-        connection_cache: Arc<ConnectionCache>,
-        bls_receiver: Receiver<BLSOp>,
-        cluster_info: Arc<ClusterInfo>,
-        vote_history_storage: Arc<dyn VoteHistoryStorage>,
-        additional_listeners: Vec<SocketAddr>,
-        mut staked_validators_cache: StakedValidatorsCache,
-    ) {
-        info!("AlpenglowVotingService has started");
-        while let Ok(bls_op) = bls_receiver.recv() {
-            Self::handle_bls_op_stream(
-                &cluster_info,
-                vote_history_storage.as_ref(),
-                bls_op,
-                &connection_cache,
-                &additional_listeners,
-                &mut staked_validators_cache,
-            );
-        }
-        info!("AlpenglowVotingService has stopped");
-    }
-
-    fn send_stream_message(
-        buf: Vec<u8>,
-        socket: &SocketAddr,
-        connection_cache: &Arc<ConnectionCache>,
-    ) -> Result<(), TransportError> {
-        let client = connection_cache.get_connection(socket);
-        client.send_data_async(Arc::new(buf))
-    }
-
-    fn broadcast_consensus_message_stream(
-        slot: Slot,
-        cluster_info: &ClusterInfo,
-        message: &ConsensusMessage,
-        connection_cache: &Arc<ConnectionCache>,
-        additional_listeners: &[SocketAddr],
-        staked_validators_cache: &mut StakedValidatorsCache,
-    ) {
-        let buf = match wincode::serialize(message) {
-            Ok(buf) => buf,
-            Err(err) => {
-                error!("Failed to serialize alpenglow message: {err:?}");
-                return;
-            }
-        };
-
-        let (staked_validator_alpenglow_sockets, _) = staked_validators_cache
-            .get_staked_validators_by_slot(slot, cluster_info, Instant::now());
-        let sockets = additional_listeners
-            .iter()
-            .chain(staked_validator_alpenglow_sockets.iter());
-
-        // We use send_stream_message in a loop right now because we worry that sending packets too fast
-        // will cause a packet spike and overwhelm the network. If we later find out that this is
-        // not an issue, we can optimize this by using multi_targret_send or similar methods.
-        for socket in sockets {
-            if let Err(e) = Self::send_stream_message(buf.clone(), socket, connection_cache) {
-                warn!("Failed to send alpenglow message to {socket}: {e:?}");
-            }
-        }
-    }
-
-    fn handle_bls_op_stream(
-        cluster_info: &ClusterInfo,
-        vote_history_storage: &dyn VoteHistoryStorage,
-        bls_op: BLSOp,
-        connection_cache: &Arc<ConnectionCache>,
-        additional_listeners: &[SocketAddr],
-        staked_validators_cache: &mut StakedValidatorsCache,
-    ) {
-        match bls_op {
-            BLSOp::PushVote {
-                vote,
-                saved_vote_history,
-            } => {
-                let mut measure = Measure::start("alpenglow vote history save");
-                if let Err(err) = vote_history_storage.store(&saved_vote_history) {
-                    error!("Unable to save vote history to storage: {err:?}");
-                    std::process::exit(1);
-                }
-                measure.stop();
-                trace!("{measure}");
-                let slot = vote.vote.slot();
-                let msg = ConsensusMessage::Vote(Arc::unwrap_or_clone(vote));
-                Self::broadcast_consensus_message_stream(
-                    slot,
-                    cluster_info,
-                    &msg,
-                    connection_cache,
-                    additional_listeners,
-                    staked_validators_cache,
-                );
-            }
-            BLSOp::PushCertificate { certificate } => {
-                let slot = certificate.cert_type.slot();
-                let message = ConsensusMessage::Certificate(Arc::unwrap_or_clone(certificate));
-                Self::broadcast_consensus_message_stream(
-                    slot,
-                    cluster_info,
-                    &message,
-                    connection_cache,
-                    additional_listeners,
-                    staked_validators_cache,
-                );
-            }
-        }
     }
 
     fn run_quic_datagram_loop(
@@ -308,7 +185,7 @@ impl VotingService {
                     match bls_receiver.try_recv() {
                         Ok(bls_op) => {
                             handled_message = true;
-                            Self::handle_bls_op_datagram(
+                            Self::handle_bls_op(
                                 &cluster_info,
                                 vote_history_storage.as_ref(),
                                 bls_op,
@@ -339,7 +216,7 @@ impl VotingService {
         error!("Failed to start AlpenglowVotingService QUIC datagram sender: {err}");
     }
 
-    async fn broadcast_consensus_message_datagram(
+    async fn broadcast_consensus_message(
         slot: Slot,
         cluster_info: &ClusterInfo,
         message: &ConsensusMessage,
@@ -366,7 +243,7 @@ impl VotingService {
         }
     }
 
-    async fn handle_bls_op_datagram(
+    async fn handle_bls_op(
         cluster_info: &ClusterInfo,
         vote_history_storage: &dyn VoteHistoryStorage,
         bls_op: BLSOp,
@@ -388,7 +265,7 @@ impl VotingService {
                 trace!("{measure}");
                 let slot = vote.vote.slot();
                 let msg = ConsensusMessage::Vote(Arc::unwrap_or_clone(vote));
-                Self::broadcast_consensus_message_datagram(
+                Self::broadcast_consensus_message(
                     slot,
                     cluster_info,
                     &msg,
@@ -401,7 +278,7 @@ impl VotingService {
             BLSOp::PushCertificate { certificate } => {
                 let slot = certificate.cert_type.slot();
                 let message = ConsensusMessage::Certificate(Arc::unwrap_or_clone(certificate));
-                Self::broadcast_consensus_message_datagram(
+                Self::broadcast_consensus_message(
                     slot,
                     cluster_info,
                     &message,
