@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use {
     arc_swap::ArcSwap,
     bytes::Bytes,
