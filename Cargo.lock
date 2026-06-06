@@ -7803,6 +7803,7 @@ dependencies = [
  "num_cpus",
  "num_enum",
  "qualifier_attr",
+ "quinn",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
  "rayon",
