@@ -19,7 +19,7 @@ use {
             spawn_forwarding_stage,
         },
         sigverify_stage::SigVerifyStage,
-        staked_nodes_updater_service::StakedNodesUpdaterService,
+        staked_nodes_updater_service::{StakedNodePubkeySet, StakedNodesUpdaterService},
         tpu_entry_notifier::TpuEntryNotifier,
         validator::{BlockProductionMethod, GeneratorConfig},
     },
@@ -141,6 +141,7 @@ impl Tpu {
         log_messages_bytes_limit: Option<usize>,
         staked_nodes: &Arc<RwLock<StakedNodes>>,
         shared_staked_nodes_overrides: Arc<RwLock<HashMap<Pubkey, u64>>>,
+        staked_node_pubkeys: Option<StakedNodePubkeySet>,
         banking_tracer_channels: Channels,
         tracer_thread_hdl: TracerThread,
         tpu_quic_server_config: SwQosQuicStreamerConfig,
@@ -189,6 +190,7 @@ impl Tpu {
             bank_forks.clone(),
             staked_nodes.clone(),
             shared_staked_nodes_overrides,
+            staked_node_pubkeys,
         );
 
         let Channels {

@@ -39,6 +39,7 @@ use {
         voting_service::VotingServiceOverride,
     },
     agave_xdp::transmitter::{Transmitter, TransmitterBuilder},
+    arc_swap::ArcSwap,
     anyhow::{Result, anyhow},
     crossbeam_channel::{Receiver, bounded, unbounded},
     serde::{Deserialize, Serialize},
@@ -1159,6 +1160,7 @@ impl Validator {
         let max_slots = Arc::new(MaxSlots::default());
 
         let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
+        let bls_datagram_staked_nodes = Arc::new(ArcSwap::from_pointee(HashSet::default()));
 
         let mut tpu_transactions_forwards_client_sockets =
             Some(node.sockets.tpu_transaction_forwarding_clients);
@@ -1709,6 +1711,7 @@ impl Validator {
             config.runtime_config.log_messages_bytes_limit,
             &staked_nodes,
             config.staked_nodes_overrides.clone(),
+            Some(bls_datagram_staked_nodes),
             banking_tracer_channels,
             tracer_thread,
             tpu_quic_server_config,
