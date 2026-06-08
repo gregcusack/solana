@@ -234,7 +234,10 @@ mod tests {
         super::*,
         quinn::{ServerConfig, crypto::rustls::QuicServerConfig},
         solana_net_utils::sockets::bind_to_localhost_unique,
-        solana_tls_utils::{new_dummy_x509_certificate, tls_server_config_builder},
+        solana_signer::Signer,
+        solana_tls_utils::{
+            get_remote_pubkey, new_dummy_x509_certificate, tls_server_config_builder,
+        },
     };
 
     #[test]
@@ -278,6 +281,119 @@ mod tests {
 
             assert_eq!(first.as_ref(), b"first");
             assert!(second.is_err());
+        });
+    }
+
+    #[test]
+    fn test_send_drops_all_datagrams_while_connecting() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let server_keypair = Keypair::new();
+            let server_socket = bind_to_localhost_unique().unwrap();
+            let server_addr = server_socket.local_addr().unwrap();
+            let endpoint = Endpoint::new(
+                EndpointConfig::default(),
+                Some(test_server_config(&server_keypair)),
+                server_socket,
+                Arc::new(TokioRuntime),
+            )
+            .unwrap();
+            let client_keypair = Keypair::new();
+            let mut sender = QuicDatagramSender::new(QuicDatagramSenderConfig {
+                client_socket: bind_to_localhost_unique().unwrap(),
+                key_updater: Arc::new(QuicDatagramClientKeyUpdater::new(&client_keypair)),
+            })
+            .unwrap();
+
+            for i in 0..32usize {
+                sender
+                    .send(server_addr, format!("queued-while-dialing-{i}").as_bytes())
+                    .await;
+            }
+
+            let incoming = endpoint.accept().await.unwrap();
+            let connection = timeout(Duration::from_secs(5), incoming)
+                .await
+                .unwrap()
+                .unwrap();
+            let first = timeout(Duration::from_secs(5), connection.read_datagram())
+                .await
+                .unwrap()
+                .unwrap();
+            let second = timeout(Duration::from_millis(200), connection.read_datagram()).await;
+
+            assert_eq!(first.as_ref(), b"queued-while-dialing-0");
+            assert!(second.is_err());
+        });
+    }
+
+    #[test]
+    fn test_key_update_closes_cached_connection_and_reconnects_with_new_identity() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let server_keypair = Keypair::new();
+            let server_socket = bind_to_localhost_unique().unwrap();
+            let server_addr = server_socket.local_addr().unwrap();
+            let endpoint = Endpoint::new(
+                EndpointConfig::default(),
+                Some(test_server_config(&server_keypair)),
+                server_socket,
+                Arc::new(TokioRuntime),
+            )
+            .unwrap();
+            let old_client_keypair = Keypair::new();
+            let new_client_keypair = Keypair::new();
+            let key_updater = Arc::new(QuicDatagramClientKeyUpdater::new(&old_client_keypair));
+            let mut sender = QuicDatagramSender::new(QuicDatagramSenderConfig {
+                client_socket: bind_to_localhost_unique().unwrap(),
+                key_updater: key_updater.clone(),
+            })
+            .unwrap();
+
+            sender.send(server_addr, b"before-rotate").await;
+            let incoming = endpoint.accept().await.unwrap();
+            let old_connection = timeout(Duration::from_secs(5), incoming)
+                .await
+                .unwrap()
+                .unwrap();
+            let first = timeout(Duration::from_secs(5), old_connection.read_datagram())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(first.as_ref(), b"before-rotate");
+            assert_eq!(
+                get_remote_pubkey(&old_connection),
+                Some(old_client_keypair.pubkey())
+            );
+
+            key_updater.update_key(&new_client_keypair).unwrap();
+            sender.send(server_addr, b"after-rotate").await;
+
+            timeout(Duration::from_secs(5), old_connection.closed())
+                .await
+                .expect("old connection should be closed on key update");
+            let incoming = endpoint.accept().await.unwrap();
+            let new_connection = timeout(Duration::from_secs(5), incoming)
+                .await
+                .unwrap()
+                .unwrap();
+            let second = timeout(Duration::from_secs(5), new_connection.read_datagram())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(second.as_ref(), b"after-rotate");
+            assert_eq!(
+                get_remote_pubkey(&new_connection),
+                Some(new_client_keypair.pubkey())
+            );
         });
     }
 

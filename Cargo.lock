@@ -7814,6 +7814,7 @@ dependencies = [
  "serde_bytes",
  "serial_test",
  "shaq",
+ "shuttle",
  "signal-hook",
  "slab",
  "solana-account 4.3.0",

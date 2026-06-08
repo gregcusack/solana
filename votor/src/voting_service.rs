@@ -167,7 +167,7 @@ impl VotingService {
             .enable_all()
             .build()
             .unwrap();
-        let _guard = runtime.enter();
+        let guard = runtime.enter();
         let mut sender = match QuicDatagramSender::new(config) {
             Ok(sender) => sender,
             Err(err) => {
@@ -175,7 +175,7 @@ impl VotingService {
                 return;
             }
         };
-        drop(_guard);
+        drop(guard);
 
         runtime.block_on(async move {
             info!("AlpenglowVotingService has started");
@@ -387,7 +387,7 @@ mod tests {
                 .enable_all()
                 .build()
                 .unwrap();
-            let _guard = runtime.enter();
+            let guard = runtime.enter();
             let endpoint = Endpoint::new(
                 EndpointConfig::default(),
                 Some(test_server_config(&Keypair::new())),
@@ -395,7 +395,7 @@ mod tests {
                 Arc::new(TokioRuntime),
             )
             .unwrap();
-            drop(_guard);
+            drop(guard);
             ready_sender.send(()).unwrap();
             runtime.block_on(async move {
                 let incoming = endpoint.accept().await.unwrap();

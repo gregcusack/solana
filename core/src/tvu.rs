@@ -693,11 +693,11 @@ pub mod tests {
             admin_rpc_post_init::KeyUpdaters, block_creation_loop::ReplayHighestFrozen,
             consensus::tower_storage::FileTowerStorage,
         },
-        agave_votor::voting_service::{QuicDatagramClientKeyUpdater, QuicDatagramSenderConfig},
         agave_votor::{
             event::{VotorEventReceiver, VotorEventSender},
             vote_history::VoteHistory,
             vote_history_storage::NullVoteHistoryStorage,
+            voting_service::{QuicDatagramClientKeyUpdater, QuicDatagramSenderConfig},
         },
         arc_swap::ArcSwap,
         serial_test::serial,
