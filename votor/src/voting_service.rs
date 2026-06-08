@@ -1,5 +1,6 @@
 use {
     crate::{
+        quic_datagram_sender::{QuicDatagramSender, QuicDatagramSenderError},
         staked_validators_cache::StakedValidatorsCache,
         vote_history_storage::{SavedVoteHistoryVersions, VoteHistoryStorage},
     },
@@ -7,15 +8,12 @@ use {
         certificate::Certificate,
         consensus_message::{ConsensusMessage, VoteMessage},
     },
-    crossbeam_channel::Receiver,
-    solana_client::connection_cache::ConnectionCache,
+    crossbeam_channel::{Receiver, TryRecvError},
     solana_clock::Slot,
-    solana_connection_cache::client_connection::ClientConnection,
     solana_gossip::cluster_info::ClusterInfo,
     solana_measure::measure::Measure,
     solana_pubkey::Pubkey,
     solana_runtime::bank_forks::BankForks,
-    solana_transaction_error::TransportError,
     std::{
         collections::HashMap,
         net::SocketAddr,
@@ -42,14 +40,10 @@ pub enum BLSOp {
     },
 }
 
-fn send_message(
-    buf: Vec<u8>,
-    socket: &SocketAddr,
-    connection_cache: &Arc<ConnectionCache>,
-) -> Result<(), TransportError> {
-    let client = connection_cache.get_connection(socket);
+pub use crate::quic_datagram_sender::{QuicDatagramClientKeyUpdater, QuicDatagramSenderConfig};
 
-    client.send_data_async(Arc::new(buf))
+pub enum VotingServiceTransport {
+    QuicDatagram(QuicDatagramSenderConfig),
 }
 
 pub struct VotingService {
@@ -122,7 +116,7 @@ impl VotingService {
         bls_receiver: Receiver<BLSOp>,
         cluster_info: Arc<ClusterInfo>,
         vote_history_storage: Arc<dyn VoteHistoryStorage>,
-        connection_cache: Arc<ConnectionCache>,
+        transport: VotingServiceTransport,
         bank_forks: Arc<RwLock<BankForks>>,
         test_override: Option<VotingServiceOverride>,
     ) -> Self {
@@ -137,36 +131,96 @@ impl VotingService {
         let thread_hdl = Builder::new()
             .name("solVotorVoteSvc".to_string())
             .spawn(move || {
-                let mut staked_validators_cache = StakedValidatorsCache::new(
-                    bank_forks.clone(),
+                let staked_validators_cache = StakedValidatorsCache::new(
+                    bank_forks,
                     Duration::from_secs(STAKED_VALIDATORS_CACHE_TTL_S),
                     STAKED_VALIDATORS_CACHE_NUM_EPOCH_TARGET,
                     false,
                     alpenglow_port_override,
                 );
 
-                info!("AlpenglowVotingService has started");
-                while let Ok(bls_op) = bls_receiver.recv() {
-                    Self::handle_bls_op(
-                        &cluster_info,
-                        vote_history_storage.as_ref(),
-                        bls_op,
-                        connection_cache.clone(),
-                        &additional_listeners,
-                        &mut staked_validators_cache,
-                    );
+                match transport {
+                    VotingServiceTransport::QuicDatagram(config) => Self::run_quic_datagram_loop(
+                        config,
+                        bls_receiver,
+                        cluster_info,
+                        vote_history_storage,
+                        additional_listeners,
+                        staked_validators_cache,
+                    ),
                 }
-                info!("AlpenglowVotingService has stopped");
             })
             .unwrap();
         Self { thread_hdl }
     }
 
-    fn broadcast_consensus_message(
+    fn run_quic_datagram_loop(
+        config: QuicDatagramSenderConfig,
+        bls_receiver: Receiver<BLSOp>,
+        cluster_info: Arc<ClusterInfo>,
+        vote_history_storage: Arc<dyn VoteHistoryStorage>,
+        additional_listeners: Vec<SocketAddr>,
+        mut staked_validators_cache: StakedValidatorsCache,
+    ) {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .thread_name("solVotorVoteRt")
+            .enable_all()
+            .build()
+            .unwrap();
+        let guard = runtime.enter();
+        let mut sender = match QuicDatagramSender::new(config) {
+            Ok(sender) => sender,
+            Err(err) => {
+                Self::log_datagram_sender_start_error(err);
+                return;
+            }
+        };
+        drop(guard);
+
+        runtime.block_on(async move {
+            info!("AlpenglowVotingService has started");
+            loop {
+                let mut handled_message = false;
+                loop {
+                    match bls_receiver.try_recv() {
+                        Ok(bls_op) => {
+                            handled_message = true;
+                            Self::handle_bls_op(
+                                &cluster_info,
+                                vote_history_storage.as_ref(),
+                                bls_op,
+                                &mut sender,
+                                &additional_listeners,
+                                &mut staked_validators_cache,
+                            )
+                            .await;
+                        }
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Disconnected) => {
+                            info!("AlpenglowVotingService has stopped");
+                            return;
+                        }
+                    }
+                }
+
+                if handled_message {
+                    tokio::task::yield_now().await;
+                } else {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            }
+        });
+    }
+
+    fn log_datagram_sender_start_error(err: QuicDatagramSenderError) {
+        error!("Failed to start AlpenglowVotingService QUIC datagram sender: {err}");
+    }
+
+    async fn broadcast_consensus_message(
         slot: Slot,
         cluster_info: &ClusterInfo,
         message: &ConsensusMessage,
-        connection_cache: Arc<ConnectionCache>,
+        sender: &mut QuicDatagramSender,
         additional_listeners: &[SocketAddr],
         staked_validators_cache: &mut StakedValidatorsCache,
     ) {
@@ -184,21 +238,16 @@ impl VotingService {
             .iter()
             .chain(staked_validator_alpenglow_sockets.iter());
 
-        // We use send_message in a loop right now because we worry that sending packets too fast
-        // will cause a packet spike and overwhelm the network. If we later find out that this is
-        // not an issue, we can optimize this by using multi_targret_send or similar methods.
         for socket in sockets {
-            if let Err(e) = send_message(buf.clone(), socket, &connection_cache) {
-                warn!("Failed to send alpenglow message to {socket}: {e:?}");
-            }
+            sender.send(*socket, &buf).await;
         }
     }
 
-    fn handle_bls_op(
+    async fn handle_bls_op(
         cluster_info: &ClusterInfo,
         vote_history_storage: &dyn VoteHistoryStorage,
         bls_op: BLSOp,
-        connection_cache: Arc<ConnectionCache>,
+        sender: &mut QuicDatagramSender,
         additional_listeners: &[SocketAddr],
         staked_validators_cache: &mut StakedValidatorsCache,
     ) {
@@ -220,10 +269,11 @@ impl VotingService {
                     slot,
                     cluster_info,
                     &msg,
-                    connection_cache,
+                    sender,
                     additional_listeners,
                     staked_validators_cache,
-                );
+                )
+                .await;
             }
             BLSOp::PushCertificate { certificate } => {
                 let slot = certificate.cert_type.slot();
@@ -232,10 +282,11 @@ impl VotingService {
                     slot,
                     cluster_info,
                     &message,
-                    connection_cache,
+                    sender,
                     additional_listeners,
                     staked_validators_cache,
-                );
+                )
+                .await;
             }
         }
     }
@@ -257,6 +308,11 @@ mod tests {
             consensus_message::{ConsensusMessage, VoteMessage},
             vote::Vote,
         },
+        quinn::{
+            Endpoint, EndpointConfig, IdleTimeout, ServerConfig, TokioRuntime,
+            crypto::rustls::QuicServerConfig,
+        },
+        rustls::KeyLogFile,
         solana_bls_signatures::{BLS_SIGNATURE_AFFINE_SIZE, Signature as BLSSignature},
         solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfo},
         solana_keypair::Keypair,
@@ -269,24 +325,21 @@ mod tests {
             },
         },
         solana_signer::Signer,
-        solana_streamer::{
-            nonblocking::swqos::SwQosConfig,
-            quic::{QuicStreamerConfig, SpawnServerResult, spawn_stake_weighted_qos_server},
-            streamer::StakedNodes,
-        },
+        solana_streamer::{nonblocking::quic::ALPN_TPU_PROTOCOL_ID, packet::PACKET_DATA_SIZE},
+        solana_tls_utils::{new_dummy_x509_certificate, tls_server_config_builder},
         std::{
-            net::SocketAddr,
-            sync::{Arc, RwLock},
+            net::{SocketAddr, UdpSocket},
+            sync::Arc,
+            thread,
+            time::Duration,
         },
         test_case::test_case,
-        tokio_util::sync::CancellationToken,
     };
 
     fn create_voting_service(
         bls_receiver: Receiver<BLSOp>,
         listener: SocketAddr,
     ) -> (VotingService, Vec<ValidatorVoteKeypairs>) {
-        // Create 10 node validatorvotekeypairs vec
         let validator_keypairs = (0..10)
             .map(|_| ValidatorVoteKeypairs::new_rand())
             .collect::<Vec<_>>();
@@ -299,21 +352,23 @@ mod tests {
         let bank_forks = BankForks::new_rw_arc(bank0);
         let keypair = Keypair::new();
         let contact_info = ContactInfo::new_localhost(&keypair.pubkey(), 0);
+        let key_updater = Arc::new(QuicDatagramClientKeyUpdater::new(&keypair));
         let cluster_info = ClusterInfo::new(
             contact_info,
             Arc::new(keypair),
             SocketAddrSpace::Unspecified,
         );
+        let transport = VotingServiceTransport::QuicDatagram(QuicDatagramSenderConfig {
+            client_socket: bind_to_localhost_unique().unwrap(),
+            key_updater,
+        });
 
         (
             VotingService::new(
                 bls_receiver,
                 Arc::new(cluster_info),
                 Arc::new(NullVoteHistoryStorage::default()),
-                Arc::new(ConnectionCache::new_quic(
-                    "TestAlpenglowConnectionCache",
-                    10,
-                )),
+                transport,
                 bank_forks,
                 Some(VotingServiceOverride {
                     additional_listeners: vec![listener],
@@ -322,6 +377,56 @@ mod tests {
             ),
             validator_keypairs,
         )
+    }
+
+    fn spawn_quic_datagram_receiver(socket: UdpSocket) -> crossbeam_channel::Receiver<Vec<u8>> {
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (ready_sender, ready_receiver) = crossbeam_channel::bounded(1);
+        thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let guard = runtime.enter();
+            let endpoint = Endpoint::new(
+                EndpointConfig::default(),
+                Some(test_server_config(&Keypair::new())),
+                socket,
+                Arc::new(TokioRuntime),
+            )
+            .unwrap();
+            drop(guard);
+            ready_sender.send(()).unwrap();
+            runtime.block_on(async move {
+                let incoming = endpoint.accept().await.unwrap();
+                let connection = incoming.await.unwrap();
+                let datagram = connection.read_datagram().await.unwrap();
+                sender.send(datagram.to_vec()).unwrap();
+            });
+        });
+        ready_receiver.recv().unwrap();
+        receiver
+    }
+
+    fn test_server_config(keypair: &Keypair) -> ServerConfig {
+        let (cert, priv_key) = new_dummy_x509_certificate(keypair);
+        let mut server_tls_config = tls_server_config_builder()
+            .with_single_cert(vec![cert], priv_key)
+            .unwrap();
+        server_tls_config.alpn_protocols = vec![ALPN_TPU_PROTOCOL_ID.to_vec()];
+        server_tls_config.key_log = Arc::new(KeyLogFile::new());
+        let mut server_config = ServerConfig::with_crypto(Arc::new(
+            QuicServerConfig::try_from(server_tls_config).unwrap(),
+        ));
+        server_config.migration(false);
+        let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
+        transport_config.max_concurrent_uni_streams(0u32.into());
+        transport_config.max_concurrent_bidi_streams(0u32.into());
+        transport_config.datagram_receive_buffer_size(Some(PACKET_DATA_SIZE * 64));
+        transport_config.max_idle_timeout(Some(
+            IdleTimeout::try_from(Duration::from_secs(30)).unwrap(),
+        ));
+        server_config
     }
 
     #[test_case(BLSOp::PushVote {
@@ -350,51 +455,19 @@ mod tests {
     fn test_send_message(bls_op: BLSOp, expected_message: ConsensusMessage) {
         agave_logger::setup();
         let (bls_sender, bls_receiver) = crossbeam_channel::unbounded();
-        // Create listener thread on a random port we allocated and return SocketAddr to create VotingService
-
-        // Bind to a random UDP port
         let socket = bind_to_localhost_unique().unwrap();
         let listener_addr = socket.local_addr().unwrap();
+        let datagram_receiver = spawn_quic_datagram_receiver(socket);
+        let (voting_service, _validator_keypairs) =
+            create_voting_service(bls_receiver, listener_addr);
 
-        // Create VotingService with the listener address
-        let (_, validator_keypairs) = create_voting_service(bls_receiver, listener_addr);
-
-        // Send a BLS message via the VotingService
         assert!(bls_sender.send(bls_op).is_ok());
 
-        // Start a quick streamer to handle quick control packets
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        let stakes = validator_keypairs
-            .iter()
-            .map(|x| (x.node_keypair.pubkey(), 100))
-            .collect();
-        let staked_nodes: Arc<RwLock<StakedNodes>> = Arc::new(RwLock::new(StakedNodes::new(
-            Arc::new(stakes),
-            HashMap::<Pubkey, u64>::default(), // overrides
-        )));
-        let cancel = CancellationToken::new();
-        let SpawnServerResult {
-            endpoints: _,
-            thread: quic_server_thread,
-            key_updater: _,
-        } = spawn_stake_weighted_qos_server(
-            "AlpenglowLocalClusterTest",
-            "voting_service_test",
-            [socket.into()],
-            &Keypair::new(),
-            sender,
-            staked_nodes,
-            QuicStreamerConfig::default_for_tests(),
-            SwQosConfig::default(),
-            cancel.clone(),
-        )
-        .unwrap();
-
-        let packets = receiver.recv().unwrap();
-        let packet = packets.first().expect("No packets received");
-        let received_message = packet
-            .deserialize_slice::<ConsensusMessage, _>(..)
-            .unwrap_or_else(|err| {
+        let datagram = datagram_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("No datagram received");
+        let received_message =
+            wincode::deserialize::<ConsensusMessage>(&datagram).unwrap_or_else(|err| {
                 panic!(
                     "Failed to deserialize BLSMessage: {:?} {:?}",
                     size_of::<ConsensusMessage>(),
@@ -402,7 +475,7 @@ mod tests {
                 )
             });
         assert_eq!(received_message, expected_message);
-        cancel.cancel();
-        quic_server_thread.join().unwrap();
+        drop(bls_sender);
+        voting_service.join().unwrap();
     }
 }

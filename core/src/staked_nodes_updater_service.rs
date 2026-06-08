@@ -1,9 +1,10 @@
 use {
+    arc_swap::ArcSwap,
     solana_pubkey::Pubkey,
     solana_runtime::bank_forks::BankForks,
     solana_streamer::streamer::StakedNodes,
     std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         sync::{
             Arc, RwLock,
             atomic::{AtomicBool, Ordering},
@@ -15,8 +16,28 @@ use {
 
 const STAKE_REFRESH_CYCLE: Duration = Duration::from_secs(5);
 
+pub type StakedNodePubkeySet = Arc<ArcSwap<HashSet<Pubkey>>>;
+
 pub struct StakedNodesUpdaterService {
     thread_hdl: JoinHandle<()>,
+}
+
+fn staked_pubkeys(
+    stakes: &HashMap<Pubkey, u64>,
+    overrides: &HashMap<Pubkey, u64>,
+) -> HashSet<Pubkey> {
+    let mut pubkeys: HashSet<_> = stakes
+        .iter()
+        .filter_map(|(pubkey, stake)| {
+            (*stake > 0 && !overrides.contains_key(pubkey)).then_some(*pubkey)
+        })
+        .collect();
+    pubkeys.extend(
+        overrides
+            .iter()
+            .filter_map(|(pubkey, stake)| (*stake > 0).then_some(*pubkey)),
+    );
+    pubkeys
 }
 
 impl StakedNodesUpdaterService {
@@ -25,6 +46,7 @@ impl StakedNodesUpdaterService {
         bank_forks: Arc<RwLock<BankForks>>,
         staked_nodes: Arc<RwLock<StakedNodes>>,
         staked_nodes_overrides: Arc<RwLock<HashMap<Pubkey, u64>>>,
+        staked_node_pubkeys: Option<StakedNodePubkeySet>,
     ) -> Self {
         let thread_hdl = Builder::new()
             .name("solStakedNodeUd".to_string())
@@ -35,6 +57,9 @@ impl StakedNodesUpdaterService {
                         root_bank.current_epoch_staked_nodes()
                     };
                     let overrides = staked_nodes_overrides.read().unwrap().clone();
+                    if let Some(staked_node_pubkeys) = &staked_node_pubkeys {
+                        staked_node_pubkeys.store(Arc::new(staked_pubkeys(&stakes, &overrides)));
+                    }
                     *staked_nodes.write().unwrap() = StakedNodes::new(stakes, overrides);
                     std::thread::sleep(STAKE_REFRESH_CYCLE);
                 }

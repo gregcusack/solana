@@ -6,6 +6,7 @@ use {
         admin_rpc_post_init::{KeyUpdaterType, KeyUpdaters},
         banking_trace::BankingTracer,
         block_creation_loop::{ReplayHighestFrozen, rewards::msg_types::AddVoteMessage},
+        bls_quic_datagram::{SpawnBlsQuicDatagramServerResult, spawn_bls_quic_datagram_server},
         bls_sigverify::bls_sigverifier::{self, SigVerifierChannels, SigVerifierContext},
         cluster_info_vote_listener::{
             DuplicateConfirmedSlotsReceiver, GossipVerifiedVoteHashReceiver,
@@ -24,6 +25,7 @@ use {
         },
         replay_stage::{ReplayReceivers, ReplaySenders, ReplayStage, ReplayStageConfig},
         shred_fetch_stage::{SHRED_FETCH_CHANNEL_SIZE, ShredFetchStage},
+        staked_nodes_updater_service::StakedNodePubkeySet,
         voting_service::VotingService,
         warm_quic_cache_service::WarmQuicCacheService,
         window_service::{WindowService, WindowServiceChannels},
@@ -34,7 +36,9 @@ use {
         generated_cert_types::GeneratedCertTypes,
         vote_history::VoteHistory,
         vote_history_storage::VoteHistoryStorage,
-        voting_service::{VotingService as BLSVotingService, VotingServiceOverride},
+        voting_service::{
+            VotingService as BLSVotingService, VotingServiceOverride, VotingServiceTransport,
+        },
         votor::{Votor, VotorConfig},
     },
     agave_votor_messages::consensus_message::Block,
@@ -62,7 +66,6 @@ use {
         rpc_subscriptions::RpcSubscriptions, slot_status_notifier::SlotStatusNotifier,
     },
     solana_runtime::{
-        bank::MAX_ALPENGLOW_VOTE_ACCOUNTS,
         bank_forks::BankForks,
         bank_forks_controller::{BankForksCommandReceiver, BankForksController},
         commitment::BlockCommitmentCache,
@@ -71,12 +74,7 @@ use {
         validated_block_finalization::ValidatedBlockFinalizationCert,
         vote_sender_types::ReplayVoteSender,
     },
-    solana_streamer::{
-        evicting_sender::EvictingSender,
-        nonblocking::simple_qos::SimpleQosConfig,
-        quic::{QuicStreamerConfig, SpawnServerResult, spawn_simple_qos_server},
-        streamer::StakedNodes,
-    },
+    solana_streamer::evicting_sender::EvictingSender,
     solana_turbine::{XdpSender, retransmit_stage::RetransmitStage},
     std::{
         collections::HashSet,
@@ -181,11 +179,11 @@ pub struct AlpenglowInitializationState {
 
     // For BLS streamer setup
     pub cancel: CancellationToken,
-    pub staked_nodes: Arc<RwLock<StakedNodes>>,
     pub key_notifiers: Arc<RwLock<KeyUpdaters>>,
+    pub bls_datagram_staked_nodes: StakedNodePubkeySet,
 
     // For BLS voting service
-    pub bls_connection_cache: Arc<ConnectionCache>,
+    pub bls_transport: VotingServiceTransport,
     pub voting_service_test_override: Option<VotingServiceOverride>,
 }
 
@@ -265,9 +263,9 @@ impl Tvu {
             votor_event_sender,
             votor_event_receiver,
             cancel,
-            staked_nodes,
             key_notifiers,
-            bls_connection_cache,
+            bls_datagram_staked_nodes,
+            bls_transport,
             voting_service_test_override,
             highest_finalized,
         } = votor_init;
@@ -284,38 +282,23 @@ impl Tvu {
         let bls_sigverify_threads = if let Some(bls_socket) = bls_socket {
             let (bls_packet_sender, bls_packet_receiver) = bounded(MAX_ALPENGLOW_PACKET_NUM);
 
-            let (
-                SpawnServerResult {
-                    endpoints: _,
-                    thread: bls_streamer_t,
-                    key_updater: bls_key_updater,
-                },
-                banlist,
-            ) = {
-                let quic_server_params = QuicStreamerConfig {
-                    num_threads: NonZeroUsize::new(4.min(num_cpus::get())).unwrap(),
-                    ..Default::default()
-                };
-                let qos_config = SimpleQosConfig {
-                    max_streams_per_second: 30,
-                    // Cap by # of active validators (some overhead for epoch boundaries)
-                    max_staked_connections: MAX_ALPENGLOW_VOTE_ACCOUNTS * 2,
-                    // Two staked connection per validator to account for hotspares
-                    max_connections_per_peer: 2,
-                };
-                spawn_simple_qos_server(
-                    "solQuicBLS",
-                    "quic_streamer_bls",
-                    vec![bls_socket.into()],
-                    &cluster_info.keypair(),
-                    bls_packet_sender,
-                    staked_nodes,
-                    quic_server_params,
-                    qos_config,
-                    cancel,
-                )
-                .unwrap()
+            let is_staked_peer = {
+                let staked_nodes = bls_datagram_staked_nodes.clone();
+                Arc::new(move |pubkey: &Pubkey| staked_nodes.load().contains(pubkey))
             };
+            let SpawnBlsQuicDatagramServerResult {
+                thread: bls_streamer_t,
+                key_updater: bls_key_updater,
+                banlist,
+            } = spawn_bls_quic_datagram_server(
+                "solQuicBLS",
+                bls_socket,
+                &cluster_info.keypair(),
+                bls_packet_sender,
+                is_staked_peer,
+                cancel,
+            )
+            .unwrap();
 
             // sigverifier
             let sharable_banks = bank_forks.read().unwrap().sharable_banks();
@@ -595,7 +578,7 @@ impl Tvu {
             bls_receiver,
             cluster_info.clone(),
             vote_history_storage,
-            bls_connection_cache,
+            bls_transport,
             bank_forks.clone(),
             voting_service_test_override,
         );
@@ -714,7 +697,9 @@ pub mod tests {
             event::{VotorEventReceiver, VotorEventSender},
             vote_history::VoteHistory,
             vote_history_storage::NullVoteHistoryStorage,
+            voting_service::{QuicDatagramClientKeyUpdater, QuicDatagramSenderConfig},
         },
+        arc_swap::ArcSwap,
         serial_test::serial,
         solana_gossip::{cluster_info::ClusterInfo, node::Node},
         solana_hash::Hash,
@@ -799,10 +784,12 @@ pub mod tests {
                 DEFAULT_TPU_CONNECTION_POOL_SIZE,
             )
         };
-        let bls_connection_cache = ConnectionCache::new_quic_for_tests(
-            "connection_cache_bls_quic",
-            DEFAULT_TPU_CONNECTION_POOL_SIZE,
-        );
+        let bls_datagram_key_updater =
+            Arc::new(QuicDatagramClientKeyUpdater::new(&cref1.keypair()));
+        let bls_transport = VotingServiceTransport::QuicDatagram(QuicDatagramSenderConfig {
+            client_socket: target1.sockets.quic_alpenglow_client,
+            key_updater: bls_datagram_key_updater,
+        });
         let replay_highest_frozen = Arc::new(ReplayHighestFrozen::default());
         let (leader_window_info_sender, _leader_window_info_receiver) = unbounded();
         let (optimistic_parent_sender, optimistic_parent_receiver) = unbounded();
@@ -815,8 +802,8 @@ pub mod tests {
         )));
         let (votor_event_sender, votor_event_receiver): (VotorEventSender, VotorEventReceiver) =
             unbounded();
-        let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
         let key_notifiers = Arc::new(RwLock::new(KeyUpdaters::default()));
+        let bls_datagram_staked_nodes = Arc::new(ArcSwap::from_pointee(HashSet::default()));
         let cancel = CancellationToken::new();
         thread::spawn({
             let cancel = cancel.clone();
@@ -899,9 +886,9 @@ pub mod tests {
                 votor_event_sender,
                 votor_event_receiver,
                 cancel,
-                staked_nodes,
                 key_notifiers,
-                bls_connection_cache: Arc::new(bls_connection_cache),
+                bls_datagram_staked_nodes,
+                bls_transport,
                 voting_service_test_override: None,
                 highest_finalized: Arc::new(RwLock::new(None)),
                 bank_forks_controller,

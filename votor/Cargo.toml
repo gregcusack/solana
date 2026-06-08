@@ -32,13 +32,17 @@ frozen-abi = [
 agave-logger = { workspace = true }
 agave-math-utils = { workspace = true }
 agave-votor-messages = { workspace = true }
+arc-swap = { workspace = true }
 bitvec = { workspace = true }
+bytes = { workspace = true }
 crossbeam-channel = { workspace = true }
 itertools = { workspace = true }
 lazy-lru = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 qualifier_attr = { workspace = true }
+quinn = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 solana-accounts-db = { workspace = true }
@@ -69,11 +73,13 @@ solana-signer = { workspace = true }
 solana-signer-store = { workspace = true }
 solana-streamer = { workspace = true }
 solana-time-utils = { workspace = true }
+solana-tls-utils = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 solana-vote = { workspace = true }
 solana-vote-program = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 wincode = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]

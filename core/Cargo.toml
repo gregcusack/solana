@@ -38,6 +38,7 @@ frozen-abi = [
     "solana-vote/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
+shuttle-test = ["dep:shuttle"]
 
 [dependencies]
 agave-banking-stage-ingress-types = { workspace = true }
@@ -75,6 +76,7 @@ min-max-heap = { workspace = true }
 num_cpus = { workspace = true }
 num_enum = { workspace = true }
 qualifier_attr = { workspace = true }
+quinn = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 rayon = { workspace = true }
@@ -84,6 +86,7 @@ rustls = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 shaq = { workspace = true }
+shuttle = { workspace = true, optional = true }
 signal-hook = { workspace = true }
 slab = { workspace = true }
 solana-account = { workspace = true }
