@@ -51,10 +51,8 @@ pub struct Pong {
 pub struct PingCache<const N: usize> {
     // Time-to-live of received pong messages.
     ttl: Duration,
-    // Rate limit delay to generate pings for a given address.
-    // Also used as the timeout for outstanding pings before they can be
-    // refreshed or evicted.
-    rate_limit_delay: Duration,
+    // Max time to wait for a Pong before considering the ping timed out.
+    outstanding_ping_timeout: Duration,
     // Capacity for the pings store.
     max_pings: usize,
     // Timestamp and expected pong hash for each pinged remote node.
@@ -156,13 +154,15 @@ impl Signable for Pong {
 }
 
 impl<const N: usize> PingCache<N> {
-    pub fn new(ttl: Duration, rate_limit_delay: Duration, max_pings: usize) -> Self {
-        // Sanity check ttl/rate_limit_delay
-        assert!(rate_limit_delay <= ttl / 2);
+    pub fn new(ttl: Duration, outstanding_ping_timeout: Duration, max_pings: usize) -> Self {
+        assert!(
+            outstanding_ping_timeout <= ttl / 2,
+            "outstanding_ping_timeout should be < ttl"
+        );
         assert!(max_pings > 0, "Must cache nonzero amount of hosts");
         Self {
             ttl,
-            rate_limit_delay,
+            outstanding_ping_timeout,
             max_pings,
             pings: IndexMap::with_capacity(max_pings),
             pongs: LruCache::new(max_pings),
@@ -206,10 +206,10 @@ impl<const N: usize> PingCache<N> {
         now: Instant,
         remote_node: (Pubkey, SocketAddr),
     ) -> Option<Ping<N>> {
-        // If the existing ping is still in-flight (age < rate_limit_delay),
+        // If the existing ping is still in-flight (age < outstanding_ping_timeout),
         // don't send another one.
         let is_new_key = if let Some((t, _)) = self.pings.get(&remote_node) {
-            if now.saturating_duration_since(*t) < self.rate_limit_delay {
+            if now.saturating_duration_since(*t) < self.outstanding_ping_timeout {
                 return None;
             }
             false // existing entry will be updated in-place
@@ -219,7 +219,7 @@ impl<const N: usize> PingCache<N> {
 
         // If this is a new entry and the pings store is at capacity,
         // probe random existing entries and evict the first timed-out one
-        // (age >= rate_limit_delay, peer never responded).
+        // (age >= outstanding_ping_timeout, peer never responded).
         // Decline if all probes are in-flight — avoids evicting challenges
         // still awaiting a Pong.
         if is_new_key && self.pings.len() >= self.max_pings {
@@ -228,7 +228,7 @@ impl<const N: usize> PingCache<N> {
             for _ in 0..MAX_PING_PROBES {
                 let idx = rng.random_range(0..n);
                 if let Some((_, (t, _))) = self.pings.get_index(idx) {
-                    if now.saturating_duration_since(*t) >= self.rate_limit_delay {
+                    if now.saturating_duration_since(*t) >= self.outstanding_ping_timeout {
                         self.pings.swap_remove_index(idx);
                         evicted = true;
                         break;
@@ -307,6 +307,7 @@ fn hash_ping_token<const N: usize>(token: &[u8; N]) -> Hash {
 mod tests {
     use {
         super::*,
+        crate::cluster_info::{GOSSIP_PING_CACHE_OUTSTANDING_PING_TIMEOUT, GOSSIP_PING_CACHE_TTL},
         std::{
             collections::HashSet,
             iter::repeat_with,
@@ -502,9 +503,11 @@ mod tests {
         let mut rng = rand::rng();
         let this_node = Keypair::new();
         let cap = 3usize;
-        let ttl = Duration::from_secs(20 * 60);
-        let delay = ttl / 64;
-        let mut cache = PingCache::<32>::new(ttl, delay, cap);
+        let mut cache = PingCache::<32>::new(
+            GOSSIP_PING_CACHE_TTL,
+            GOSSIP_PING_CACHE_OUTSTANDING_PING_TIMEOUT,
+            cap,
+        );
         let sockets: Vec<SocketAddr> = (1u8..=4)
             .map(|i| SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(i, i, i, i), 8000)))
             .collect();
@@ -555,14 +558,16 @@ mod tests {
     #[test]
     fn test_ping_cache_full_with_stale() {
         // Verify that when the pings cache is at capacity and entries are timed
-        // out (age >= rate_limit_delay, peer never responded), a new
+        // out (age >= outstanding_ping_timeout, peer never responded), a new
         // ping reclaims a stale slot.
         let mut rng = rand::rng();
         let this_node = Keypair::new();
         let cap = 3usize;
-        let ttl = Duration::from_secs(20 * 60);
-        let delay = ttl / 64;
-        let mut cache = PingCache::<32>::new(ttl, delay, cap);
+        let mut cache = PingCache::<32>::new(
+            GOSSIP_PING_CACHE_TTL,
+            GOSSIP_PING_CACHE_OUTSTANDING_PING_TIMEOUT,
+            cap,
+        );
         let sockets: Vec<SocketAddr> = (1u8..=4)
             .map(|i| SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(i, i, i, i), 8000)))
             .collect();
@@ -578,7 +583,7 @@ mod tests {
         assert_eq!(cache.pings.len(), cap, "Cache should be at capacity");
 
         // Advance time so all in-flight pings are now stale
-        let expired = now + delay + Duration::from_millis(1);
+        let expired = now + GOSSIP_PING_CACHE_OUTSTANDING_PING_TIMEOUT + Duration::from_millis(1);
 
         // 4th node should get a ping by reclaiming a stale slot
         let node4 = (keypairs[3].pubkey(), sockets[3]);
@@ -604,10 +609,12 @@ mod tests {
         let remote_socket = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 10, 10, 10), 8000));
         let remote_node_keypair = Keypair::new();
         let remote_node = (remote_node_keypair.pubkey(), remote_socket);
-        let ttl = Duration::from_secs(20 * 60); // 20 minutes
-        let delay = ttl / 64;
         let mut now = Instant::now();
-        let mut cache = PingCache::<32>::new(ttl, delay, /*cap=*/ 1000);
+        let mut cache = PingCache::<32>::new(
+            GOSSIP_PING_CACHE_TTL,
+            GOSSIP_PING_CACHE_OUTSTANDING_PING_TIMEOUT,
+            /*cap=*/ 1000,
+        );
 
         // Add a pong for the remote node
         cache.mock_pong(remote_node.0, remote_node.1, now);
@@ -618,7 +625,7 @@ mod tests {
         assert!(ping.is_none(), "Should not generate ping for recent pong");
 
         // Advance time past TTL to expire the pong
-        now = now + ttl + Duration::from_secs(1);
+        now = now + GOSSIP_PING_CACHE_TTL + Duration::from_secs(1);
 
         // After expiration, check should return false but should_ping should be true (to re-verify)
         let (check, ping) = cache.check(&mut rng, &this_node, now, remote_node);
