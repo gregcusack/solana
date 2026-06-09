@@ -6,7 +6,10 @@ use {
         admin_rpc_post_init::{KeyUpdaterType, KeyUpdaters},
         banking_trace::BankingTracer,
         block_creation_loop::{ReplayHighestFrozen, rewards::msg_types::AddVoteMessage},
-        bls_sigverify::bls_sigverifier::{self, SigVerifierChannels, SigVerifierContext},
+        bls_sigverify::bls_sigverifier::{
+            self, SigVerifierBanlist, SigVerifierChannels, SigVerifierContext,
+            SigVerifierPacketReceiver,
+        },
         cluster_info_vote_listener::{
             DuplicateConfirmedSlotsReceiver, GossipVerifiedVoteHashReceiver,
             VerifiedVoterSlotsReceiver, VerifiedVoterSlotsSender, VoteTracker,
@@ -323,7 +326,7 @@ impl Tvu {
                 exit.clone(),
                 SigVerifierContext {
                     migration_status: migration_status.clone(),
-                    banlist,
+                    banlist: SigVerifierBanlist::Stream(banlist),
                     sharable_banks,
                     cluster_info: cluster_info.clone(),
                     leader_schedule: leader_schedule_cache.clone(),
@@ -331,7 +334,7 @@ impl Tvu {
                     generated_cert_types: generated_cert_types.clone(),
                 },
                 SigVerifierChannels {
-                    packet_receiver: bls_packet_receiver,
+                    packet_receiver: SigVerifierPacketReceiver::Stream(bls_packet_receiver),
                     channel_to_repair: verified_voter_slots_sender,
                     channel_to_reward: reward_votes_sender,
                     channel_to_pool: consensus_message_sender.clone(),

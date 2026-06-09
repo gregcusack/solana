@@ -11,6 +11,7 @@ use {
         block_creation_loop::rewards::{certs_builder::wants_vote, msg_types::AddVoteMessage},
         cluster_info_vote_listener::VerifiedVoterSlotsSender,
     },
+    agave_votor::datagram_transport::endpoint::Datagram,
     agave_votor::{
         consensus_metrics::ConsensusMetricsEventSender, generated_cert_types::GeneratedCertTypes,
     },
@@ -26,9 +27,11 @@ use {
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::leader_schedule_cache::LeaderScheduleCache,
     solana_measure::measure_us,
+    solana_net_utils::banlist::Banlist,
+    solana_perf::packet::{BytesPacket, Meta, PacketBatch},
     solana_pubkey::Pubkey,
     solana_runtime::{bank::Bank, bank_forks::SharableBanks},
-    solana_streamer::{nonblocking::simple_qos::SimpleQosBanlist, packet::PacketBatch},
+    solana_streamer::nonblocking::simple_qos::SimpleQosBanlist,
     std::{
         collections::HashSet,
         sync::{
@@ -50,9 +53,55 @@ pub(super) const NUM_SLOTS_FOR_VERIFY: Slot = 90_000;
 /// We ban the sender for 2 days which roughly corresponds to an epoch
 pub(super) const BAN_TIMEOUT: Duration = Duration::from_hours(48);
 
+#[derive(Clone)]
+pub(crate) enum SigVerifierBanlist {
+    Stream(Arc<SimpleQosBanlist>),
+    Datagram(Arc<Banlist<Pubkey>>),
+}
+
+impl SigVerifierBanlist {
+    pub(crate) fn ban(&self, pubkey: Pubkey, timeout: Duration) -> bool {
+        match self {
+            Self::Stream(banlist) => banlist.ban(pubkey, timeout),
+            Self::Datagram(banlist) => banlist.ban(pubkey, timeout),
+        }
+    }
+
+    #[cfg(test)]
+    fn is_banned(&self, pubkey: &Pubkey) -> bool {
+        match self {
+            Self::Stream(banlist) => banlist.is_banned(pubkey),
+            Self::Datagram(banlist) => banlist.is_banned(pubkey),
+        }
+    }
+}
+
+impl From<Arc<SimpleQosBanlist>> for SigVerifierBanlist {
+    fn from(banlist: Arc<SimpleQosBanlist>) -> Self {
+        Self::Stream(banlist)
+    }
+}
+
+impl From<Arc<Banlist<Pubkey>>> for SigVerifierBanlist {
+    fn from(banlist: Arc<Banlist<Pubkey>>) -> Self {
+        Self::Datagram(banlist)
+    }
+}
+
+pub(crate) enum SigVerifierPacketReceiver {
+    Stream(Receiver<PacketBatch>),
+    Datagram(Receiver<Datagram>),
+}
+
+impl From<Receiver<Datagram>> for SigVerifierPacketReceiver {
+    fn from(receiver: Receiver<Datagram>) -> Self {
+        Self::Datagram(receiver)
+    }
+}
+
 pub(crate) struct SigVerifierContext {
     pub(crate) migration_status: Arc<MigrationStatus>,
-    pub(crate) banlist: Arc<SimpleQosBanlist>,
+    pub(crate) banlist: SigVerifierBanlist,
     pub(crate) sharable_banks: SharableBanks,
     pub(crate) cluster_info: Arc<ClusterInfo>,
     pub(crate) leader_schedule: Arc<LeaderScheduleCache>,
@@ -61,7 +110,7 @@ pub(crate) struct SigVerifierContext {
 }
 
 pub(crate) struct SigVerifierChannels {
-    pub(crate) packet_receiver: Receiver<PacketBatch>,
+    pub(crate) packet_receiver: SigVerifierPacketReceiver,
     pub(crate) channel_to_repair: VerifiedVoterSlotsSender,
     pub(crate) channel_to_reward: Sender<AddVoteMessage>,
     pub(crate) channel_to_pool: Sender<SigVerifiedBatch>,
@@ -84,7 +133,7 @@ pub(crate) fn spawn_service(
 
 struct SigVerifier {
     migration_status: Arc<MigrationStatus>,
-    banlist: Arc<SimpleQosBanlist>,
+    banlist: SigVerifierBanlist,
     channels: SigVerifierChannels,
     /// Container to look up root banks from.
     sharable_banks: SharableBanks,
@@ -294,31 +343,78 @@ impl SigVerifier {
     }
 }
 
-/// Receives a `Vec<PacketBatch>` from the `receiver` while adhering to the `soft_receive_cap` limit.
+fn datagram_to_batch(datagram: Datagram) -> PacketBatch {
+    let Datagram {
+        peer_pubkey,
+        peer_address,
+        message,
+    } = datagram;
+    let mut meta = Meta::default();
+    meta.size = message.len();
+    meta.set_socket_addr(&peer_address);
+    meta.set_remote_pubkey(peer_pubkey);
+    PacketBatch::Single(BytesPacket::new(message, meta))
+}
+
+/// Receives packet batches from the configured BLS receiver while adhering to
+/// the `soft_receive_cap` limit.
 ///
 /// Returns `Err(())` if the channel disconnected.
 fn recv_batches(
+    receiver: &SigVerifierPacketReceiver,
+    soft_receive_cap: usize,
+) -> Result<Vec<PacketBatch>, ()> {
+    match receiver {
+        SigVerifierPacketReceiver::Stream(receiver) => {
+            recv_stream_batches(receiver, soft_receive_cap)
+        }
+        SigVerifierPacketReceiver::Datagram(receiver) => {
+            recv_datagram_batches(receiver, soft_receive_cap)
+        }
+    }
+}
+
+fn recv_stream_batches(
     receiver: &Receiver<PacketBatch>,
     soft_receive_cap: usize,
 ) -> Result<Vec<PacketBatch>, ()> {
     let batch = match receiver.recv_timeout(Duration::from_secs(1)) {
         Ok(b) => b,
         Err(e) => match e {
-            RecvTimeoutError::Timeout => {
-                return Ok(vec![]);
-            }
-            RecvTimeoutError::Disconnected => {
-                return Err(());
-            }
+            RecvTimeoutError::Timeout => return Ok(vec![]),
+            RecvTimeoutError::Disconnected => return Err(()),
         },
     };
     let mut batches = Vec::with_capacity(soft_receive_cap);
     batches.push(batch);
     while batches.len() < soft_receive_cap {
         match receiver.try_recv() {
-            Ok(b) => {
-                batches.push(b);
-            }
+            Ok(b) => batches.push(b),
+            Err(e) => match e {
+                TryRecvError::Empty => return Ok(batches),
+                TryRecvError::Disconnected => return Err(()),
+            },
+        }
+    }
+    Ok(batches)
+}
+
+fn recv_datagram_batches(
+    receiver: &Receiver<Datagram>,
+    soft_receive_cap: usize,
+) -> Result<Vec<PacketBatch>, ()> {
+    let batch = match receiver.recv_timeout(Duration::from_secs(1)) {
+        Ok(b) => datagram_to_batch(b),
+        Err(e) => match e {
+            RecvTimeoutError::Timeout => return Ok(vec![]),
+            RecvTimeoutError::Disconnected => return Err(()),
+        },
+    };
+    let mut batches = Vec::with_capacity(soft_receive_cap);
+    batches.push(batch);
+    while batches.len() < soft_receive_cap {
+        match receiver.try_recv() {
+            Ok(b) => batches.push(datagram_to_batch(b)),
             Err(e) => match e {
                 TryRecvError::Empty => return Ok(batches),
                 TryRecvError::Disconnected => return Err(()),
@@ -371,7 +467,7 @@ mod tests {
     struct TestContext {
         verifier: SigVerifier,
         validator_keypairs: Vec<ValidatorVoteKeypairs>,
-        banlist: Arc<SimpleQosBanlist>,
+        banlist: SigVerifierBanlist,
 
         _packet_sender: Sender<PacketBatch>,
         repair_receiver: VerifiedVoterSlotsReceiver,
@@ -427,7 +523,7 @@ mod tests {
             let verifier = SigVerifier::new(
                 SigVerifierContext {
                     migration_status: Arc::new(MigrationStatus::default()),
-                    banlist: banlist.clone(),
+                    banlist: banlist.clone().into(),
                     sharable_banks,
                     cluster_info,
                     leader_schedule,
@@ -435,7 +531,7 @@ mod tests {
                     generated_cert_types: generated_cert_types.clone(),
                 },
                 SigVerifierChannels {
-                    packet_receiver,
+                    packet_receiver: SigVerifierPacketReceiver::Stream(packet_receiver),
                     channel_to_repair,
                     channel_to_reward,
                     channel_to_pool,
@@ -445,7 +541,7 @@ mod tests {
             Self {
                 validator_keypairs,
                 verifier,
-                banlist,
+                banlist: banlist.into(),
                 _packet_sender: packet_sender,
                 repair_receiver,
                 _reward_receiver: reward_receiver,
@@ -1385,7 +1481,7 @@ mod tests {
         let mut sig_verifier = SigVerifier::new(
             SigVerifierContext {
                 migration_status: Arc::new(MigrationStatus::default()),
-                banlist: new_test_banlist(),
+                banlist: new_test_banlist().into(),
                 sharable_banks,
                 cluster_info,
                 leader_schedule,
@@ -1393,7 +1489,7 @@ mod tests {
                 generated_cert_types: Arc::new(GeneratedCertTypes::default()),
             },
             SigVerifierChannels {
-                packet_receiver,
+                packet_receiver: SigVerifierPacketReceiver::Stream(packet_receiver),
                 channel_to_repair: votes_for_repair_sender,
                 channel_to_reward: reward_votes_sender,
                 channel_to_pool: message_sender,
