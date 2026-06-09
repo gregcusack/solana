@@ -74,6 +74,7 @@ solana-transaction-error = { workspace = true }
 solana-vote = { workspace = true }
 solana-vote-program = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
 wincode = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
