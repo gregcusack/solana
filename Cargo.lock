@@ -8958,7 +8958,9 @@ dependencies = [
  "static_assertions",
  "strum",
  "tempfile",
+ "tokio",
  "tokio-util 0.7.18",
+ "wincode",
 ]
 
 [[package]]

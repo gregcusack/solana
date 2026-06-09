@@ -93,6 +93,12 @@ pub(crate) enum SigVerifierPacketReceiver {
     Datagram(Receiver<Datagram>),
 }
 
+impl From<Receiver<PacketBatch>> for SigVerifierPacketReceiver {
+    fn from(receiver: Receiver<PacketBatch>) -> Self {
+        Self::Stream(receiver)
+    }
+}
+
 impl From<Receiver<Datagram>> for SigVerifierPacketReceiver {
     fn from(receiver: Receiver<Datagram>) -> Self {
         Self::Datagram(receiver)
