@@ -83,6 +83,7 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         tvu_bls_sigverify_threads: config.tvu_bls_sigverify_threads,
         delay_leader_block_for_pending_fork: config.delay_leader_block_for_pending_fork,
         voting_service_test_override: config.voting_service_test_override.clone(),
+        votor_transport_mode: config.votor_transport_mode,
         repair_handler_type: config.repair_handler_type.clone(),
         snapshot_packager_niceness_adj: config.snapshot_packager_niceness_adj,
     }

@@ -1,5 +1,9 @@
 use {
-    super::{bls_sigverifier::BAN_TIMEOUT, errors::SigVerifyCertError, stats::SigVerifyCertStats},
+    super::{
+        bls_sigverifier::{BAN_TIMEOUT, BlsBanlist},
+        errors::SigVerifyCertError,
+        stats::SigVerifyCertStats,
+    },
     crate::bls_sigverify::{bls_sigverifier::NUM_SLOTS_FOR_VERIFY, utils::send_certs_to_pool},
     agave_bls_cert_verify::cert_verify::Error as BlsCertVerifyError,
     agave_votor_messages::{
@@ -16,7 +20,6 @@ use {
     solana_measure::measure::Measure,
     solana_pubkey::Pubkey,
     solana_runtime::bank::Bank,
-    solana_streamer::nonblocking::simple_qos::SimpleQosBanlist,
     std::{collections::HashSet, num::NonZeroU64},
     thiserror::Error,
 };
@@ -53,7 +56,7 @@ pub(super) fn verify_and_send_certificates(
     certs: Vec<CertPayload>,
     root_bank: &Bank,
     channel_to_pool: &Sender<SigVerifiedBatch>,
-    banlist: &SimpleQosBanlist,
+    banlist: &BlsBanlist,
     thread_pool: &ThreadPool,
 ) -> Result<SigVerifyCertStats, SigVerifyCertError> {
     for cert in certs.iter().map(|cert_payload| &cert_payload.cert) {
@@ -95,7 +98,7 @@ fn verify_certs(
     root_bank: &Bank,
     verified_certs_set: &mut HashSet<CertificateType>,
     stats: &mut SigVerifyCertStats,
-    banlist: &SimpleQosBanlist,
+    banlist: &BlsBanlist,
     thread_pool: &ThreadPool,
 ) -> SigVerifiedBatch {
     let verified = thread_pool.install(|| {

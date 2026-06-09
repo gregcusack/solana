@@ -338,6 +338,7 @@ dependencies = [
  "agave-math-utils",
  "agave-votor-messages",
  "bitvec",
+ "bytes",
  "crossbeam-channel",
  "itertools 0.14.0",
  "lazy-lru",
@@ -373,6 +374,7 @@ dependencies = [
  "solana-vote",
  "solana-vote-program",
  "thiserror 2.0.18",
+ "tokio",
  "wincode",
 ]
 
@@ -7897,6 +7899,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
 ]
+
 
 [[package]]
 name = "solana-rayon-threadlimit"
