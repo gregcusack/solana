@@ -1,5 +1,8 @@
+#[cfg(any(test, feature = "dev-context-only-utils"))]
+use std::collections::HashSet;
 use {
-    crate::voting_service::AlpenglowPortOverride,
+    crate::datagram_transport::allowlist::StakedNodesAllowlist,
+    crate::{datagram_endpoint, voting_service::AlpenglowPortOverride},
     lazy_lru::LruCache,
     solana_clock::{Epoch, Slot},
     solana_gossip::cluster_info::ClusterInfo,
@@ -46,15 +49,25 @@ pub struct StakedValidatorsCache {
 
     /// timestamp of the last alpenglow port override we read
     alpenglow_port_override_last_modified: Instant,
+
+    /// Allowlist for the votor datagram endpoint.
+    allowlist: Option<Arc<StakedNodesAllowlist>>,
+
+    /// Extra pubkeys that should always be allowed even when not in the staked set.
+    #[cfg(any(test, feature = "dev-context-only-utils"))]
+    extra_admit: HashSet<Pubkey>,
 }
 
 impl StakedValidatorsCache {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sharable_banks: SharableBanks,
         ttl: Duration,
         target_cache_size: usize,
         include_self: bool,
         alpenglow_port_override: Option<AlpenglowPortOverride>,
+        allowlist: Option<Arc<StakedNodesAllowlist>>,
+        #[cfg(any(test, feature = "dev-context-only-utils"))] extra_admit: HashSet<Pubkey>,
     ) -> Self {
         Self {
             cache: LruCache::new(target_cache_size),
@@ -63,7 +76,25 @@ impl StakedValidatorsCache {
             include_self,
             alpenglow_port_override,
             alpenglow_port_override_last_modified: Instant::now(),
+            allowlist,
+            #[cfg(any(test, feature = "dev-context-only-utils"))]
+            extra_admit,
         }
+    }
+
+    fn refresh_allowlist(&mut self) {
+        let Some(allowlist) = self.allowlist.as_ref() else {
+            return;
+        };
+
+        let admit_set = datagram_endpoint::current_admit_set(&self.sharable_banks);
+        #[cfg(any(test, feature = "dev-context-only-utils"))]
+        let admit_set = {
+            let mut admit_set = admit_set;
+            admit_set.extend(self.extra_admit.iter().map(|pubkey| (*pubkey, 0)));
+            admit_set
+        };
+        allowlist.swap(admit_set);
     }
 
     #[inline]
@@ -80,6 +111,8 @@ impl StakedValidatorsCache {
         cluster_info: &ClusterInfo,
         update_time: Instant,
     ) {
+        self.refresh_allowlist();
+
         let banks = [self.sharable_banks.root(), self.sharable_banks.working()];
 
         let epoch_staked_nodes = banks
@@ -217,7 +250,7 @@ impl StakedValidatorsCache {
 #[cfg(test)]
 mod tests {
     use {
-        super::StakedValidatorsCache,
+        super::{HashSet, StakedValidatorsCache},
         crate::voting_service::AlpenglowPortOverride,
         rand::Rng,
         solana_gossip::{
@@ -368,6 +401,8 @@ mod tests {
             5,
             true,
             None,
+            None,
+            HashSet::new(),
         );
 
         let now = Instant::now();
@@ -449,6 +484,8 @@ mod tests {
             5,
             true,
             None,
+            None,
+            HashSet::new(),
         );
 
         assert_eq!(0, svc.len());
@@ -527,6 +564,8 @@ mod tests {
             5,
             true,
             None,
+            None,
+            HashSet::new(),
         );
 
         let now = Instant::now();
@@ -562,6 +601,8 @@ mod tests {
             5,
             true,
             None,
+            None,
+            HashSet::new(),
         );
 
         let (sockets, _) =
@@ -576,6 +617,8 @@ mod tests {
             5,
             false,
             None,
+            None,
+            HashSet::new(),
         );
 
         let (sockets, _) =
@@ -601,6 +644,8 @@ mod tests {
             5,
             false,
             Some(alpenglow_port_override.clone()),
+            None,
+            HashSet::new(),
         );
         // Nothing in the override, so we should get the original socket addresses.
         let (sockets, _) = svc.get_staked_validators_by_slot(0, &cluster_info, Instant::now());
@@ -622,5 +667,44 @@ mod tests {
         let (sockets, _) = svc.get_staked_validators_by_slot(0, &cluster_info, Instant::now());
         assert_eq!(sockets.len(), 2);
         assert!(!sockets.iter().any(|(_, socket)| socket == &blackhole_addr));
+    }
+
+    #[test]
+    fn test_allowlist_populated_from_staked_nodes() {
+        use crate::datagram_transport::allowlist::{Allowlist, StakedNodesAllowlist};
+
+        let slot_num = 325_000_000_u64;
+        let num_nodes = 10_usize;
+        let num_zero_stake_nodes = 3_usize;
+        let (bank_forks, cluster_info, pubkeys) =
+            create_bank_forks_and_cluster_info(num_nodes, num_zero_stake_nodes, slot_num);
+
+        let allowlist = Arc::new(StakedNodesAllowlist::default());
+        let mut svc = StakedValidatorsCache::new(
+            bank_forks.read().unwrap().sharable_banks(),
+            Duration::from_secs(5),
+            5,
+            true,
+            None,
+            Some(allowlist.clone()),
+            HashSet::new(),
+        );
+
+        assert!(allowlist.is_empty());
+        let _ = svc.get_staked_validators_by_slot(slot_num, &cluster_info, Instant::now());
+
+        for (index, pubkey) in pubkeys.iter().enumerate() {
+            if index < num_zero_stake_nodes {
+                assert!(
+                    !allowlist.allow(pubkey),
+                    "zero-stake node {index} must not be admitted"
+                );
+            } else {
+                assert!(
+                    allowlist.allow(pubkey),
+                    "staked node {index} must be admitted"
+                );
+            }
+        }
     }
 }
