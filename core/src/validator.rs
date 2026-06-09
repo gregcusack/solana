@@ -36,7 +36,7 @@ use {
     agave_votor::{
         vote_history::{VoteHistory, VoteHistoryError},
         vote_history_storage::{NullVoteHistoryStorage, VoteHistoryStorage},
-        voting_service::VotingServiceOverride,
+        voting_service::{VotingServiceOverride, VotorTransportMode},
     },
     agave_xdp::transmitter::{Transmitter, TransmitterBuilder},
     anyhow::{Result, anyhow},
@@ -394,6 +394,7 @@ pub struct ValidatorConfig {
     pub tvu_bls_sigverify_threads: NonZeroUsize,
     pub delay_leader_block_for_pending_fork: bool,
     pub voting_service_test_override: Option<VotingServiceOverride>,
+    pub votor_transport_mode: VotorTransportMode,
     pub repair_handler_type: RepairHandlerType,
     // Thread niceness adjustment for snapshot packager service
     pub snapshot_packager_niceness_adj: i8,
@@ -479,6 +480,7 @@ impl ValidatorConfig {
             tvu_bls_sigverify_threads: NonZeroUsize::new(2).expect("2 is non-zero"),
             delay_leader_block_for_pending_fork: false,
             voting_service_test_override: None,
+            votor_transport_mode: VotorTransportMode::default(),
             repair_handler_type: RepairHandlerType::default(),
             snapshot_packager_niceness_adj: 0,
         }
@@ -1189,9 +1191,7 @@ impl Validator {
 
         let bls_connection_cache = Arc::new(ConnectionCache::new_with_client_options(
             "connection_cache_bls_quic",
-            // BLS consensus messaging is extremely low throughput (5 PPS). Even during standstill operations
-            // we wouldn't expect more than a 100 PPS. 1 connection is enough.
-            1, /* connection_pool_size */
+            1,
             Some(node.sockets.quic_alpenglow_client),
             Some((
                 &identity_keypair,
@@ -1206,11 +1206,14 @@ impl Validator {
             )),
             Some((&staked_nodes, &identity_keypair.pubkey())),
         ));
+
         let key_notifiers = Arc::new(RwLock::new(KeyUpdaters::default()));
-        key_notifiers.write().unwrap().add(
-            KeyUpdaterType::BlsConnectionCache,
-            bls_connection_cache.clone(),
-        );
+        if config.votor_transport_mode == VotorTransportMode::QuicStream {
+            key_notifiers.write().unwrap().add(
+                KeyUpdaterType::BlsConnectionCache,
+                bls_connection_cache.clone(),
+            );
+        }
 
         // test-validator crate may start the validator in a tokio runtime
         // context which forces us to use the same runtime because a nested
@@ -1226,6 +1229,66 @@ impl Validator {
                 .build()
                 .unwrap()
         });
+
+        // Votor QUIC datagram endpoint. One UDP socket multiplexes
+        // outbound votes/certs (egress) and inbound consensus messages
+        // (ingress) per the lex-pubkey direction rule. Only constructed
+        // on Testnet/Development clusters; absent → stub channels are
+        // installed downstream so the BLS sigverifier task spawns but
+        // never receives anything.
+        let datagram_alpenglow_socket = if config.votor_transport_mode
+            == VotorTransportMode::QuicDatagram
+            && matches!(
+                genesis_config.cluster_type,
+                ClusterType::Testnet | ClusterType::Development,
+            ) {
+            node.sockets.alpenglow.take()
+        } else {
+            None
+        };
+        let (votor_egress, votor_ingress, votor_banlist, votor_allowlist) =
+            if let Some(socket) = datagram_alpenglow_socket {
+                let votor_rt_handle = tpu_client_next_runtime
+                    .as_ref()
+                    .map(TokioRuntime::handle)
+                    .unwrap_or_else(|| current_runtime_handle.as_ref().unwrap());
+                let (ingress_tx, ingress_rx) =
+                    crossbeam_channel::bounded(crate::tvu::MAX_ALPENGLOW_PACKET_NUM);
+
+                let banlist = Arc::new(solana_net_utils::banlist::Banlist::<Pubkey>::default());
+                let allowlist = agave_votor::datagram_endpoint::build_allowlist(
+                    &bank_forks.read().unwrap().sharable_banks(),
+                );
+
+                let endpoint = agave_votor::datagram_endpoint::VotorDatagramEndpoint::new(
+                    votor_rt_handle,
+                    &identity_keypair,
+                    socket,
+                    ingress_tx,
+                    allowlist.clone(),
+                    banlist.clone(),
+                )
+                .map_err(|e| ValidatorError::Other(format!("alpenglow endpoint: {e:?}")))?;
+                key_notifiers
+                    .write()
+                    .unwrap()
+                    .add(KeyUpdaterType::VotorDatagram, endpoint.key_updater.clone());
+                let egress = endpoint.egress.clone();
+                votor_rt_handle.spawn({
+                    let cancel = cancel.clone();
+                    async move {
+                        cancel.cancelled().await;
+                        endpoint.close();
+                    }
+                });
+                (egress, ingress_rx, banlist, Some(allowlist))
+            } else {
+                let (egress, _) = tokio::sync::mpsc::channel(1);
+                let (_, ingress) =
+                    crossbeam_channel::bounded::<agave_votor::datagram_endpoint::Datagram>(1);
+                let banlist = Arc::new(solana_net_utils::banlist::Banlist::<Pubkey>::default());
+                (egress, ingress, banlist, None)
+            };
 
         let rpc_override_health_check =
             Arc::new(AtomicBool::new(config.rpc_config.disable_health_check));
@@ -1568,8 +1631,9 @@ impl Validator {
             };
 
         // disable all2all tests if not allowed for a given cluster type
-        let alpenglow_socket = if genesis_config.cluster_type == ClusterType::Testnet
-            || genesis_config.cluster_type == ClusterType::Development
+        let alpenglow_socket = if config.votor_transport_mode == VotorTransportMode::QuicStream
+            && (genesis_config.cluster_type == ClusterType::Testnet
+                || genesis_config.cluster_type == ClusterType::Development)
         {
             node.sockets.alpenglow
         } else {
@@ -1625,6 +1689,7 @@ impl Validator {
                 shred_sigverify_threads: config.tvu_shred_sigverify_threads,
                 bls_sigverify_threads: config.tvu_bls_sigverify_threads,
                 turbine_xdp_sender: turbine_xdp_sender.clone(),
+                votor_transport_mode: config.votor_transport_mode,
             },
             &max_slots,
             block_metadata_notifier,
@@ -1651,6 +1716,10 @@ impl Validator {
                 staked_nodes: staked_nodes.clone(),
                 key_notifiers: key_notifiers.clone(),
                 bls_connection_cache,
+                votor_egress,
+                votor_ingress,
+                votor_banlist,
+                votor_allowlist,
                 voting_service_test_override: config.voting_service_test_override.clone(),
                 highest_finalized,
             },

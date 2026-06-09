@@ -12,7 +12,8 @@ use {
         cluster_info_vote_listener::VerifiedVoterSlotsSender,
     },
     agave_votor::{
-        consensus_metrics::ConsensusMetricsEventSender, generated_cert_types::GeneratedCertTypes,
+        consensus_metrics::ConsensusMetricsEventSender, datagram_endpoint::Datagram,
+        generated_cert_types::GeneratedCertTypes,
     },
     agave_votor_messages::{
         certificate::CertificateType,
@@ -26,9 +27,11 @@ use {
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::leader_schedule_cache::LeaderScheduleCache,
     solana_measure::measure_us,
+    solana_net_utils::banlist::Banlist,
+    solana_perf::packet::{BytesPacket, Meta, PacketBatch},
     solana_pubkey::Pubkey,
     solana_runtime::{bank::Bank, bank_forks::SharableBanks},
-    solana_streamer::{nonblocking::simple_qos::SimpleQosBanlist, packet::PacketBatch},
+    solana_streamer::nonblocking::simple_qos::SimpleQosBanlist,
     std::{
         collections::HashSet,
         sync::{
@@ -50,9 +53,31 @@ pub(super) const NUM_SLOTS_FOR_VERIFY: Slot = 90_000;
 /// We ban the sender for 2 days which roughly corresponds to an epoch
 pub(super) const BAN_TIMEOUT: Duration = Duration::from_hours(48);
 
+pub(crate) enum BlsBanlist {
+    Stream(Arc<SimpleQosBanlist>),
+    Datagram(Arc<Banlist<Pubkey>>),
+}
+
+impl BlsBanlist {
+    pub(crate) fn ban(&self, pubkey: Pubkey, timeout: Duration) -> bool {
+        match self {
+            Self::Stream(banlist) => banlist.ban(pubkey, timeout),
+            Self::Datagram(banlist) => banlist.ban(pubkey, timeout),
+        }
+    }
+
+    #[cfg(test)]
+    fn is_banned(&self, pubkey: &Pubkey) -> bool {
+        match self {
+            Self::Stream(banlist) => banlist.is_banned(pubkey),
+            Self::Datagram(banlist) => banlist.is_banned(pubkey),
+        }
+    }
+}
+
 pub(crate) struct SigVerifierContext {
     pub(crate) migration_status: Arc<MigrationStatus>,
-    pub(crate) banlist: Arc<SimpleQosBanlist>,
+    pub(crate) banlist: BlsBanlist,
     pub(crate) sharable_banks: SharableBanks,
     pub(crate) cluster_info: Arc<ClusterInfo>,
     pub(crate) leader_schedule: Arc<LeaderScheduleCache>,
@@ -60,8 +85,13 @@ pub(crate) struct SigVerifierContext {
     pub(crate) generated_cert_types: Arc<GeneratedCertTypes>,
 }
 
+pub(crate) enum BlsPacketReceiver {
+    Stream(Receiver<PacketBatch>),
+    Datagram(Receiver<Datagram>),
+}
+
 pub(crate) struct SigVerifierChannels {
-    pub(crate) packet_receiver: Receiver<PacketBatch>,
+    pub(crate) packet_receiver: BlsPacketReceiver,
     pub(crate) channel_to_repair: VerifiedVoterSlotsSender,
     pub(crate) channel_to_reward: Sender<AddVoteMessage>,
     pub(crate) channel_to_pool: Sender<SigVerifiedBatch>,
@@ -84,7 +114,7 @@ pub(crate) fn spawn_service(
 
 struct SigVerifier {
     migration_status: Arc<MigrationStatus>,
-    banlist: Arc<SimpleQosBanlist>,
+    banlist: BlsBanlist,
     channels: SigVerifierChannels,
     /// Container to look up root banks from.
     sharable_banks: SharableBanks,
@@ -294,15 +324,58 @@ impl SigVerifier {
     }
 }
 
-/// Receives a `Vec<PacketBatch>` from the `receiver` while adhering to the `soft_receive_cap` limit.
+/// Wraps a single inbound [`Datagram`] as a one-packet [`PacketBatch`] so the
+/// rest of the sigverifier can keep operating on the `PacketBatch` abstraction.
+/// The QUIC-authenticated sender pubkey is stored in the packet meta, where the
+/// extract step reads it back via [`Meta::remote_pubkey`].
+fn datagram_to_batch(datagram: Datagram) -> PacketBatch {
+    let Datagram {
+        peer_pubkey,
+        peer_address,
+        message,
+    } = datagram;
+    let mut meta = Meta::default();
+    meta.size = message.len();
+    meta.set_socket_addr(&peer_address);
+    meta.set_remote_pubkey(peer_pubkey);
+    PacketBatch::Single(BytesPacket::new(message, meta))
+}
+
+/// Receives a batch of [`Datagram`]s from the `receiver`, each wrapped as a
+/// single-packet [`PacketBatch`], up to the `soft_receive_cap` limit.
 ///
 /// Returns `Err(())` if the channel disconnected.
 fn recv_batches(
+    receiver: &BlsPacketReceiver,
+    soft_receive_cap: usize,
+) -> Result<Vec<PacketBatch>, ()> {
+    match receiver {
+        BlsPacketReceiver::Stream(receiver) => recv_stream_batches(receiver, soft_receive_cap),
+        BlsPacketReceiver::Datagram(receiver) => recv_datagram_batches(receiver, soft_receive_cap),
+    }
+}
+
+fn recv_stream_batches(
     receiver: &Receiver<PacketBatch>,
     soft_receive_cap: usize,
 ) -> Result<Vec<PacketBatch>, ()> {
+    recv_mapped_batches(receiver, soft_receive_cap, |batch| batch)
+}
+
+fn recv_datagram_batches(
+    receiver: &Receiver<Datagram>,
+    soft_receive_cap: usize,
+) -> Result<Vec<PacketBatch>, ()> {
+    recv_mapped_batches(receiver, soft_receive_cap, datagram_to_batch)
+}
+
+fn recv_mapped_batches<T>(
+    receiver: &Receiver<T>,
+    soft_receive_cap: usize,
+    mut map: impl FnMut(T) -> PacketBatch,
+) -> Result<Vec<PacketBatch>, ()> {
     let batch = match receiver.recv_timeout(Duration::from_secs(1)) {
-        Ok(b) => b,
+        Ok(b) => map(b),
         Err(e) => match e {
             RecvTimeoutError::Timeout => {
                 return Ok(vec![]);
@@ -317,7 +390,7 @@ fn recv_batches(
     while batches.len() < soft_receive_cap {
         match receiver.try_recv() {
             Ok(b) => {
-                batches.push(b);
+                batches.push(map(b));
             }
             Err(e) => match e {
                 TryRecvError::Empty => return Ok(batches),
@@ -363,17 +436,16 @@ mod tests {
         solana_signer_store::encode_base2,
     };
 
-    fn new_test_banlist() -> Arc<SimpleQosBanlist> {
-        let (banlist, _banlist_eviction_receiver) = SimpleQosBanlist::new();
-        Arc::new(banlist)
+    fn new_test_banlist() -> Arc<Banlist<Pubkey>> {
+        Arc::new(Banlist::<Pubkey>::default())
     }
 
     struct TestContext {
         verifier: SigVerifier,
         validator_keypairs: Vec<ValidatorVoteKeypairs>,
-        banlist: Arc<SimpleQosBanlist>,
+        banlist: Arc<Banlist<Pubkey>>,
 
-        _packet_sender: Sender<PacketBatch>,
+        _packet_sender: Sender<Datagram>,
         repair_receiver: VerifiedVoterSlotsReceiver,
         _reward_receiver: Receiver<AddVoteMessage>,
         pool_receiver: Receiver<SigVerifiedBatch>,
@@ -427,7 +499,7 @@ mod tests {
             let verifier = SigVerifier::new(
                 SigVerifierContext {
                     migration_status: Arc::new(MigrationStatus::default()),
-                    banlist: banlist.clone(),
+                    banlist: BlsBanlist::Datagram(banlist.clone()),
                     sharable_banks,
                     cluster_info,
                     leader_schedule,
@@ -435,7 +507,7 @@ mod tests {
                     generated_cert_types: generated_cert_types.clone(),
                 },
                 SigVerifierChannels {
-                    packet_receiver,
+                    packet_receiver: BlsPacketReceiver::Datagram(packet_receiver),
                     channel_to_repair,
                     channel_to_reward,
                     channel_to_pool,
@@ -1385,7 +1457,7 @@ mod tests {
         let mut sig_verifier = SigVerifier::new(
             SigVerifierContext {
                 migration_status: Arc::new(MigrationStatus::default()),
-                banlist: new_test_banlist(),
+                banlist: BlsBanlist::Datagram(new_test_banlist()),
                 sharable_banks,
                 cluster_info,
                 leader_schedule,
@@ -1393,7 +1465,7 @@ mod tests {
                 generated_cert_types: Arc::new(GeneratedCertTypes::default()),
             },
             SigVerifierChannels {
-                packet_receiver,
+                packet_receiver: BlsPacketReceiver::Datagram(packet_receiver),
                 channel_to_repair: votes_for_repair_sender,
                 channel_to_reward: reward_votes_sender,
                 channel_to_pool: message_sender,
