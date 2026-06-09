@@ -138,7 +138,7 @@ impl VotingService {
             .name("solVotorVoteSvc".to_string())
             .spawn(move || {
                 let mut staked_validators_cache = StakedValidatorsCache::new(
-                    bank_forks.clone(),
+                    bank_forks.read().unwrap().sharable_banks(),
                     Duration::from_secs(STAKED_VALIDATORS_CACHE_TTL_S),
                     STAKED_VALIDATORS_CACHE_NUM_EPOCH_TARGET,
                     false,
@@ -178,11 +178,14 @@ impl VotingService {
             }
         };
 
-        let (staked_validator_alpenglow_sockets, _) = staked_validators_cache
-            .get_staked_validators_by_slot(slot, cluster_info, Instant::now());
+        let (staked_validator_peers, _) = staked_validators_cache.get_staked_validators_by_slot(
+            slot,
+            cluster_info,
+            Instant::now(),
+        );
         let sockets = additional_listeners
             .iter()
-            .chain(staked_validator_alpenglow_sockets.iter());
+            .chain(staked_validator_peers.iter().map(|(_, socket)| socket));
 
         // We use send_message in a loop right now because we worry that sending packets too fast
         // will cause a packet spike and overwhelm the network. If we later find out that this is
