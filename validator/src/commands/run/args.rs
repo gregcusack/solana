@@ -865,10 +865,9 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
     )
     .arg(
         Arg::with_name("poh_pinned_cpu_core")
-            .hidden(hidden_unless_forced())
-            .long("experimental-poh-pinned-cpu-core")
+            .long("poh-pinned-cpu-core")
             .takes_value(true)
-            .value_name("CPU_ID")
+            .value_name("CPU_CORE_INDEX")
             .validator(|s| usize::from_str(&s).map(|_| ()).map_err(|e| e.to_string()))
             .help("Specify which CPU core PoH is pinned to"),
     )

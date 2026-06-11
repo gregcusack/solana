@@ -39,7 +39,7 @@ Zero copy cannot be used with a bonded interface itself. When using a bonded net
 --xdp-interface <bond-member-interface>
 ```
 
-Also note that XDP and PoH *must* be assigned to separate (physical) cores. PoH defaults to CPU core 0, and XDP defaults to CPU core 1. The --experimental-poh-pinned-cpu-core N flag can be used to move the PoH thread.
+Also note that XDP and PoH *must* be assigned to separate (physical) cores. PoH defaults to CPU core 10, and XDP defaults to CPU core 1. The --poh-pinned-cpu-core N flag can be used to move the PoH thread.
 
 Next, your validator binary will need to have access to a few higher level permissions. With default zero-copy XDP, the validator process requires the CAP_NET_RAW, CAP_NET_ADMIN, CAP_BPF, and CAP_PERFMON capabilities. Passing --disable-xdp-zero-copy avoids the CAP_BPF and CAP_PERFMON requirements; passing --disable-xdp avoids XDP capability requirements entirely. These capabilities can be configured in the systemd service file by setting CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON under the [Service] section or directly on the binary with the command:
 

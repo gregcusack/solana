@@ -27,10 +27,12 @@ Release channels have their own copy of this changelog:
   out, `--xdp-cpu-cores` to override the XDP CPU assignment, and `--disable-xdp-zero-copy` to keep
   XDP enabled without zero copy. Default validator startup now requires the XDP capabilities unless
   XDP is disabled.
+* The default PoH pinned CPU core is now CPU core 10. Use `--poh-pinned-cpu-core` to override it.
 #### Deprecations
 * `--accounts-db-access-storages-method` is now deprecated and a no-op (the `mmap` value was
   deprecated in v4.0.0; mmap mode has now been removed entirely). The flag is still accepted for
   backward compatibility, but account storages are always accessed via file I/O.
+* `--experimental-poh-pinned-cpu-core` is now deprecated. Use `--poh-pinned-cpu-core` instead.
 * `--xdp-zero-copy` is now deprecated and a no-op because XDP zero copy is enabled by default. Use
   `--disable-xdp-zero-copy` to opt out of zero copy.
 #### Changes
