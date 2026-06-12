@@ -1236,7 +1236,7 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .takes_value(true)
             .value_name("INTERFACE")
             .conflicts_with("disable_xdp")
-            .help("Network interface to use for XDP"),
+            .help("Network interface to use for XDP. Required when XDP zero copy is enabled"),
     )
     .arg(
         Arg::with_name("xdp_cpu_cores")

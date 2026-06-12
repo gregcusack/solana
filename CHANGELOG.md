@@ -23,10 +23,10 @@ Release channels have their own copy of this changelog:
   `getLatestBlockhash` response together with its context (notably `context.slot`).
 ### Validator
 #### Breaking
-* XDP transmit is now enabled by default on Linux with zero copy on CPU core 1. Use `--disable-xdp` to opt
-  out, `--xdp-cpu-cores` to override the XDP CPU assignment, and `--disable-xdp-zero-copy` to keep
-  XDP enabled without zero copy. Default validator startup now requires the XDP capabilities unless
-  XDP is disabled.
+* XDP transmit is now enabled by default on Linux with zero copy on CPU core 1. Use `--xdp-interface`
+  to select the XDP interface, `--xdp-cpu-cores` to override the XDP CPU assignment, and
+  `--disable-xdp-zero-copy` to keep XDP enabled without zero copy. Default validator startup now
+  requires the XDP capabilities.
 * The default PoH pinned CPU core is now CPU core 10. Use `--poh-pinned-cpu-core` to override it.
 #### Deprecations
 * `--accounts-db-access-storages-method` is now deprecated and a no-op (the `mmap` value was

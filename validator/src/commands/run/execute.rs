@@ -128,13 +128,21 @@ fn parse_xdp_transmit_config(
     {
         if bind_addresses.len() > 1 {
             return Err(String::from(
-                "XDP cannot be used in a multihoming context. Use --disable-xdp to disable XDP",
+                "XDP cannot be used in a multihoming context",
             ));
         }
 
         let xdp_interface = matches
             .value_of("xdp_interface")
             .or_else(|| matches.value_of("experimental_retransmit_xdp_interface"));
+        let xdp_zero_copy = !matches.is_present("disable_xdp_zero_copy");
+        if xdp_zero_copy && xdp_interface.is_none() {
+            return Err(String::from(
+                "XDP zero copy requires an explicit network interface. Use --xdp-interface to \
+                 select the XDP interface, or --disable-xdp-zero-copy to use XDP without zero \
+                 copy",
+            ));
+        }
         let xdp_cpus = matches
             .value_of("xdp_cpu_cores")
             .or_else(|| matches.value_of("experimental_retransmit_xdp_cpu_cores"))
@@ -144,7 +152,6 @@ fn parse_xdp_transmit_config(
             })
             .transpose()?
             .unwrap_or_else(|| vec![crate::commands::run::args::DEFAULT_XDP_CPU_CORE]);
-        let xdp_zero_copy = !matches.is_present("disable_xdp_zero_copy");
 
         Ok(Some(XdpConfig::new(xdp_interface, xdp_cpus, xdp_zero_copy)))
     }
@@ -1483,15 +1490,40 @@ mod tests {
     }
 
     #[test]
-    fn default_xdp_config_uses_zero_copy_and_default_cpu() {
+    fn default_xdp_config_requires_interface_for_zero_copy() {
         let bind_addresses = BindIpAddrs::default();
-        let config = xdp_config_for_args(&[], &bind_addresses).unwrap().unwrap();
 
-        assert_eq!(config.interface, None);
+        let err = xdp_config_for_args(&[], &bind_addresses).unwrap_err();
+        assert!(err.contains("--xdp-interface"));
+        assert!(err.contains("--disable-xdp-zero-copy"));
+    }
+
+    #[test]
+    fn default_xdp_config_uses_zero_copy_default_cpu_and_configured_interface() {
+        let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(&["--xdp-interface", "eth0"], &bind_addresses)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(config.interface.as_deref(), Some("eth0"));
         assert_eq!(
             config.cpus,
             vec![crate::commands::run::args::DEFAULT_XDP_CPU_CORE]
         );
+        assert!(config.zero_copy);
+    }
+
+    #[test]
+    fn xdp_zero_copy_accepts_deprecated_interface_arg() {
+        let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(
+            &["--experimental-retransmit-xdp-interface", "eth0"],
+            &bind_addresses,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(config.interface.as_deref(), Some("eth0"));
         assert!(config.zero_copy);
     }
 
@@ -1525,7 +1557,22 @@ mod tests {
     }
 
     #[test]
-    fn xdp_requires_opt_out_in_multihoming_context() {
+    fn xdp_without_zero_copy_can_infer_interface() {
+        let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(&["--disable-xdp-zero-copy"], &bind_addresses)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(config.interface, None);
+        assert_eq!(
+            config.cpus,
+            vec![crate::commands::run::args::DEFAULT_XDP_CPU_CORE]
+        );
+        assert!(!config.zero_copy);
+    }
+
+    #[test]
+    fn xdp_requires_single_bind_address() {
         let bind_addresses = BindIpAddrs::new(vec![
             IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
             IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
@@ -1533,7 +1580,8 @@ mod tests {
         .unwrap();
 
         let err = xdp_config_for_args(&[], &bind_addresses).unwrap_err();
-        assert!(err.contains("--disable-xdp"));
+        assert!(err.contains("multihoming"));
+        assert!(!err.contains("--disable-xdp"));
         assert!(xdp_config_for_args(&["--disable-xdp"], &bind_addresses)
             .unwrap()
             .is_none());
