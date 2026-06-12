@@ -1218,24 +1218,13 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .conflicts_with("xdp_cpu_cores")
             .conflicts_with("xdp_interface")
             .conflicts_with("xdp_zero_copy")
-            .conflicts_with("disable_xdp_zero_copy")
             .help("Disable XDP transmit, which is enabled by default"),
-    )
-    .arg(
-        Arg::with_name("disable_xdp_zero_copy")
-            .long("disable-xdp-zero-copy")
-            .takes_value(false)
-            .conflicts_with("experimental_retransmit_xdp_zero_copy")
-            .conflicts_with("xdp_zero_copy")
-            .conflicts_with("disable_xdp")
-            .help("Disable XDP zero copy while leaving XDP transmit enabled"),
     )
     .arg(
         Arg::with_name("xdp_zero_copy")
             .long("xdp-zero-copy")
             .takes_value(false)
             .conflicts_with("disable_xdp")
-            .conflicts_with("disable_xdp_zero_copy")
             .help("Enable XDP zero copy"),
     )
     .arg(

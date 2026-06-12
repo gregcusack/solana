@@ -200,7 +200,6 @@ fn deprecated_arguments() -> Vec<DeprecatedArg> {
             .long("experimental-retransmit-xdp-zero-copy")
             .takes_value(false)
             .conflicts_with("disable_xdp")
-            .conflicts_with("disable_xdp_zero_copy")
             .conflicts_with("xdp_zero_copy")
             .help("Enable XDP zero copy. Use --xdp-zero-copy instead"),
         replaced_by: "xdp-zero-copy",

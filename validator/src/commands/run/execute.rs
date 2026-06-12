@@ -115,7 +115,6 @@ fn parse_xdp_transmit_config(
             || matches
                 .value_of("experimental_retransmit_xdp_interface")
                 .is_some()
-            || matches.is_present("disable_xdp_zero_copy")
             || matches.is_present("xdp_zero_copy")
             || matches.is_present("experimental_retransmit_xdp_zero_copy");
         if xdp_config_requested {
@@ -1559,13 +1558,7 @@ mod tests {
     fn xdp_cpu_and_interface_are_configurable_in_copy_mode() {
         let bind_addresses = BindIpAddrs::default();
         let config = xdp_config_for_args(
-            &[
-                "--xdp-interface",
-                "eth0",
-                "--xdp-cpu-cores",
-                "2-3",
-                "--disable-xdp-zero-copy",
-            ],
+            &["--xdp-interface", "eth0", "--xdp-cpu-cores", "2-3"],
             &bind_addresses,
         )
         .unwrap()
@@ -1573,21 +1566,6 @@ mod tests {
 
         assert_eq!(config.interface.as_deref(), Some("eth0"));
         assert_eq!(config.cpus, vec![2, 3]);
-        assert!(!config.zero_copy);
-    }
-
-    #[test]
-    fn xdp_without_zero_copy_can_infer_interface() {
-        let bind_addresses = BindIpAddrs::default();
-        let config = xdp_config_for_args(&["--disable-xdp-zero-copy"], &bind_addresses)
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(config.interface, None);
-        assert_eq!(
-            config.cpus,
-            vec![crate::commands::run::args::DEFAULT_XDP_CPU_CORE]
-        );
         assert!(!config.zero_copy);
     }
 
