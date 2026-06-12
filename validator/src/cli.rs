@@ -163,9 +163,9 @@ fn deprecated_arguments() -> Vec<DeprecatedArg> {
         Arg::with_name("experimental_poh_pinned_cpu_core")
             .long("experimental-poh-pinned-cpu-core")
             .takes_value(true)
-            .value_name("CPU_CORE_INDEX")
+            .value_name("CPU_ID")
             .conflicts_with("poh_pinned_cpu_core")
-            .validator(|s| usize::from_str(&s).map(|_| ()).map_err(|e| e.to_string()))
+            .validator(is_parsable::<usize>)
             .help("Specify which CPU core PoH is pinned to. Use --poh-pinned-cpu-core instead"),
         replaced_by: "poh-pinned-cpu-core",
     );

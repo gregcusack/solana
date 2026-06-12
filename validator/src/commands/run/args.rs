@@ -30,12 +30,11 @@ use {
     solana_send_transaction_service::send_transaction_service::Config as SendTransactionServiceConfig,
     solana_signer::Signer,
     solana_unified_scheduler_pool::DefaultSchedulerPool,
-    std::{collections::HashSet, net::SocketAddr, path::PathBuf, str::FromStr},
+    std::{collections::HashSet, net::SocketAddr, path::PathBuf},
 };
 
 const EXCLUDE_KEY: &str = "account-index-exclude-key";
 const INCLUDE_KEY: &str = "account-index-include-key";
-pub const DEFAULT_XDP_CPU_CORE: usize = 1;
 
 pub mod account_secondary_indexes;
 pub mod blockstore_options;
@@ -867,9 +866,9 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
         Arg::with_name("poh_pinned_cpu_core")
             .long("poh-pinned-cpu-core")
             .takes_value(true)
-            .value_name("CPU_CORE_INDEX")
-            .validator(|s| usize::from_str(&s).map(|_| ()).map_err(|e| e.to_string()))
-            .help("Specify which CPU core PoH is pinned to"),
+            .value_name("CPU_ID")
+            .validator(is_parsable::<usize>)
+            .help("Specify which CPU core PoH is pinned to. Defaults to CPU 10 on Linux"),
     )
     .arg(
         Arg::with_name("poh_hashes_per_batch")
@@ -1242,7 +1241,10 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .value_name("CPU_LIST")
             .conflicts_with("no_xdp")
             .validator(|value| validate_cpu_ranges(value, "--xdp-cpu-cores"))
-            .help("Use the specified CPU cores for XDP. Defaults to CPU core 1"),
+            .help(
+                "Use the specified CPU cores for XDP. Defaults to an auto-selected CPU on a \
+                 physical core separate from PoH",
+            ),
     )
     .args(&pub_sub_config::args(/*test_validator:*/ false))
     .args(&json_rpc_config::args())
