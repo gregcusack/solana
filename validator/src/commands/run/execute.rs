@@ -135,12 +135,12 @@ fn parse_xdp_transmit_config(
         let xdp_interface = matches
             .value_of("xdp_interface")
             .or_else(|| matches.value_of("experimental_retransmit_xdp_interface"));
-        let xdp_zero_copy = !matches.is_present("disable_xdp_zero_copy");
+        let xdp_zero_copy = matches.is_present("xdp_zero_copy")
+            || matches.is_present("experimental_retransmit_xdp_zero_copy");
         if xdp_zero_copy && xdp_interface.is_none() {
             return Err(String::from(
                 "XDP zero copy requires an explicit network interface. Use --xdp-interface to \
-                 select the XDP interface, or --disable-xdp-zero-copy to use XDP without zero \
-                 copy",
+                 select the XDP interface",
             ));
         }
         let xdp_cpus = matches
@@ -1490,20 +1490,36 @@ mod tests {
     }
 
     #[test]
-    fn default_xdp_config_requires_interface_for_zero_copy() {
+    fn default_xdp_config_uses_copy_mode_and_default_cpu() {
         let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(&[], &bind_addresses).unwrap().unwrap();
 
-        let err = xdp_config_for_args(&[], &bind_addresses).unwrap_err();
-        assert!(err.contains("--xdp-interface"));
-        assert!(err.contains("--disable-xdp-zero-copy"));
+        assert_eq!(config.interface, None);
+        assert_eq!(
+            config.cpus,
+            vec![crate::commands::run::args::DEFAULT_XDP_CPU_CORE]
+        );
+        assert!(!config.zero_copy);
     }
 
     #[test]
-    fn default_xdp_config_uses_zero_copy_default_cpu_and_configured_interface() {
+    fn xdp_zero_copy_requires_interface() {
         let bind_addresses = BindIpAddrs::default();
-        let config = xdp_config_for_args(&["--xdp-interface", "eth0"], &bind_addresses)
-            .unwrap()
-            .unwrap();
+
+        let err = xdp_config_for_args(&["--xdp-zero-copy"], &bind_addresses).unwrap_err();
+        assert!(err.contains("--xdp-interface"));
+        assert!(!err.contains("--disable-xdp"));
+    }
+
+    #[test]
+    fn xdp_zero_copy_uses_default_cpu_and_configured_interface() {
+        let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(
+            &["--xdp-zero-copy", "--xdp-interface", "eth0"],
+            &bind_addresses,
+        )
+        .unwrap()
+        .unwrap();
 
         assert_eq!(config.interface.as_deref(), Some("eth0"));
         assert_eq!(
@@ -1514,10 +1530,14 @@ mod tests {
     }
 
     #[test]
-    fn xdp_zero_copy_accepts_deprecated_interface_arg() {
+    fn xdp_zero_copy_accepts_deprecated_args() {
         let bind_addresses = BindIpAddrs::default();
         let config = xdp_config_for_args(
-            &["--experimental-retransmit-xdp-interface", "eth0"],
+            &[
+                "--experimental-retransmit-xdp-zero-copy",
+                "--experimental-retransmit-xdp-interface",
+                "eth0",
+            ],
             &bind_addresses,
         )
         .unwrap()
@@ -1536,7 +1556,7 @@ mod tests {
     }
 
     #[test]
-    fn xdp_cpu_interface_and_zero_copy_are_configurable() {
+    fn xdp_cpu_and_interface_are_configurable_in_copy_mode() {
         let bind_addresses = BindIpAddrs::default();
         let config = xdp_config_for_args(
             &[

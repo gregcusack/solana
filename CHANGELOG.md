@@ -23,18 +23,16 @@ Release channels have their own copy of this changelog:
   `getLatestBlockhash` response together with its context (notably `context.slot`).
 ### Validator
 #### Breaking
-* XDP transmit is now enabled by default on Linux with zero copy on CPU core 1. Use `--xdp-interface`
-  to select the XDP interface, `--xdp-cpu-cores` to override the XDP CPU assignment, and
-  `--disable-xdp-zero-copy` to keep XDP enabled without zero copy. Default validator startup now
-  requires the XDP capabilities.
+* XDP transmit is now enabled by default on Linux in copy mode on CPU core 1. Use
+  `--xdp-cpu-cores` to override the XDP CPU assignment. Use `--xdp-zero-copy` with
+  `--xdp-interface` to opt in to zero copy. Default validator startup now requires the XDP
+  copy-mode capabilities.
 * The default PoH pinned CPU core is now CPU core 10. Use `--poh-pinned-cpu-core` to override it.
 #### Deprecations
 * `--accounts-db-access-storages-method` is now deprecated and a no-op (the `mmap` value was
   deprecated in v4.0.0; mmap mode has now been removed entirely). The flag is still accepted for
   backward compatibility, but account storages are always accessed via file I/O.
 * `--experimental-poh-pinned-cpu-core` is now deprecated. Use `--poh-pinned-cpu-core` instead.
-* `--xdp-zero-copy` is now deprecated and a no-op because XDP zero copy is enabled by default. Use
-  `--disable-xdp-zero-copy` to opt out of zero copy.
 #### Changes
 * Turbine shred ingestion now rejects shreds more than half an epoch in the future (previously up to 2 full epochs ahead was accepted).
 ### CLI

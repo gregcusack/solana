@@ -202,8 +202,8 @@ fn deprecated_arguments() -> Vec<DeprecatedArg> {
             .conflicts_with("disable_xdp")
             .conflicts_with("disable_xdp_zero_copy")
             .conflicts_with("xdp_zero_copy")
-            .help("No-op; XDP zero copy is enabled by default"),
-        usage_warning: "XDP zero copy is enabled by default. Use --disable-xdp-zero-copy to disable it.",
+            .help("Enable XDP zero copy. Use --xdp-zero-copy instead"),
+        replaced_by: "xdp-zero-copy",
     );
     add_arg!(
         // deprecated in v4.0.0
@@ -213,16 +213,6 @@ fn deprecated_arguments() -> Vec<DeprecatedArg> {
             .validator(is_parsable::<usize>)
             .help("Controls the TPU connection pool size per remote address"),
          usage_warning:"This parameter is misleading, avoid setting it",
-    );
-    add_arg!(
-        // deprecated in v4.2.0
-        Arg::with_name("xdp_zero_copy")
-            .long("xdp-zero-copy")
-            .takes_value(false)
-            .conflicts_with("disable_xdp")
-            .conflicts_with("disable_xdp_zero_copy")
-            .help("No-op; XDP zero copy is enabled by default"),
-        usage_warning: "XDP zero copy is enabled by default. Use --disable-xdp-zero-copy to disable it.",
     );
     res
 }

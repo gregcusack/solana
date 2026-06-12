@@ -1231,6 +1231,14 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .help("Disable XDP zero copy while leaving XDP transmit enabled"),
     )
     .arg(
+        Arg::with_name("xdp_zero_copy")
+            .long("xdp-zero-copy")
+            .takes_value(false)
+            .conflicts_with("disable_xdp")
+            .conflicts_with("disable_xdp_zero_copy")
+            .help("Enable XDP zero copy"),
+    )
+    .arg(
         Arg::with_name("xdp_interface")
             .long("xdp-interface")
             .takes_value(true)
