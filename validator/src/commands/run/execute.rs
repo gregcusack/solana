@@ -83,7 +83,7 @@ use {
     },
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
     Initialize,
     Run,
@@ -99,8 +99,9 @@ fn parse_poh_pinned_cpu_core(matches: &ArgMatches) -> Option<usize> {
 fn parse_xdp_transmit_config(
     matches: &ArgMatches,
     bind_addresses: &BindIpAddrs,
+    operation: Operation,
 ) -> Result<Option<XdpConfig>, String> {
-    if matches.is_present("disable_xdp") {
+    if matches.is_present("disable_xdp") || operation == Operation::Initialize {
         return Ok(None);
     }
 
@@ -230,7 +231,7 @@ pub fn execute(
         }
     }
 
-    let xdp_transmit_config = parse_xdp_transmit_config(matches, &bind_addresses)?;
+    let xdp_transmit_config = parse_xdp_transmit_config(matches, &bind_addresses, operation)?;
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
@@ -1433,10 +1434,18 @@ mod tests {
         args: &[&str],
         bind_addresses: &BindIpAddrs,
     ) -> Result<Option<XdpConfig>, String> {
+        xdp_config_for_args_and_operation(args, bind_addresses, Operation::Run)
+    }
+
+    fn xdp_config_for_args_and_operation(
+        args: &[&str],
+        bind_addresses: &BindIpAddrs,
+        operation: Operation,
+    ) -> Result<Option<XdpConfig>, String> {
         let default_args = cli::DefaultArgs::default();
         let matches =
             cli::app("test", &default_args).get_matches_from([&["agave-validator"], args].concat());
-        parse_xdp_transmit_config(&matches, bind_addresses)
+        parse_xdp_transmit_config(&matches, bind_addresses, operation)
     }
 
     #[test]
@@ -1552,6 +1561,21 @@ mod tests {
         assert!(xdp_config_for_args(&["--disable-xdp"], &bind_addresses)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn init_returns_no_xdp_config() {
+        let bind_addresses = BindIpAddrs::default();
+        assert!(xdp_config_for_args_and_operation(&[], &bind_addresses, Operation::Initialize)
+            .unwrap()
+            .is_none());
+        assert!(xdp_config_for_args_and_operation(
+            &["--xdp-zero-copy"],
+            &bind_addresses,
+            Operation::Initialize,
+        )
+        .unwrap()
+        .is_none());
     }
 
     #[test]
