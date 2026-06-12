@@ -175,7 +175,7 @@ fn deprecated_arguments() -> Vec<DeprecatedArg> {
             .long("experimental-retransmit-xdp-cpu-cores")
             .takes_value(true)
             .value_name("CPU_LIST")
-            .conflicts_with("disable_xdp")
+            .conflicts_with("no_xdp")
             .conflicts_with("xdp_cpu_cores")
             .validator(|value| {
                 validate_cpu_ranges(value, "--experimental-retransmit-xdp-cpu-cores")
@@ -189,7 +189,7 @@ fn deprecated_arguments() -> Vec<DeprecatedArg> {
             .long("experimental-retransmit-xdp-interface")
             .takes_value(true)
             .value_name("INTERFACE")
-            .conflicts_with("disable_xdp")
+            .conflicts_with("no_xdp")
             .conflicts_with("xdp_interface")
             .help("Network interface to use for XDP. Use --xdp-interface instead"),
         replaced_by: "xdp-interface",
@@ -199,7 +199,7 @@ fn deprecated_arguments() -> Vec<DeprecatedArg> {
         Arg::with_name("experimental_retransmit_xdp_zero_copy")
             .long("experimental-retransmit-xdp-zero-copy")
             .takes_value(false)
-            .conflicts_with("disable_xdp")
+            .conflicts_with("no_xdp")
             .conflicts_with("xdp_zero_copy")
             .help("Enable XDP zero copy. Use --xdp-zero-copy instead"),
         replaced_by: "xdp-zero-copy",

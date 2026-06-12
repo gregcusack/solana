@@ -101,7 +101,7 @@ fn parse_xdp_transmit_config(
     bind_addresses: &BindIpAddrs,
     operation: Operation,
 ) -> Result<Option<XdpConfig>, String> {
-    if matches.is_present("disable_xdp") || operation == Operation::Initialize {
+    if matches.is_present("no_xdp") || operation == Operation::Initialize {
         return Ok(None);
     }
 
@@ -1516,7 +1516,7 @@ mod tests {
 
         let err = xdp_config_for_args(&["--xdp-zero-copy"], &bind_addresses).unwrap_err();
         assert!(err.contains("--xdp-interface"));
-        assert!(!err.contains("--disable-xdp"));
+        assert!(!err.contains("--no-xdp"));
     }
 
     #[test]
@@ -1556,9 +1556,9 @@ mod tests {
     }
 
     #[test]
-    fn disable_xdp_returns_no_config() {
+    fn no_xdp_returns_no_config() {
         let bind_addresses = BindIpAddrs::default();
-        assert!(xdp_config_for_args(&["--disable-xdp"], &bind_addresses)
+        assert!(xdp_config_for_args(&["--no-xdp"], &bind_addresses)
             .unwrap()
             .is_none());
     }
@@ -1603,18 +1603,18 @@ mod tests {
 
         let err = xdp_config_for_args(&[], &bind_addresses).unwrap_err();
         assert!(err.contains("multihoming"));
-        assert!(!err.contains("--disable-xdp"));
-        assert!(xdp_config_for_args(&["--disable-xdp"], &bind_addresses)
+        assert!(!err.contains("--no-xdp"));
+        assert!(xdp_config_for_args(&["--no-xdp"], &bind_addresses)
             .unwrap()
             .is_none());
     }
 
     #[test]
-    fn disable_xdp_conflicts_with_xdp_overrides() {
+    fn no_xdp_conflicts_with_xdp_overrides() {
         let default_args = cli::DefaultArgs::default();
         let matches = cli::app("test", &default_args).get_matches_from_safe(vec![
             "agave-validator",
-            "--disable-xdp",
+            "--no-xdp",
             "--xdp-cpu-cores",
             "2",
         ]);
