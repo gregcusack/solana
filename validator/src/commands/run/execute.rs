@@ -343,10 +343,13 @@ pub fn execute(
     }
 
     let poh_pinned_cpu_core = parse_poh_pinned_cpu_core(matches);
-    if let Some(poh_pinned_cpu_core) = poh_pinned_cpu_core {
-        info!("PoH pinned CPU core: {poh_pinned_cpu_core}");
-    } else {
-        info!("PoH is not pinned to a CPU core");
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(poh_pinned_cpu_core) = poh_pinned_cpu_core {
+            info!("PoH pinned CPU core: {poh_pinned_cpu_core}");
+        } else {
+            info!("PoH is not pinned to a CPU core");
+        }
     }
     let xdp_transmit_config =
         parse_xdp_transmit_config(matches, &bind_addresses, operation, poh_pinned_cpu_core)?;
