@@ -40,7 +40,7 @@ pub const DEFAULT_HASHES_PER_BATCH: u64 =
     TARGET_HASH_BATCH_TIME_US * DEFAULT_HASHES_PER_SECOND / 1_000_000;
 
 #[cfg(target_os = "linux")]
-pub const DEFAULT_PINNED_CPU_CORE: Option<usize> = Some(0);
+pub const DEFAULT_PINNED_CPU_CORE: Option<usize> = Some(10);
 #[cfg(not(target_os = "linux"))]
 pub const DEFAULT_PINNED_CPU_CORE: Option<usize> = None;
 
