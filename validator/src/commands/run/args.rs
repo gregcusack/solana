@@ -864,12 +864,11 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
     )
     .arg(
         Arg::with_name("poh_pinned_cpu_core")
-            .hidden(hidden_unless_forced())
-            .long("experimental-poh-pinned-cpu-core")
+            .long("poh-pinned-cpu-core")
             .takes_value(true)
             .value_name("CPU_ID")
             .validator(is_parsable::<usize>)
-            .help("EXPERIMENTAL: Specify which CPU core PoH is pinned to"),
+            .help("Specify which CPU core PoH is pinned to. Defaults to CPU 10 on Linux"),
     )
     .arg(
         Arg::with_name("poh_hashes_per_batch")

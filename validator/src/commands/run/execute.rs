@@ -93,6 +93,12 @@ pub enum Operation {
     Run,
 }
 
+fn parse_poh_pinned_cpu_core(matches: &ArgMatches) -> usize {
+    value_of(matches, "poh_pinned_cpu_core")
+        .or_else(|| value_of(matches, "experimental_poh_pinned_cpu_core"))
+        .unwrap_or(poh_service::DEFAULT_PINNED_CPU_CORE)
+}
+
 pub fn execute(
     matches: &ArgMatches,
     solana_version: &str,
@@ -166,6 +172,10 @@ pub fn execute(
             Err(format!("invalid entrypoint address: {addr}"))?;
         }
     }
+
+    let poh_pinned_cpu_core = parse_poh_pinned_cpu_core(matches);
+    #[cfg(target_os = "linux")]
+    info!("PoH pinned CPU core: {poh_pinned_cpu_core}");
 
     let xdp_transmit_config = if let Some(xdp_cpu_cores) = matches
         .value_of("xdp_cpu_cores")
@@ -813,8 +823,7 @@ pub fn execute(
         // The validator needs to open many files, check that the process has
         // permission to do so in order to fail quickly and give a direct error
         enforce_ulimit_nofile: true,
-        poh_pinned_cpu_core: value_of(matches, "poh_pinned_cpu_core")
-            .unwrap_or(poh_service::DEFAULT_PINNED_CPU_CORE),
+        poh_pinned_cpu_core,
         poh_hashes_per_batch: value_of(matches, "poh_hashes_per_batch")
             .unwrap_or(poh_service::DEFAULT_HASHES_PER_BATCH),
         process_ledger_before_services: matches.is_present("process_ledger_before_services"),
@@ -1382,4 +1391,57 @@ fn new_snapshot_config(
     }
 
     Ok(snapshot_config)
+}
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poh_pinned_cpu_core_defaults_to_configured_default() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from(vec!["agave-validator"]);
+
+        assert_eq!(
+            parse_poh_pinned_cpu_core(&matches),
+            poh_service::DEFAULT_PINNED_CPU_CORE
+        );
+    }
+
+    #[test]
+    fn poh_pinned_cpu_core_uses_stable_arg() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from(vec![
+            "agave-validator",
+            "--poh-pinned-cpu-core",
+            "0",
+        ]);
+
+        assert_eq!(parse_poh_pinned_cpu_core(&matches), 0);
+    }
+
+    #[test]
+    fn poh_pinned_cpu_core_accepts_deprecated_experimental_arg() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from(vec![
+            "agave-validator",
+            "--experimental-poh-pinned-cpu-core",
+            "0",
+        ]);
+
+        assert_eq!(parse_poh_pinned_cpu_core(&matches), 0);
+    }
+
+    #[test]
+    fn poh_pinned_cpu_core_args_conflict() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from_safe(vec![
+            "agave-validator",
+            "--poh-pinned-cpu-core",
+            "0",
+            "--experimental-poh-pinned-cpu-core",
+            "0",
+        ]);
+
+        assert!(matches.is_err());
+    }
 }

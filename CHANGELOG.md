@@ -22,10 +22,12 @@ Release channels have their own copy of this changelog:
   `getLatestBlockhash` response together with its context (notably `context.slot`).
 ### Validator
 #### Breaking
+* The default PoH pinned CPU core is now CPU core 10. Use `--poh-pinned-cpu-core` to override it.
 #### Deprecations
 * `--accounts-db-access-storages-method` is now deprecated and a no-op (the `mmap` value was
   deprecated in v4.0.0; mmap mode has now been removed entirely). The flag is still accepted for
   backward compatibility, but account storages are always accessed via file I/O.
+* `--experimental-poh-pinned-cpu-core` is now deprecated. Use `--poh-pinned-cpu-core` instead.
 #### Changes
 * Turbine shred ingestion now rejects shreds more than half an epoch in the future (previously up to 2 full epochs ahead was accepted).
 ### CLI
