@@ -253,6 +253,7 @@ dependencies = [
 name = "agave-validator"
 version = "4.2.0-alpha.0"
 dependencies = [
+ "agave-cpu-utils",
  "agave-logger",
  "agave-snapshots",
  "agave-votor",
@@ -261,7 +262,6 @@ dependencies = [
  "chrono",
  "clap",
  "console 0.16.3",
- "core_affinity",
  "crossbeam-channel",
  "fd-lock",
  "indicatif",
@@ -399,13 +399,13 @@ dependencies = [
 name = "agave-xdp"
 version = "4.2.0-alpha.0"
 dependencies = [
+ "agave-cpu-utils",
  "agave-xdp-ebpf",
  "arc-swap",
  "arrayvec",
  "aya",
  "bytes",
  "caps",
- "core_affinity",
  "crossbeam-channel",
  "libc",
  "log",
@@ -1636,17 +1636,6 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
-
-[[package]]
-name = "core_affinity"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a034b3a7b624016c6e13f5df875747cc25f884156aad2abd12b6c46797971342"
-dependencies = [
- "libc",
- "num_cpus",
- "winapi",
-]
 
 [[package]]
 name = "cpufeatures"
@@ -7569,9 +7558,9 @@ dependencies = [
 name = "solana-poh"
 version = "4.2.0-alpha.0"
 dependencies = [
+ "agave-cpu-utils",
  "agave-votor-messages",
  "arc-swap",
- "core_affinity",
  "crossbeam-channel",
  "log",
  "qualifier_attr",
@@ -10101,6 +10090,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6679e72a01dcfe7ff180f0e9d3a0d165e4e9664426930014f2702e7571c259c7"
 dependencies = [
  "wincode",
+]
+
+[[package]]
+name = "agave-cpu-utils"
+version = "4.2.0-alpha.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

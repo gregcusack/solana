@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+use agave_cpu_utils::{CpuId, cpu_affinity, set_cpu_affinity};
 use {
     crate::{
         admin_rpc_service::{self, StakedNodesOverrides, load_staked_nodes_overrides},
@@ -12,7 +14,7 @@ use {
         snapshot_config::{SnapshotConfig, SnapshotUsage},
     },
     agave_votor::vote_history_storage,
-    agave_xdp::{set_cpu_affinity, transmitter::XdpConfig},
+    agave_xdp::transmitter::XdpConfig,
     clap::{ArgMatches, crate_name, value_t, value_t_or_exit, values_t, values_t_or_exit},
     crossbeam_channel::unbounded,
     log::*,
@@ -412,20 +414,27 @@ pub fn execute(
     #[cfg(not(target_os = "linux"))]
     let xdp_transmit_setup = None;
 
-    let reserved = xdp_transmit_config
-        .map(|xdp| xdp.cpus.clone())
-        .unwrap_or_default()
-        .iter()
-        .cloned()
-        .collect::<HashSet<_>>();
-    if !reserved.is_empty() {
-        let available = core_affinity::get_core_ids()
+    #[cfg(target_os = "linux")]
+    {
+        let reserved = xdp_transmit_config
+            .as_ref()
+            .map(|xdp| xdp.cpus.clone())
             .unwrap_or_default()
             .into_iter()
-            .map(|core_id| core_id.id)
-            .collect::<HashSet<_>>();
-        let available = available.difference(&reserved);
-        set_cpu_affinity(available.into_iter().copied()).unwrap();
+            .map(CpuId::new)
+            .collect::<std::io::Result<HashSet<_>>>()?;
+        if !reserved.is_empty() {
+            let available = cpu_affinity(None)?
+                .into_iter()
+                .filter(|cpu| !reserved.contains(cpu))
+                .collect::<Vec<_>>();
+            if available.is_empty() {
+                Err(String::from(
+                    "XDP reserved all available CPU cores; no CPU available for the validator main thread",
+                ))?;
+            }
+            set_cpu_affinity(None, available.iter().copied())?;
+        }
     }
 
     solana_core::validator::report_target_features();

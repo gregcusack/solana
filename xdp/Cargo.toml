@@ -24,7 +24,7 @@ agave-xdp-ebpf = { workspace = true }
 arrayvec = { workspace = true }
 aya = { workspace = true }
 caps = { workspace = true }
-core_affinity = { workspace = true }
+agave-cpu-utils = { workspace = true }
 
 [lints]
 workspace = true

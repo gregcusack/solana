@@ -1,5 +1,7 @@
 //! The `poh_service` module implements a service that records the passing of
 //! "ticks", a measure of time in the PoH stream
+#[cfg(target_os = "linux")]
+use agave_cpu_utils::{CpuId, set_cpu_affinity};
 use {
     crate::{
         poh_controller::{PohServiceMessage, PohServiceMessageGuard, PohServiceMessageReceiver},
@@ -109,6 +111,8 @@ impl PohService {
     ) -> Self {
         migration_status.set_poh_service_started();
         let poh_config = poh_config.clone();
+        #[cfg(not(target_os = "linux"))]
+        let _ = pinned_cpu_core;
         let tick_producer = Builder::new()
             .name("solPohTickProd".to_string())
             .spawn(move || {
@@ -144,11 +148,19 @@ impl PohService {
                         )
                     }
                 } else {
-                    // PoH service runs in a tight loop, generating hashes as fast as possible.
-                    // Let's dedicate one of the CPU cores to this thread so that it can gain
-                    // from cache performance.
-                    if let Some(cores) = core_affinity::get_core_ids() {
-                        core_affinity::set_for_current(cores[pinned_cpu_core]);
+                    #[cfg(target_os = "linux")]
+                    {
+                        // PoH service runs in a tight loop, generating hashes as fast as possible.
+                        // Let's dedicate one of the CPU cores to this thread so that it can gain
+                        // from cache performance.
+                        let pinned_cpu = CpuId::new(pinned_cpu_core).unwrap();
+                        info!("Pinning PoH service to CPU core {pinned_cpu_core}");
+                        set_cpu_affinity(None, [pinned_cpu]).unwrap_or_else(|e| {
+                            panic!(
+                                "Failed to set CPU affinity for PoH service to CPU \
+                                 {pinned_cpu_core}: {e:?}. This is critical for performance."
+                            )
+                        });
                     }
                     Self::tick_producer(
                         poh_recorder,

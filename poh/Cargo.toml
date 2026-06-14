@@ -24,7 +24,7 @@ shuttle-test = ["dep:shuttle"]
 [dependencies]
 agave-votor-messages = { workspace = true }
 arc-swap = { workspace = true }
-core_affinity = { workspace = true }
+agave-cpu-utils = { workspace = true }
 crossbeam-channel = { workspace = true }
 log = { workspace = true }
 qualifier_attr = { workspace = true }
