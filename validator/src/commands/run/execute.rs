@@ -99,6 +99,65 @@ fn parse_poh_pinned_cpu_core(matches: &ArgMatches) -> usize {
         .unwrap_or(poh_service::DEFAULT_PINNED_CPU_CORE)
 }
 
+#[cfg(target_os = "linux")]
+fn validate_xdp_cpus(cpus: &[usize], poh_pinned_cpu_core: usize) -> Result<(), String> {
+    for cpu in cpus {
+        CpuId::new(*cpu).map_err(|err| format!("invalid XDP CPU core {cpu}: {err}"))?;
+    }
+    validate_xdp_cpus_are_separate_from_poh_physical_core(
+        cpus,
+        poh_pinned_cpu_core,
+        read_thread_siblings_list,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn read_thread_siblings_list(cpu: usize) -> Result<Vec<usize>, String> {
+    let path = Path::new("/sys/devices/system/cpu")
+        .join(format!("cpu{cpu}"))
+        .join("topology/thread_siblings_list");
+    let cpu_ranges = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    solana_clap_utils::input_parsers::parse_cpu_ranges(cpu_ranges.trim())
+        .map_err(|err| format!("failed to parse {}: {err}", path.display()))
+}
+
+#[cfg(target_os = "linux")]
+fn validate_xdp_cpus_are_separate_from_poh_physical_core<F>(
+    cpus: &[usize],
+    poh_pinned_cpu_core: usize,
+    thread_siblings: F,
+) -> Result<(), String>
+where
+    F: Fn(usize) -> Result<Vec<usize>, String>,
+{
+    for cpu in cpus {
+        if cpu_shares_physical_core_with_poh(*cpu, poh_pinned_cpu_core, &thread_siblings)? {
+            return Err(format!(
+                "XDP CPU core {cpu} shares a physical core with PoH CPU core \
+                 {poh_pinned_cpu_core}; provide --xdp-cpu-cores with CPU cores on separate \
+                 physical cores"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn cpu_shares_physical_core_with_poh<F>(
+    cpu: usize,
+    poh_pinned_cpu_core: usize,
+    thread_siblings: &F,
+) -> Result<bool, String>
+where
+    F: Fn(usize) -> Result<Vec<usize>, String>,
+{
+    if cpu == poh_pinned_cpu_core {
+        return Ok(true);
+    }
+    Ok(thread_siblings(cpu)?.contains(&poh_pinned_cpu_core))
+}
+
 pub fn execute(
     matches: &ArgMatches,
     solana_version: &str,
@@ -186,11 +245,11 @@ pub fn execute(
             .or_else(|| matches.value_of("experimental_retransmit_xdp_interface"));
         let xdp_zero_copy = matches.is_present("xdp_zero_copy")
             || matches.is_present("experimental_retransmit_xdp_zero_copy");
-        let config = XdpConfig::new(
-            xdp_interface,
-            parse_cpu_ranges(xdp_cpu_cores).unwrap(),
-            xdp_zero_copy,
-        );
+        let xdp_cpus = parse_cpu_ranges(xdp_cpu_cores).unwrap();
+        #[cfg(target_os = "linux")]
+        validate_xdp_cpus(&xdp_cpus, poh_pinned_cpu_core)?;
+        let config = XdpConfig::new(xdp_interface, xdp_cpus, xdp_zero_copy);
+        info!("XDP enabled on CPU cores: {:?}", config.cpus);
         if bind_addresses.len() > 1 {
             Err(String::from(
                 "--xdp-cpu-cores cannot be used in a multihoming context",
@@ -1443,5 +1502,31 @@ mod tests {
         ]);
 
         assert!(matches.is_err());
+    }
+
+    fn test_thread_siblings(cpu: usize) -> Result<Vec<usize>, String> {
+        Ok(match cpu {
+            2 | 10 => vec![2, 10],
+            3 | 11 => vec![3, 11],
+            _ => vec![cpu],
+        })
+    }
+
+    #[test]
+    fn explicit_xdp_cpu_rejects_poh_physical_core() {
+        let err =
+            validate_xdp_cpus_are_separate_from_poh_physical_core(&[2], 10, test_thread_siblings)
+                .unwrap_err();
+        assert!(err.contains("shares a physical core"));
+        assert!(err.contains("--xdp-cpu-cores"));
+        assert!(!err.contains("--no-xdp"));
+    }
+
+    #[test]
+    fn explicit_xdp_cpu_accepts_separate_physical_core() {
+        assert!(
+            validate_xdp_cpus_are_separate_from_poh_physical_core(&[3], 10, test_thread_siblings,)
+                .is_ok()
+        );
     }
 }
