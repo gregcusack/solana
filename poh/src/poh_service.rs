@@ -40,7 +40,7 @@ pub const DEFAULT_HASHES_PER_BATCH: u64 =
     TARGET_HASH_BATCH_TIME_US * DEFAULT_HASHES_PER_SECOND / 1_000_000;
 
 #[cfg(target_os = "linux")]
-pub const DEFAULT_PINNED_CPU_CORE: Option<usize> = Some(0);
+pub const DEFAULT_PINNED_CPU_CORE: Option<usize> = Some(10);
 #[cfg(not(target_os = "linux"))]
 pub const DEFAULT_PINNED_CPU_CORE: Option<usize> = None;
 
@@ -154,12 +154,12 @@ impl PohService {
                     #[cfg(target_os = "linux")]
                     if let Some(pinned_cpu_core) = pinned_cpu_core {
                         // PoH service runs in a tight loop, generating hashes as fast as possible.
-                        // Let's dedicate one of the CPU cores to this thread so that it can gain
-                        // from cache performance.
+                        // Dedicate one CPU core to this thread for cache performance.
                         let pinned_cpu = CpuId::new(pinned_cpu_core).unwrap();
+                        info!("Pinning PoH service to CPU core {pinned_cpu_core}");
                         set_cpu_affinity(None, [pinned_cpu]).unwrap_or_else(|e| {
                             panic!(
-                                "Failed to set CPU affinity for POH service to CPU \
+                                "Failed to set CPU affinity for PoH service to CPU \
                                  {pinned_cpu_core}: {e:?}. This is critical for performance."
                             )
                         });

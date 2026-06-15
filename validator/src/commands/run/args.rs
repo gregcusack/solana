@@ -30,7 +30,7 @@ use {
     solana_send_transaction_service::send_transaction_service::Config as SendTransactionServiceConfig,
     solana_signer::Signer,
     solana_unified_scheduler_pool::DefaultSchedulerPool,
-    std::{collections::HashSet, net::SocketAddr, path::PathBuf, str::FromStr},
+    std::{collections::HashSet, net::SocketAddr, path::PathBuf},
 };
 
 const EXCLUDE_KEY: &str = "account-index-exclude-key";
@@ -864,12 +864,11 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
     )
     .arg(
         Arg::with_name("poh_pinned_cpu_core")
-            .hidden(hidden_unless_forced())
-            .long("experimental-poh-pinned-cpu-core")
+            .long("poh-pinned-cpu-core")
             .takes_value(true)
             .value_name("CPU_ID")
-            .validator(|s| usize::from_str(&s).map(|_| ()).map_err(|e| e.to_string()))
-            .help("Specify which CPU core PoH is pinned to"),
+            .validator(is_parsable::<usize>)
+            .help("Specify which CPU core PoH is pinned to. Defaults to CPU 10 on Linux"),
     )
     .arg(
         Arg::with_name("poh_hashes_per_batch")
@@ -1209,27 +1208,43 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .help(DefaultSchedulerPool::cli_message()),
     )
     .arg(
+        Arg::with_name("no_xdp")
+            .long("no-xdp")
+            .takes_value(false)
+            .conflicts_with("experimental_retransmit_xdp_cpu_cores")
+            .conflicts_with("experimental_retransmit_xdp_interface")
+            .conflicts_with("experimental_retransmit_xdp_zero_copy")
+            .conflicts_with("xdp_cpu_cores")
+            .conflicts_with("xdp_interface")
+            .conflicts_with("xdp_zero_copy")
+            .help("Do not use XDP transmit"),
+    )
+    .arg(
+        Arg::with_name("xdp_zero_copy")
+            .long("xdp-zero-copy")
+            .takes_value(false)
+            .conflicts_with("no_xdp")
+            .help("Enable XDP zero copy"),
+    )
+    .arg(
         Arg::with_name("xdp_interface")
             .long("xdp-interface")
             .takes_value(true)
             .value_name("INTERFACE")
-            .requires("xdp_cpu_cores")
-            .help("Network interface to use for XDP"),
+            .conflicts_with("no_xdp")
+            .help("Network interface to use for XDP. Required when XDP zero copy is enabled"),
     )
     .arg(
         Arg::with_name("xdp_cpu_cores")
             .long("xdp-cpu-cores")
             .takes_value(true)
             .value_name("CPU_LIST")
+            .conflicts_with("no_xdp")
             .validator(|value| validate_cpu_ranges(value, "--xdp-cpu-cores"))
-            .help("Use the specified CPU cores for XDP"),
-    )
-    .arg(
-        Arg::with_name("xdp_zero_copy")
-            .long("xdp-zero-copy")
-            .takes_value(false)
-            .requires("xdp_cpu_cores")
-            .help("Enable XDP zero copy. Requires hardware support"),
+            .help(
+                "Use the specified CPU cores for XDP. Defaults to an auto-selected CPU on a \
+                 physical core separate from PoH",
+            ),
     )
     .args(&pub_sub_config::args(/*test_validator:*/ false))
     .args(&json_rpc_config::args())

@@ -15,27 +15,30 @@ Before rolling out XDP on a production validator, you should test it on your set
 * **Performance Gain:** Confirm that performance is improved with the new configuration (e.g. lower CPU usage or higher throughput in Turbine’s retransmit stage).
 * **Metric Visibility:** Verify that you can observe the retransmit-stage metrics, which show time spent sending shreds, to gauge the impact of XDP on network transmission.
 
-To enable XDP in Agave, add the following command-line flags to your validator startup command (using Agave v3.0.9+):
+XDP is enabled by default on Linux in Agave. The default XDP configuration uses CPU core 1 and copy mode. To use different CPU cores for XDP, pass:
 
 ```bash
---experimental-retransmit-xdp-cpu-cores 1
---experimental-retransmit-xdp-zero-copy # Do NOT pass this flag when using the bnxt_en driver.
---experimental-poh-pinned-cpu-core 10
+--xdp-cpu-cores 2
 ```
 
-Note that --experimental-retransmit-xdp-zero-copy will avoid using socket buffers for data, but this is only possible when talking directly to the Network Interface Card (NIC). As a result, zero copy cannot be used with the bonded interface itself. When using a bonded network interface, specify the underlying member interface to which the XDP program should be attached:
+Zero copy avoids using socket buffers for data, but this is only possible when talking directly to the Network Interface Card (NIC). To opt in to zero copy, pass an explicit physical interface:
 
 ```bash
---experimental-retransmit-xdp-interface <bond-member-interface>
+--xdp-zero-copy --xdp-interface <interface>
 ```
 
- Also note that XDP and PoH *must* be assigned to separate (physical) cores. The
---experimental-poh-pinned-cpu-core N flag can be used to move the PoH thread.
-
-Next, your validator binary will need to have access to a few higher level permissions. The validator process requires the CAP_NET_RAW, CAP_NET_ADMIN, CAP_BPF, and CAP_PERFMON capabilities. These can be configured in the systemd service file by setting CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON under the [Service] section or directly on the binary with the command:
+Zero copy cannot be used with a bonded interface itself. When using a bonded network interface, specify the underlying member interface to which the XDP program should be attached:
 
 ```bash
-sudo setcap cap_net_raw,cap_net_admin,cap_bpf,cap_perfmon=p <path/to/agave-validator>
+--xdp-zero-copy --xdp-interface <bond-member-interface>
+```
+
+Also note that XDP and PoH *must* be assigned to separate (physical) cores. PoH defaults to CPU core 10, and XDP defaults to CPU core 1. The --poh-pinned-cpu-core N flag can be used to move the PoH thread.
+
+Next, your validator binary will need to have access to a few higher level permissions. With default copy-mode XDP, the validator process requires the CAP_NET_RAW and CAP_NET_ADMIN capabilities. Zero copy additionally requires CAP_BPF and CAP_PERFMON. These capabilities can be configured in the systemd service file by setting CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN under the [Service] section or directly on the binary with the command:
+
+```bash
+sudo setcap cap_net_raw,cap_net_admin=p <path/to/agave-validator>
 #this command must be run each time the binary is replaced
 ```
 
@@ -78,7 +81,7 @@ modinfo bnxt_en
 | `igb` / Intel I210 | ✅ Works | ✅ Works w/ caveat | caveat: `igb` requires kernel `>= 6.14` for ZC. Field report: I210 on 6.17 enabled ZC but had severe network degradation/high skips, so fall back to non-ZC if unstable. |
 | `ixgbe` / Intel X540, X550 | ✅ Works | ⚠️ Mixed / unstable | Alessandro guidance for freeze/link-flap cases: start without ZC while `ixgbe` is debugged. Stay tuned! |
 | `ice` / Intel E800 | ✅ Works | ✅ Works | `ice` supports native XDP and AF_XDP zero-copy. Caveats: XDP is blocked for frame sizes larger than 3KB |
-| `bnxt_en` / Broadcom | ✅ Works | ❌ Does not work | `bnxt_en` works with XDP, but do not pass the zero-copy flag. Broadcom non-ZC can still be reasonably fast. But please get a non-broadcom NIC |
+| `bnxt_en` / Broadcom | ✅ Works | ❌ Does not work | `bnxt_en` works with default copy-mode XDP. Broadcom non-ZC can still be reasonably fast. But please get a non-broadcom NIC |
 | `tg3` / Broadcom | ❌ No native/driver XDP; generic XDP only at best | ❌ Does not work | Broadcom BCM5720 uses the `tg3` driver. Treat as unsupported for Agave/AF_XDP performance work: no native XDP and no AF_XDP zero-copy. |
 | `r8169` / Realtek | ❌ No native/driver XDP; generic XDP only at best | ❌ Does not work | Realtek NICs using `r8169` should be treated as unsupported for Agave/AF_XDP performance work: no native XDP and no AF_XDP zero-copy.|
 | `mlx4_en` / Mellanox ConnectX-3 | ❌ Do not use | ❌ Does not work | Driver is no longer supported. Zero-copy does not work. Do not use. |

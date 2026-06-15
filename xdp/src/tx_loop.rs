@@ -17,7 +17,7 @@ use {
         socket::{Socket, Tx, TxRing},
         umem::{Frame, OwnedUmem, PageAlignedMemory, Umem},
     },
-    agave_cpu_utils::set_cpu_affinity,
+    agave_cpu_utils::{CpuId, set_cpu_affinity},
     crossbeam_channel::{Receiver, Sender, TryRecvError},
     libc::{_SC_PAGESIZE, sysconf},
     std::{
@@ -240,7 +240,7 @@ impl<U: Umem> TxLoop<U> {
         } = self;
 
         // each queue is bound to its own CPU core
-        set_cpu_affinity(None, [agave_cpu_utils::CpuId::new(cpu_id).unwrap()]).unwrap();
+        set_cpu_affinity(None, [CpuId::new(cpu_id).unwrap()]).unwrap();
 
         let umem = socket.umem();
         let umem_tx_capacity = umem.available();

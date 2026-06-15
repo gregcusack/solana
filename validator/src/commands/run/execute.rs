@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+use agave_cpu_utils::{CpuId, cpu_affinity, set_cpu_affinity};
 use {
     crate::{
         admin_rpc_service::{self, StakedNodesOverrides, load_staked_nodes_overrides},
@@ -12,6 +14,7 @@ use {
         snapshot_config::{SnapshotConfig, SnapshotUsage},
     },
     agave_votor::vote_history_storage,
+    agave_xdp::transmitter::XdpConfig,
     clap::{ArgMatches, crate_name, value_t, value_t_or_exit, values_t, values_t_or_exit},
     crossbeam_channel::unbounded,
     log::*,
@@ -81,13 +84,188 @@ use {
         sync::{Arc, RwLock, atomic::AtomicBool},
     },
 };
-#[cfg(target_os = "linux")]
-use {agave_xdp::transmitter::XdpConfig, solana_clap_utils::input_parsers::parse_cpu_ranges};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
     Initialize,
     Run,
+}
+
+fn parse_poh_pinned_cpu_core(matches: &ArgMatches) -> Option<usize> {
+    #[cfg(target_os = "linux")]
+    {
+        value_of(matches, "poh_pinned_cpu_core")
+            .or_else(|| value_of(matches, "experimental_poh_pinned_cpu_core"))
+            .or(poh_service::DEFAULT_PINNED_CPU_CORE)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = matches;
+        None
+    }
+}
+
+fn parse_xdp_transmit_config(
+    matches: &ArgMatches,
+    bind_addresses: &BindIpAddrs,
+    operation: Operation,
+    poh_pinned_cpu_core: Option<usize>,
+) -> Result<Option<XdpConfig>, String> {
+    if matches.is_present("no_xdp") || operation == Operation::Initialize {
+        return Ok(None);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (bind_addresses, poh_pinned_cpu_core);
+        let xdp_config_requested = matches.value_of("xdp_cpu_cores").is_some()
+            || matches
+                .value_of("experimental_retransmit_xdp_cpu_cores")
+                .is_some()
+            || matches.value_of("xdp_interface").is_some()
+            || matches
+                .value_of("experimental_retransmit_xdp_interface")
+                .is_some()
+            || matches.is_present("xdp_zero_copy")
+            || matches.is_present("experimental_retransmit_xdp_zero_copy");
+        if xdp_config_requested {
+            return Err(String::from("XDP is only supported on Linux"));
+        }
+        Ok(None)
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let poh_pinned_cpu_core = poh_pinned_cpu_core.ok_or_else(|| {
+            String::from("XDP requires PoH to be pinned to a CPU core")
+        })?;
+        if bind_addresses.len() > 1 {
+            return Err(String::from("XDP cannot be used in a multihoming context"));
+        }
+
+        let xdp_interface = matches
+            .value_of("xdp_interface")
+            .or_else(|| matches.value_of("experimental_retransmit_xdp_interface"));
+        let xdp_zero_copy = matches.is_present("xdp_zero_copy")
+            || matches.is_present("experimental_retransmit_xdp_zero_copy");
+        if xdp_zero_copy && xdp_interface.is_none() {
+            return Err(String::from(
+                "XDP zero copy requires an explicit network interface. Use --xdp-interface to \
+                 select the XDP interface",
+            ));
+        }
+        let xdp_cpu_ranges = matches
+            .value_of("xdp_cpu_cores")
+            .or_else(|| matches.value_of("experimental_retransmit_xdp_cpu_cores"));
+        let xdp_cpus = if let Some(cpu_ranges) = xdp_cpu_ranges {
+            let cpus = solana_clap_utils::input_parsers::parse_cpu_ranges(cpu_ranges)
+                .map_err(|err| err.to_string())?;
+            validate_xdp_cpus(&cpus, poh_pinned_cpu_core)?;
+            cpus
+        } else {
+            let allowed_cpus = cpu_affinity(None)
+                .map_err(|err| {
+                    format!(
+                        "failed to query CPU affinity for XDP CPU selection: {err}. \
+                         Provide --xdp-cpu-cores explicitly"
+                    )
+                })?
+                .iter()
+                .map(|cpu| **cpu)
+                .collect::<Vec<_>>();
+            vec![select_default_xdp_cpu(
+                &allowed_cpus,
+                poh_pinned_cpu_core,
+                read_thread_siblings_list,
+            )?]
+        };
+
+        info!("XDP enabled on CPU cores: {xdp_cpus:?}");
+        Ok(Some(XdpConfig::new(xdp_interface, xdp_cpus, xdp_zero_copy)))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn validate_xdp_cpus(cpus: &[usize], poh_pinned_cpu_core: usize) -> Result<(), String> {
+    for cpu in cpus {
+        CpuId::new(*cpu).map_err(|err| format!("invalid XDP CPU core {cpu}: {err}"))?;
+    }
+    validate_xdp_cpus_are_separate_from_poh_physical_core(
+        cpus,
+        poh_pinned_cpu_core,
+        read_thread_siblings_list,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn read_thread_siblings_list(cpu: usize) -> Result<Vec<usize>, String> {
+    let path = Path::new("/sys/devices/system/cpu")
+        .join(format!("cpu{cpu}"))
+        .join("topology/thread_siblings_list");
+    let cpu_ranges = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    solana_clap_utils::input_parsers::parse_cpu_ranges(cpu_ranges.trim())
+        .map_err(|err| format!("failed to parse {}: {err}", path.display()))
+}
+
+#[cfg(target_os = "linux")]
+fn validate_xdp_cpus_are_separate_from_poh_physical_core<F>(
+    cpus: &[usize],
+    poh_pinned_cpu_core: usize,
+    thread_siblings: F,
+) -> Result<(), String>
+where
+    F: Fn(usize) -> Result<Vec<usize>, String>,
+{
+    for cpu in cpus {
+        if cpu_shares_physical_core_with_poh(*cpu, poh_pinned_cpu_core, &thread_siblings)? {
+            return Err(format!(
+                "XDP CPU core {cpu} shares a physical core with PoH CPU core \
+                 {poh_pinned_cpu_core}; provide --xdp-cpu-cores with CPU cores on separate \
+                 physical cores"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn select_default_xdp_cpu<F>(
+    allowed_cpus: &[usize],
+    poh_pinned_cpu_core: usize,
+    thread_siblings: F,
+) -> Result<usize, String>
+where
+    F: Fn(usize) -> Result<Vec<usize>, String>,
+{
+    CpuId::new(poh_pinned_cpu_core)
+        .map_err(|err| format!("invalid PoH CPU core {poh_pinned_cpu_core}: {err}"))?;
+    for cpu in allowed_cpus.iter().rev().copied() {
+        CpuId::new(cpu).map_err(|err| format!("invalid allowed CPU core {cpu}: {err}"))?;
+        if !cpu_shares_physical_core_with_poh(cpu, poh_pinned_cpu_core, &thread_siblings)? {
+            return Ok(cpu);
+        }
+    }
+
+    Err(format!(
+        "XDP requires an available CPU core on a physical core separate from PoH CPU core \
+         {poh_pinned_cpu_core}; provide --xdp-cpu-cores explicitly"
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn cpu_shares_physical_core_with_poh<F>(
+    cpu: usize,
+    poh_pinned_cpu_core: usize,
+    thread_siblings: &F,
+) -> Result<bool, String>
+where
+    F: Fn(usize) -> Result<Vec<usize>, String>,
+{
+    if cpu == poh_pinned_cpu_core {
+        return Ok(true);
+    }
+    Ok(thread_siblings(cpu)?.contains(&poh_pinned_cpu_core))
 }
 
 pub fn execute(
@@ -163,30 +341,18 @@ pub fn execute(
             Err(format!("invalid entrypoint address: {addr}"))?;
         }
     }
+
+    let poh_pinned_cpu_core = parse_poh_pinned_cpu_core(matches);
     #[cfg(target_os = "linux")]
-    let xdp_transmit_config = if let Some(xdp_cpu_cores) = matches
-        .value_of("xdp_cpu_cores")
-        .or_else(|| matches.value_of("experimental_retransmit_xdp_cpu_cores"))
     {
-        let xdp_interface = matches
-            .value_of("xdp_interface")
-            .or_else(|| matches.value_of("experimental_retransmit_xdp_interface"));
-        let xdp_zero_copy = matches.is_present("xdp_zero_copy")
-            || matches.is_present("experimental_retransmit_xdp_zero_copy");
-        let config = XdpConfig::new(
-            xdp_interface,
-            parse_cpu_ranges(xdp_cpu_cores).unwrap(),
-            xdp_zero_copy,
-        );
-        if bind_addresses.len() > 1 {
-            Err(String::from(
-                "--xdp-cpu-cores cannot be used in a multihoming context",
-            ))?;
+        if let Some(poh_pinned_cpu_core) = poh_pinned_cpu_core {
+            info!("PoH pinned CPU core: {poh_pinned_cpu_core}");
+        } else {
+            info!("PoH is not pinned to a CPU core");
         }
-        Some(config)
-    } else {
-        None
-    };
+    }
+    let xdp_transmit_config =
+        parse_xdp_transmit_config(matches, &bind_addresses, operation, poh_pinned_cpu_core)?;
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
@@ -426,11 +592,27 @@ pub fn execute(
     let (xdp_transmit_setup, xdp_network_config_report) = (None, None);
 
     #[cfg(target_os = "linux")]
-    let poh_pinned_cpu_core =
-        value_of(matches, "poh_pinned_cpu_core").or(poh_service::DEFAULT_PINNED_CPU_CORE);
-
-    #[cfg(not(target_os = "linux"))]
-    let poh_pinned_cpu_core = None;
+    {
+        let reserved = xdp_transmit_config
+            .as_ref()
+            .map(|xdp| xdp.cpus.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .map(CpuId::new)
+            .collect::<std::io::Result<HashSet<_>>>()?;
+        if !reserved.is_empty() {
+            let available = cpu_affinity(None)?
+                .into_iter()
+                .filter(|cpu| !reserved.contains(cpu))
+                .collect::<Vec<_>>();
+            if available.is_empty() {
+                Err(String::from(
+                    "XDP reserved all available CPU cores; no CPU available for the validator main thread",
+                ))?;
+            }
+            set_cpu_affinity(None, available.iter().copied())?;
+        }
+    }
 
     solana_core::validator::report_target_features();
 
@@ -1377,4 +1559,258 @@ fn new_snapshot_config(
     }
 
     Ok(snapshot_config)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use {
+        super::*,
+        std::net::{IpAddr, Ipv4Addr},
+    };
+
+    fn xdp_config_for_args(
+        args: &[&str],
+        bind_addresses: &BindIpAddrs,
+    ) -> Result<Option<XdpConfig>, String> {
+        xdp_config_for_args_and_operation(args, bind_addresses, Operation::Run)
+    }
+
+    fn xdp_config_for_args_and_operation(
+        args: &[&str],
+        bind_addresses: &BindIpAddrs,
+        operation: Operation,
+    ) -> Result<Option<XdpConfig>, String> {
+        let default_args = cli::DefaultArgs::default();
+        let matches =
+            cli::app("test", &default_args).get_matches_from([&["agave-validator"], args].concat());
+        let poh_pinned_cpu_core = parse_poh_pinned_cpu_core(&matches);
+        parse_xdp_transmit_config(&matches, bind_addresses, operation, poh_pinned_cpu_core)
+    }
+
+    #[test]
+    fn poh_pinned_cpu_core_defaults_to_configured_default() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from(vec!["agave-validator"]);
+
+        assert_eq!(
+            parse_poh_pinned_cpu_core(&matches),
+            poh_service::DEFAULT_PINNED_CPU_CORE
+        );
+    }
+
+    #[test]
+    fn poh_pinned_cpu_core_uses_stable_arg() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from(vec![
+            "agave-validator",
+            "--poh-pinned-cpu-core",
+            "0",
+        ]);
+
+        assert_eq!(parse_poh_pinned_cpu_core(&matches), Some(0));
+    }
+
+    #[test]
+    fn poh_pinned_cpu_core_accepts_deprecated_experimental_arg() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from(vec![
+            "agave-validator",
+            "--experimental-poh-pinned-cpu-core",
+            "0",
+        ]);
+
+        assert_eq!(parse_poh_pinned_cpu_core(&matches), Some(0));
+    }
+
+    #[test]
+    fn poh_pinned_cpu_core_args_conflict() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from_safe(vec![
+            "agave-validator",
+            "--poh-pinned-cpu-core",
+            "0",
+            "--experimental-poh-pinned-cpu-core",
+            "0",
+        ]);
+
+        assert!(matches.is_err());
+    }
+
+    #[test]
+    fn default_xdp_config_uses_copy_mode_and_auto_selected_cpu() {
+        let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(&[], &bind_addresses).unwrap().unwrap();
+
+        assert_eq!(config.interface, None);
+        assert_eq!(config.cpus.len(), 1);
+        assert_ne!(Some(config.cpus[0]), poh_service::DEFAULT_PINNED_CPU_CORE);
+        assert!(!config.zero_copy);
+    }
+
+    #[test]
+    fn xdp_zero_copy_requires_interface() {
+        let bind_addresses = BindIpAddrs::default();
+
+        let err = xdp_config_for_args(&["--xdp-zero-copy"], &bind_addresses).unwrap_err();
+        assert!(err.contains("--xdp-interface"));
+        assert!(!err.contains("--no-xdp"));
+    }
+
+    #[test]
+    fn xdp_zero_copy_uses_default_cpu_and_configured_interface() {
+        let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(
+            &["--xdp-zero-copy", "--xdp-interface", "eth0"],
+            &bind_addresses,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(config.interface.as_deref(), Some("eth0"));
+        assert_eq!(config.cpus.len(), 1);
+        assert_ne!(Some(config.cpus[0]), poh_service::DEFAULT_PINNED_CPU_CORE);
+        assert!(config.zero_copy);
+    }
+
+    #[test]
+    fn xdp_zero_copy_accepts_deprecated_args() {
+        let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(
+            &[
+                "--experimental-retransmit-xdp-zero-copy",
+                "--experimental-retransmit-xdp-interface",
+                "eth0",
+            ],
+            &bind_addresses,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(config.interface.as_deref(), Some("eth0"));
+        assert!(config.zero_copy);
+    }
+
+    #[test]
+    fn no_xdp_returns_no_config() {
+        let bind_addresses = BindIpAddrs::default();
+        assert!(
+            xdp_config_for_args(&["--no-xdp"], &bind_addresses)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn init_returns_no_xdp_config() {
+        let bind_addresses = BindIpAddrs::default();
+        assert!(
+            xdp_config_for_args_and_operation(&[], &bind_addresses, Operation::Initialize)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            xdp_config_for_args_and_operation(
+                &["--xdp-zero-copy"],
+                &bind_addresses,
+                Operation::Initialize,
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn xdp_cpu_and_interface_are_configurable_in_copy_mode() {
+        let bind_addresses = BindIpAddrs::default();
+        let config = xdp_config_for_args(
+            &[
+                "--poh-pinned-cpu-core",
+                "1023",
+                "--xdp-interface",
+                "eth0",
+                "--xdp-cpu-cores",
+                "2-3",
+            ],
+            &bind_addresses,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(config.interface.as_deref(), Some("eth0"));
+        assert_eq!(config.cpus, vec![2, 3]);
+        assert!(!config.zero_copy);
+    }
+
+    #[test]
+    fn xdp_requires_single_bind_address() {
+        let bind_addresses = BindIpAddrs::new(vec![
+            IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+            IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+        ])
+        .unwrap();
+
+        let err = xdp_config_for_args(&[], &bind_addresses).unwrap_err();
+        assert!(err.contains("multihoming"));
+        assert!(!err.contains("--no-xdp"));
+        assert!(
+            xdp_config_for_args(&["--no-xdp"], &bind_addresses)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn no_xdp_conflicts_with_xdp_overrides() {
+        let default_args = cli::DefaultArgs::default();
+        let matches = cli::app("test", &default_args).get_matches_from_safe(vec![
+            "agave-validator",
+            "--no-xdp",
+            "--xdp-cpu-cores",
+            "2",
+        ]);
+
+        assert!(matches.is_err());
+    }
+
+    fn test_thread_siblings(cpu: usize) -> Result<Vec<usize>, String> {
+        Ok(match cpu {
+            2 | 10 => vec![2, 10],
+            3 | 11 => vec![3, 11],
+            _ => vec![cpu],
+        })
+    }
+
+    #[test]
+    fn default_xdp_cpu_skips_poh_physical_core() {
+        assert_eq!(
+            select_default_xdp_cpu(&[3, 2], 10, test_thread_siblings),
+            Ok(3)
+        );
+    }
+
+    #[test]
+    fn default_xdp_cpu_errors_without_separate_physical_core() {
+        let err = select_default_xdp_cpu(&[2, 10], 10, test_thread_siblings).unwrap_err();
+        assert!(err.contains("physical core separate from PoH"));
+        assert!(err.contains("--xdp-cpu-cores"));
+        assert!(!err.contains("--no-xdp"));
+    }
+
+    #[test]
+    fn explicit_xdp_cpu_rejects_poh_physical_core() {
+        let err =
+            validate_xdp_cpus_are_separate_from_poh_physical_core(&[2], 10, test_thread_siblings)
+                .unwrap_err();
+        assert!(err.contains("shares a physical core"));
+        assert!(err.contains("--xdp-cpu-cores"));
+        assert!(!err.contains("--no-xdp"));
+    }
+
+    #[test]
+    fn explicit_xdp_cpu_accepts_separate_physical_core() {
+        assert!(
+            validate_xdp_cpus_are_separate_from_poh_physical_core(&[3], 10, test_thread_siblings,)
+                .is_ok()
+        );
+    }
 }
