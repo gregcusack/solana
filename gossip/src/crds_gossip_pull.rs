@@ -13,7 +13,7 @@
 
 use {
     crate::{
-        cluster_info_metrics::GossipStats,
+        cluster_info_metrics::{GossipStats, ScopedTimer},
         contact_info::ContactInfo,
         crds::{Crds, GossipRoute, VersionedCrdsValue},
         crds_gossip,
@@ -44,7 +44,7 @@ use {
         ops::Index,
         sync::{
             LazyLock, Mutex, RwLock,
-            atomic::{AtomicI64, AtomicUsize, Ordering},
+            atomic::{AtomicUsize, Ordering},
         },
         time::Duration,
     },
@@ -496,7 +496,7 @@ impl CrdsGossipPull {
 
     /// Filter values that fail the bloom filter up to `max_bytes`.
     fn filter_crds_values(
-        thread_pool: &ThreadPool,
+        _thread_pool: &ThreadPool,
         crds: &RwLock<Crds>,
         requests: &[PullRequest],
         output_size_limit: usize, // Limit number of crds values returned.
@@ -515,12 +515,11 @@ impl CrdsGossipPull {
             now.saturating_sub(msg_timeout)..now.saturating_add(msg_timeout);
         let dropped_requests = AtomicUsize::default();
         let total_skipped = AtomicUsize::default();
-        let output_size_limit = output_size_limit.try_into().unwrap_or(i64::MAX);
-        let output_size_limit = AtomicI64::new(output_size_limit);
+        let mut output_size_limit = output_size_limit;
         let crds = crds.read().unwrap();
         let crds_len = crds.len();
         let apply_filter = |request: &PullRequest| {
-            if output_size_limit.load(Ordering::Relaxed) <= 0 {
+            if output_size_limit == 0 {
                 return Vec::default();
             }
             let filter = &request.filter;
@@ -549,12 +548,15 @@ impl CrdsGossipPull {
                 .filter_bitmask(filter.mask, filter.mask_bits)
                 .filter(pred)
                 .map(|entry| entry.value.clone())
-                .take(output_size_limit.load(Ordering::Relaxed).max(0) as usize)
+                .take(output_size_limit)
                 .collect();
-            output_size_limit.fetch_sub(out.len() as i64, Ordering::Relaxed);
+            output_size_limit = output_size_limit.saturating_sub(out.len());
             out
         };
-        let ret: Vec<_> = thread_pool.install(|| requests.par_iter().map(apply_filter).collect());
+        let ret: Vec<_> = {
+            let _timer = ScopedTimer::from(&stats.filter_crds_values_apply_filter_time);
+            requests.iter().map(apply_filter).collect()
+        };
         stats
             .filter_crds_values_dropped_requests
             .add_relaxed(dropped_requests.into_inner() as u64);
