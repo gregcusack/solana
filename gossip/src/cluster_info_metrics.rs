@@ -95,6 +95,7 @@ pub struct GossipStats {
     pub(crate) epoch_slots_lookup: Counter,
     pub(crate) filter_crds_values_dropped_requests: Counter,
     pub(crate) filter_crds_values_dropped_values: Counter,
+    pub(crate) filter_crds_values_apply_filter_time: Counter,
     pub(crate) filter_pull_response: Counter,
     pub(crate) generate_prune_messages: Counter,
     pub(crate) generate_pull_responses: Counter,
@@ -312,6 +313,11 @@ pub(crate) fn submit_gossip_stats(
         (
             "filter_crds_values_dropped_values",
             stats.filter_crds_values_dropped_values.clear(),
+            i64
+        ),
+        (
+            "filter_crds_values_apply_filter_time",
+            stats.filter_crds_values_apply_filter_time.clear(),
             i64
         ),
         (

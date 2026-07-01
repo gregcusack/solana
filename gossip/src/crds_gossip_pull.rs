@@ -13,7 +13,7 @@
 
 use {
     crate::{
-        cluster_info_metrics::GossipStats,
+        cluster_info_metrics::{GossipStats, ScopedTimer},
         contact_info::ContactInfo,
         crds::{Crds, GossipRoute, VersionedCrdsValue},
         crds_gossip,
@@ -554,7 +554,10 @@ impl CrdsGossipPull {
             output_size_limit.fetch_sub(out.len() as i64, Ordering::Relaxed);
             out
         };
-        let ret: Vec<_> = thread_pool.install(|| requests.par_iter().map(apply_filter).collect());
+        let ret: Vec<_> = {
+            let _timer = ScopedTimer::from(&stats.filter_crds_values_apply_filter_time);
+            thread_pool.install(|| requests.par_iter().map(apply_filter).collect())
+        };
         stats
             .filter_crds_values_dropped_requests
             .add_relaxed(dropped_requests.into_inner() as u64);
