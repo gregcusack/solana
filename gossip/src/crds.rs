@@ -35,6 +35,7 @@ use {
         crds_gossip_pull::CrdsTimeouts,
         crds_shards::CrdsShards,
         crds_value::{CrdsValue, CrdsValueLabel},
+        recent_hashes::RecentHashes,
     },
     assert_matches::debug_assert_matches,
     indexmap::{
@@ -49,13 +50,14 @@ use {
     solana_pubkey::Pubkey,
     std::{
         cmp::Ordering,
-        collections::{BTreeMap, HashMap, HashSet, VecDeque, hash_map},
+        collections::{BTreeMap, HashMap, HashSet, hash_map},
         ops::{Bound, Index, IndexMut},
         sync::Mutex,
     },
 };
 
 pub(crate) const CRDS_SHARDS_BITS: u32 = 12;
+const MAX_PURGED_HASHES: usize = crate::crds_gossip_pull::MIN_NUM_BLOOM_ITEMS;
 // Number of vote slots to track in an lru-cache for metrics.
 const VOTE_SLOTS_METRICS_CAP: usize = 100;
 // Required number of leading zero bits for crds signature to get reported to influx
@@ -82,7 +84,7 @@ pub struct Crds {
     // Indices of all entries keyed by insert order.
     entries: BTreeMap<u64 /*insert order*/, usize /*index*/>,
     // Hash of recently purged values.
-    purged: VecDeque<(Hash, u64 /*timestamp*/)>,
+    purged: RecentHashes,
     stats: Mutex<CrdsStats>,
     // Optional channel that receives a snapshot of every accepted contact
     // info update. When `None` (the default), no work is done on the hot
@@ -183,7 +185,7 @@ impl Default for Crds {
             duplicate_shreds: BTreeMap::default(),
             records: HashMap::default(),
             entries: BTreeMap::default(),
-            purged: VecDeque::default(),
+            purged: RecentHashes::new(MAX_PURGED_HASHES),
             stats: Mutex::<CrdsStats>::default(),
             contact_info_sender: None,
         }
@@ -333,7 +335,7 @@ impl Crds {
                 // does not need to be updated.
                 debug_assert_eq!(entry.get().value.pubkey(), pubkey);
                 self.cursor.consume(value.ordinal);
-                self.purged.push_back((*entry.get().value.hash(), now));
+                self.purged.insert(*entry.get().value.hash(), now);
                 entry.insert(value);
                 Ok(())
             }
@@ -347,7 +349,7 @@ impl Crds {
                 // Identify if the message is outdated (as opposed to
                 // duplicate) by comparing value hashes.
                 if entry.get().value.hash() != value.value.hash() {
-                    self.purged.push_back((*value.value.hash(), now));
+                    self.purged.insert(*value.value.hash(), now);
                     Err(CrdsError::InsertFailed)
                 } else if matches!(route, GossipRoute::PushMessage(_)) {
                     let entry = entry.get_mut();
@@ -488,17 +490,12 @@ impl Crds {
     }
 
     pub(crate) fn purged(&self) -> impl IndexedParallelIterator<Item = Hash> + '_ {
-        self.purged.par_iter().map(|(hash, _)| *hash)
+        self.purged.par_iter()
     }
 
     /// Drops purged value hashes with timestamp less than the given one.
     pub(crate) fn trim_purged(&mut self, timestamp: u64) {
-        let count = self
-            .purged
-            .iter()
-            .take_while(|(_, ts)| *ts < timestamp)
-            .count();
-        self.purged.drain(..count);
+        self.purged.purge(timestamp);
     }
 
     /// Returns all crds values which the first 'mask_bits'
@@ -593,7 +590,7 @@ impl Crds {
         let Some((index, _ /*label*/, value)) = self.table.swap_remove_full(key) else {
             return;
         };
-        self.purged.push_back((*value.value.hash(), now));
+        self.purged.insert(*value.value.hash(), now);
         self.shards.remove(index, &value);
         match value.value.data() {
             CrdsData::ContactInfo(node) => {

@@ -21,7 +21,6 @@ use {
     rand::{CryptoRng, Rng},
     rayon::ThreadPool,
     solana_clock::Slot,
-    solana_hash::Hash,
     solana_keypair::{Address, Keypair},
     solana_ledger::shred::Shred,
     solana_net_utils::SocketAddrSpace,
@@ -258,7 +257,6 @@ impl CrdsGossip {
     ) -> (
         Vec<CrdsValue>, // valid responses.
         Vec<CrdsValue>, // responses with expired timestamps.
-        Vec<Hash>,      // hash of outdated values.
     ) {
         self.pull
             .filter_pull_responses(&self.crds, timeouts, response, now, process_pull_stats)
@@ -269,7 +267,6 @@ impl CrdsGossip {
         &self,
         responses: Vec<CrdsValue>,
         responses_expired_timeout: Vec<CrdsValue>,
-        failed_inserts: Vec<Hash>,
         now: u64,
         process_pull_stats: &mut ProcessPullStats,
     ) {
@@ -277,7 +274,6 @@ impl CrdsGossip {
             &self.crds,
             responses,
             responses_expired_timeout,
-            failed_inserts,
             now,
             process_pull_stats,
         );
