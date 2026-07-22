@@ -20,6 +20,7 @@ use {
         crds_gossip_error::CrdsGossipError,
         crds_value::CrdsValue,
         protocol::{Ping, PingCache},
+        recent_hashes::RecentHashes,
     },
     itertools::Itertools,
     rand::{
@@ -37,9 +38,9 @@ use {
     solana_pubkey::Pubkey,
     solana_signer::Signer,
     std::{
-        collections::{HashMap, HashSet, VecDeque},
+        collections::{HashMap, HashSet},
         convert::TryInto,
-        iter::{repeat, repeat_with},
+        iter::repeat_with,
         net::SocketAddr,
         ops::Index,
         sync::{
@@ -66,6 +67,7 @@ pub struct CrdsFilter {
 }
 
 pub(crate) const MIN_NUM_BLOOM_ITEMS: usize = 65_536;
+const MAX_FAILED_INSERTS: usize = MIN_NUM_BLOOM_ITEMS;
 
 // Loosest mask_bits floor accepted for incoming pull requests.
 // `PACKET_DATA_SIZE` avoids rejecting honest smaller bloom filters.
@@ -258,7 +260,7 @@ pub struct CrdsGossipPull {
     // inserted in crds table; Preserved to stop the sender to send back the
     // same outdated payload again by adding them to the filter for the next
     // pull request.
-    failed_inserts: RwLock<VecDeque<(Hash, /*timestamp:*/ u64)>>,
+    failed_inserts: RwLock<RecentHashes>,
     pub crds_timeout: u64,
     pub num_pulls: AtomicUsize,
 }
@@ -266,7 +268,7 @@ pub struct CrdsGossipPull {
 impl Default for CrdsGossipPull {
     fn default() -> Self {
         Self {
-            failed_inserts: RwLock::default(),
+            failed_inserts: RwLock::new(RecentHashes::new(MAX_FAILED_INSERTS)),
             crds_timeout: CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
             num_pulls: AtomicUsize::default(),
         }
@@ -359,11 +361,10 @@ impl CrdsGossipPull {
     }
 
     // Checks if responses should be inserted and
-    // returns those responses converted to VersionedCrdsValue
-    // Separated in three vecs as:
+    // returns those responses converted to VersionedCrdsValue.
+    // Separated in two vecs as:
     //  .0 => responses that update the owner timestamp
     //  .1 => responses that do not update the owner timestamp
-    //  .2 => hash value of outdated values which will fail to insert.
     pub(crate) fn filter_pull_responses(
         &self,
         crds: &RwLock<Crds>,
@@ -371,11 +372,20 @@ impl CrdsGossipPull {
         responses: Vec<CrdsValue>,
         now: u64,
         stats: &mut ProcessPullStats,
-    ) -> (Vec<CrdsValue>, Vec<CrdsValue>, Vec<Hash>) {
+    ) -> (Vec<CrdsValue>, Vec<CrdsValue>) {
         let mut active_values = vec![];
         let mut expired_values = vec![];
         let crds = crds.read().unwrap();
-        let upsert = |response: CrdsValue| {
+        let mut failed_inserts = None;
+        let mut cache_failed_insert = |hash| {
+            let failed_inserts = failed_inserts.get_or_insert_with(|| {
+                let mut failed_inserts = self.failed_inserts.write().unwrap();
+                failed_inserts.purge(now.saturating_sub(FAILED_INSERTS_RETENTION_MS));
+                failed_inserts
+            });
+            failed_inserts.insert(hash, now);
+        };
+        for response in responses {
             let owner = response.label().pubkey();
             // Check if the crds value is older than the msg_timeout
             let timeout = timeouts[&owner];
@@ -383,26 +393,21 @@ impl CrdsGossipPull {
             // owner exists in the table. If it doesn't, that implies that this
             // value can be discarded
             if !crds.upserts(&response) {
-                Some(response)
+                stats.failed_insert += 1;
+                cache_failed_insert(*response.hash());
             } else if now <= response.wallclock().saturating_add(timeout) {
                 active_values.push(response);
-                None
             } else if crds.get::<&ContactInfo>(owner).is_some() {
                 // Silently insert this old value without bumping record
                 // timestamps
                 expired_values.push(response);
-                None
             } else {
                 stats.failed_timeout += 1;
-                Some(response)
+                stats.failed_insert += 1;
+                cache_failed_insert(*response.hash());
             }
-        };
-        let failed_inserts = responses
-            .into_iter()
-            .filter_map(upsert)
-            .map(|resp| *resp.hash())
-            .collect();
-        (active_values, expired_values, failed_inserts)
+        }
+        (active_values, expired_values)
     }
 
     /// Process a vec of pull responses
@@ -411,7 +416,6 @@ impl CrdsGossipPull {
         crds: &RwLock<Crds>,
         responses: Vec<CrdsValue>,
         responses_expired_timeout: Vec<CrdsValue>,
-        failed_inserts: Vec<Hash>,
         now: u64,
         stats: &mut ProcessPullStats,
     ) {
@@ -433,23 +437,13 @@ impl CrdsGossipPull {
         for owner in owners {
             crds.update_record_timestamp(&owner, now);
         }
-        drop(crds);
-        stats.failed_insert += failed_inserts.len();
-        self.purge_failed_inserts(now);
-        let failed_inserts = failed_inserts.into_iter().zip(repeat(now));
-        self.failed_inserts.write().unwrap().extend(failed_inserts);
     }
 
     pub(crate) fn purge_failed_inserts(&self, now: u64) {
-        if FAILED_INSERTS_RETENTION_MS < now {
-            let cutoff = now - FAILED_INSERTS_RETENTION_MS;
-            let mut failed_inserts = self.failed_inserts.write().unwrap();
-            let outdated = failed_inserts
-                .iter()
-                .take_while(|(_, ts)| *ts < cutoff)
-                .count();
-            failed_inserts.drain(..outdated);
-        }
+        self.failed_inserts
+            .write()
+            .unwrap()
+            .purge(now.saturating_sub(FAILED_INSERTS_RETENTION_MS));
     }
 
     pub(crate) fn failed_inserts_size(&self) -> usize {
@@ -465,9 +459,8 @@ impl CrdsGossipPull {
         bloom_size: usize,
     ) -> Vec<CrdsFilter> {
         const PAR_MIN_LENGTH: usize = 512;
-        let failed_inserts = self.failed_inserts.read().unwrap();
-        // crds should be locked last after self.failed_inserts.
         let crds = crds.read().unwrap();
+        let failed_inserts = self.failed_inserts.read().unwrap();
         let num_items = crds.len() + crds.num_purged() + failed_inserts.len();
         let num_items = MIN_NUM_BLOOM_ITEMS.max(num_items);
         let filters = CrdsFilterSet::new(&mut rand::rng(), num_items, bloom_size);
@@ -476,16 +469,11 @@ impl CrdsGossipPull {
                 .with_min_len(PAR_MIN_LENGTH)
                 .map(|v| *v.value.hash())
                 .chain(crds.purged().with_min_len(PAR_MIN_LENGTH))
-                .chain(
-                    failed_inserts
-                        .par_iter()
-                        .with_min_len(PAR_MIN_LENGTH)
-                        .map(|(v, _)| *v),
-                )
+                .chain(failed_inserts.par_iter().with_min_len(PAR_MIN_LENGTH))
                 .for_each(|v| filters.add(v));
         });
-        drop(crds);
         drop(failed_inserts);
+        drop(crds);
         filters.into()
     }
 
@@ -1191,17 +1179,15 @@ pub(crate) mod tests {
         let stakes = HashMap::new();
         let timeouts = node.make_timeouts(node_pubkey, &stakes, Duration::default());
         let mut stats = ProcessPullStats::default();
-        let (responses, responses_expired_timeout, failed_inserts) =
+        let (responses, responses_expired_timeout) =
             node.filter_pull_responses(&node_crds, &timeouts, vec![new.clone()], 1, &mut stats);
         assert_eq!(responses, vec![new.clone()]);
         assert!(responses_expired_timeout.is_empty());
-        assert!(failed_inserts.is_empty());
 
         node.process_pull_responses(
             &node_crds,
             responses,
             responses_expired_timeout,
-            failed_inserts,
             1,
             &mut stats,
         );
@@ -1212,6 +1198,38 @@ pub(crate) mod tests {
         let entry: &VersionedCrdsValue = node_crds.get(&new.label()).unwrap();
         assert_eq!(entry.value, new);
         assert_eq!(entry.local_timestamp, 1);
+    }
+
+    #[test]
+    fn test_failed_inserts_deduplication_and_expiration() {
+        let keypair = Keypair::new();
+        let current = CrdsValue::new_unsigned(CrdsData::from(ContactInfo::new_localhost(
+            &keypair.pubkey(),
+            2,
+        )));
+        let duplicate = current.clone();
+        let mut crds = Crds::default();
+        crds.insert(current, 2, GossipRoute::LocalMessage).unwrap();
+        let crds = RwLock::new(crds);
+        let node = CrdsGossipPull::default();
+        let stakes = HashMap::new();
+        let timeouts = node.make_timeouts(Pubkey::new_unique(), &stakes, Duration::default());
+        let mut stats = ProcessPullStats::default();
+
+        let (responses, expired) = node.filter_pull_responses(
+            &crds,
+            &timeouts,
+            vec![duplicate.clone(), duplicate],
+            2,
+            &mut stats,
+        );
+        assert!(responses.is_empty());
+        assert!(expired.is_empty());
+        assert_eq!(stats.failed_insert, 2);
+        assert_eq!(node.failed_inserts_size(), 1);
+
+        node.purge_failed_inserts(FAILED_INSERTS_RETENTION_MS + 3);
+        assert_eq!(node.failed_inserts_size(), 0);
     }
 
     #[test]

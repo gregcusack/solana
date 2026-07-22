@@ -614,16 +614,11 @@ fn network_run_pull(
                         Duration::from_secs(48 * 3600),   // epoch_duration
                         &stakes,
                     );
-                    let (vers, vers_expired_timeout, failed_inserts) = node
+                    let (vers, vers_expired_timeout) = node
                         .gossip
                         .filter_pull_responses(&timeouts, rsp, now, &mut stats);
-                    node.gossip.process_pull_responses(
-                        vers,
-                        vers_expired_timeout,
-                        failed_inserts,
-                        now,
-                        &mut stats,
-                    );
+                    node.gossip
+                        .process_pull_responses(vers, vers_expired_timeout, now, &mut stats);
                     overhead += stats.failed_insert;
                     overhead += stats.failed_timeout;
                 }

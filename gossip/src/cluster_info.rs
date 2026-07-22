@@ -1842,20 +1842,16 @@ impl ClusterInfo {
     ) -> (usize, usize, usize) {
         let len = crds_values.len();
         let mut pull_stats = ProcessPullStats::default();
-        let (filtered_pulls, filtered_pulls_expired_timeout, failed_inserts) = {
+        let (filtered_pulls, filtered_pulls_expired_timeout) = {
             let _st = ScopedTimer::from(&self.stats.filter_pull_response);
             self.gossip
                 .filter_pull_responses(timeouts, crds_values, timestamp(), &mut pull_stats)
         };
-        if !filtered_pulls.is_empty()
-            || !filtered_pulls_expired_timeout.is_empty()
-            || !failed_inserts.is_empty()
-        {
+        if !filtered_pulls.is_empty() || !filtered_pulls_expired_timeout.is_empty() {
             let _st = ScopedTimer::from(&self.stats.process_pull_response);
             self.gossip.process_pull_responses(
                 filtered_pulls,
                 filtered_pulls_expired_timeout,
-                failed_inserts,
                 timestamp(),
                 &mut pull_stats,
             );
