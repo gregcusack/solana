@@ -154,6 +154,12 @@ impl CrdsGossipPush {
                 }
             }
         }
+        drop(crds);
+        let received_cache_stats = received_cache.stats_if_due();
+        drop(received_cache);
+        if let Some(stats) = received_cache_stats {
+            stats.report();
+        }
         origins
     }
 
@@ -281,6 +287,16 @@ impl CrdsGossipPush {
             cluster_size,
             nodes,
         )
+    }
+}
+
+#[cfg(test)]
+impl CrdsGossipPush {
+    pub(crate) fn received_cache_entry_stats(
+        &self,
+        origin: &Pubkey,
+    ) -> Option<(/*nodes:*/ usize, /*upserts:*/ usize)> {
+        self.received_cache.lock().unwrap().entry_stats(origin)
     }
 }
 
