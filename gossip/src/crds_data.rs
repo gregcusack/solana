@@ -31,9 +31,6 @@ const OLD_MAX_VOTES: VoteIndex = 32;
 /// Number of votes per validator to store.
 pub const MAX_VOTES: VoteIndex = 12;
 
-pub(crate) type EpochSlotsIndex = u8;
-pub(crate) const MAX_EPOCH_SLOTS: EpochSlotsIndex = 255;
-
 // Helper for deprecated types
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample, StableAbi, StableAbiSample))]
 #[derive(Serialize, Clone, Debug, PartialEq, Eq, SchemaWrite)]
@@ -97,7 +94,7 @@ pub enum CrdsData {
     LegacySnapshotHashes(Deprecated), // Deprecated
     #[allow(private_interfaces)]
     AccountsHashes(Deprecated), // Deprecated
-    EpochSlots(EpochSlotsIndex, EpochSlots),
+    EpochSlots(u8, EpochSlots),
     #[allow(private_interfaces)]
     LegacyVersion(Deprecated), // Deprecated
     #[allow(private_interfaces)]
@@ -126,12 +123,7 @@ impl Sanitize for CrdsData {
                 }
                 val.sanitize()
             }
-            CrdsData::EpochSlots(ix, val) => {
-                if *ix as usize >= MAX_EPOCH_SLOTS as usize {
-                    return Err(SanitizeError::ValueOutOfBounds);
-                }
-                val.sanitize()
-            }
+            CrdsData::EpochSlots(_, val) => val.sanitize(),
             CrdsData::DuplicateShred(ix, shred) => {
                 if *ix >= MAX_DUPLICATE_SHREDS {
                     Err(SanitizeError::ValueOutOfBounds)
@@ -176,10 +168,7 @@ impl CrdsData {
                 rng, pubkey,
             )),
             4 => CrdsData::RestartHeaviestFork(RestartHeaviestFork::new_rand(rng, pubkey)),
-            _ => CrdsData::EpochSlots(
-                rng.random_range(0..MAX_EPOCH_SLOTS),
-                EpochSlots::new_rand(rng, pubkey),
-            ),
+            _ => CrdsData::EpochSlots(rng.random(), EpochSlots::new_rand(rng, pubkey)),
         }
     }
 
@@ -730,16 +719,13 @@ mod test {
     }
 
     #[test]
-    fn test_max_epoch_slots_index() {
+    fn test_max_epoch_slots_index_is_valid() {
         let keypair = Keypair::new();
         let item = CrdsValue::new(
-            CrdsData::EpochSlots(
-                MAX_EPOCH_SLOTS,
-                EpochSlots::new(keypair.pubkey(), timestamp()),
-            ),
+            CrdsData::EpochSlots(u8::MAX, EpochSlots::new(keypair.pubkey(), timestamp())),
             &keypair,
         );
-        assert_eq!(item.sanitize(), Err(SanitizeError::ValueOutOfBounds));
+        assert_eq!(item.sanitize(), Ok(()));
     }
 
     #[test]
