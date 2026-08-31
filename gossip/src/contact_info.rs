@@ -436,6 +436,25 @@ impl ContactInfo {
         addr.port() != 0u16 && Self::is_valid_ip(addr.ip()) && socket_addr_space.check(addr)
     }
 
+    /// Returns true if all advertised UDP sockets have the same IP address as
+    /// either the gossip or serve-repair UDP socket.
+    pub(crate) fn has_consistent_udp_ip(&self) -> bool {
+        let Some(gossip_ip) = self.gossip().map(|socket| socket.ip()) else {
+            return false;
+        };
+        let serve_repair_ip = self.serve_repair(Protocol::UDP).map(|socket| socket.ip());
+        [
+            self.serve_repair(Protocol::UDP),
+            self.tpu(Protocol::UDP),
+            self.tpu_forwards(Protocol::UDP),
+            self.tpu_vote(Protocol::UDP),
+            self.tvu(Protocol::UDP),
+        ]
+        .into_iter()
+        .flatten()
+        .all(|socket| socket.ip() == gossip_ip || Some(socket.ip()) == serve_repair_ip)
+    }
+
     fn is_valid_ip(addr: IpAddr) -> bool {
         addr.is_ipv4() && !addr.is_unspecified() && !addr.is_multicast()
     }
@@ -893,6 +912,66 @@ mod tests {
         };
         let bytes = wincode::serialize(&node).unwrap();
         assert!(wincode::deserialize::<ContactInfo>(&bytes).is_err());
+    }
+
+    #[test]
+    fn test_has_consistent_udp_ip() {
+        assert!(!ContactInfo::default().has_consistent_udp_ip());
+
+        let mut node = ContactInfo::new_localhost(&Pubkey::new_unique(), 0);
+        node.set_tpu(Protocol::UDP, (Ipv4Addr::LOCALHOST, 8002))
+            .unwrap();
+        node.set_tpu_forwards(Protocol::UDP, (Ipv4Addr::LOCALHOST, 8003))
+            .unwrap();
+        assert!(node.has_consistent_udp_ip());
+
+        let serve_repair_ip = Ipv4Addr::new(127, 0, 0, 2);
+        node.set_socket(
+            SOCKET_TAG_SERVE_REPAIR,
+            SocketAddr::from((serve_repair_ip, 9000)),
+        )
+        .unwrap();
+        assert!(node.has_consistent_udp_ip());
+
+        for key in [
+            SOCKET_TAG_TPU,
+            SOCKET_TAG_TPU_FORWARDS,
+            SOCKET_TAG_TPU_VOTE,
+            SOCKET_TAG_TVU,
+        ] {
+            let mut node = node.clone();
+            node.set_socket(key, SocketAddr::from((serve_repair_ip, 9000)))
+                .unwrap();
+            assert!(node.has_consistent_udp_ip());
+
+            let other_ip = Ipv4Addr::new(127, 0, 0, 3);
+            node.set_socket(key, SocketAddr::from((other_ip, 9000)))
+                .unwrap();
+            assert!(!node.has_consistent_udp_ip());
+        }
+
+        let other_ip = Ipv4Addr::new(127, 0, 0, 3);
+        let mut node_with_other_gossip_ip = node.clone();
+        node_with_other_gossip_ip
+            .set_socket(SOCKET_TAG_GOSSIP, SocketAddr::from((other_ip, 9000)))
+            .unwrap();
+        assert!(!node_with_other_gossip_ip.has_consistent_udp_ip());
+
+        for key in [
+            SOCKET_TAG_RPC,
+            SOCKET_TAG_RPC_PUBSUB,
+            SOCKET_TAG_SERVE_REPAIR_QUIC,
+            SOCKET_TAG_TPU_FORWARDS_QUIC,
+            SOCKET_TAG_TPU_QUIC,
+            SOCKET_TAG_TPU_VOTE_QUIC,
+            SOCKET_TAG_TVU_QUIC,
+            SOCKET_TAG_ALPENGLOW,
+        ] {
+            let mut node = node.clone();
+            node.set_socket(key, SocketAddr::from((other_ip, 9000)))
+                .unwrap();
+            assert!(node.has_consistent_udp_ip());
+        }
     }
 
     #[test]
