@@ -29,6 +29,7 @@ pub mod ping_pong;
 mod protocol;
 mod push_active_set;
 mod received_cache;
+mod recent_hashes;
 pub mod restart_crds_values;
 mod sigverify_cache;
 pub mod weighted_shuffle;
