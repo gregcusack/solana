@@ -202,6 +202,7 @@ pub(crate) fn recv_from(
 
         let mut i = 0;
         let deadline = Instant::now() + max_wait;
+        let mut did_poll = false;
 
         loop {
             match recv_mmsg(socket, &mut batch[i..]) {
@@ -212,12 +213,13 @@ pub(crate) fn recv_from(
                     }
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    let timeout = if i == 0 {
+                    let timeout = if i == 0 && !did_poll {
                         // This emulates the behavior of the original `recv_from` function,
                         // where it anticipates that the first read of the socket will block for
                         // `crate::streamer::SOCKET_READ_TIMEOUT` before failing with
                         // `ErrorKind::WouldBlock`. The condition `i == 0` indicates that we are just
                         // after the initial read, which did not result in any packets being read.
+                        did_poll = true;
                         SOCKET_READ_TIMEOUT
                     } else {
                         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -304,6 +306,42 @@ mod tests {
             net::SocketAddr,
         },
     };
+
+    #[test]
+    #[cfg(unix)]
+    fn test_coalesce_exits_after_readiness_without_packets() {
+        use {
+            nix::poll::PollFlags,
+            std::{os::fd::AsFd, sync::mpsc, thread},
+        };
+
+        let recv_socket = bind_to_localhost_unique().unwrap();
+        recv_socket.set_nonblocking(true).unwrap();
+        let recv_addr = recv_socket.local_addr().unwrap();
+        let (result_sender, result_receiver) = mpsc::channel();
+        let receiver = thread::spawn(move || {
+            let mut batch = RecycledPacketBatch::with_capacity(PACKETS_PER_BATCH);
+            batch.resize(PACKETS_PER_BATCH, Packet::default());
+            // Writable readiness makes poll wake even though receiving still returns
+            // WouldBlock, reproducing a wakeup with no readable packets.
+            let mut poll_fd = [PollFd::new(recv_socket.as_fd(), PollFlags::POLLOUT)];
+            let result =
+                recv_from_impl(&mut batch, &recv_socket, Some(Duration::ZERO), &mut poll_fd);
+            result_sender.send(result).unwrap();
+        });
+
+        let result = result_receiver.recv_timeout(Duration::from_secs(1));
+        if result.is_err() {
+            // Release a receiver that incorrectly keeps polling, so a regression
+            // fails the test instead of leaving its thread spinning indefinitely.
+            bind_to_localhost_unique()
+                .unwrap()
+                .send_to(&[0], recv_addr)
+                .unwrap();
+        }
+        receiver.join().unwrap();
+        assert_eq!(result.unwrap().unwrap(), 0);
+    }
 
     #[test]
     fn test_packets_set_addr() {
