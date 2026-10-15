@@ -16,11 +16,7 @@ use {
     solana_pubkey::Pubkey,
     solana_sanitize::{Sanitize, SanitizeError},
     solana_signature::Signature,
-    std::{
-        borrow::{Borrow, Cow},
-        fmt::Debug,
-        result::Result,
-    },
+    std::{borrow::Cow, fmt::Debug, result::Result},
     wincode::{SchemaRead, SchemaWrite},
 };
 
@@ -41,8 +37,6 @@ pub(crate) const MAX_INCREMENTAL_SNAPSHOT_HASHES: usize = 25;
 /// Maximum number of origin nodes that a PruneData may contain, such that the
 /// serialized size of the PruneMessage stays below PACKET_DATA_SIZE.
 pub(crate) const MAX_PRUNE_DATA_NODES: usize = 32;
-/// Prune data prefix for PruneMessage
-const PRUNE_DATA_PREFIX: &[u8] = b"\xffSOLANA_PRUNE_DATA";
 /// Number of bytes in the randomly generated token sent with ping messages.
 const GOSSIP_PING_TOKEN_SIZE: usize = 32;
 /// Minimum serialized size of a Protocol::PullResponse packet.
@@ -163,54 +157,6 @@ impl Protocol {
     }
 }
 
-impl PruneData {
-    fn signable_data_without_prefix(&self) -> Cow<'static, [u8]> {
-        #[derive(SchemaWrite)]
-        struct SignData<'a> {
-            pubkey: &'a Pubkey,
-            prunes: &'a [Pubkey],
-            destination: &'a Pubkey,
-            wallclock: u64,
-        }
-        let data = SignData {
-            pubkey: &self.pubkey,
-            prunes: &self.prunes,
-            destination: &self.destination,
-            wallclock: self.wallclock,
-        };
-        Cow::Owned(wincode::serialize(&data).expect("should serialize PruneData"))
-    }
-
-    fn signable_data_with_prefix(&self) -> Cow<'static, [u8]> {
-        #[derive(SchemaWrite)]
-        struct SignDataWithPrefix<'a> {
-            prefix: &'a [u8],
-            pubkey: &'a Pubkey,
-            prunes: &'a [Pubkey],
-            destination: &'a Pubkey,
-            wallclock: u64,
-        }
-        let data = SignDataWithPrefix {
-            prefix: PRUNE_DATA_PREFIX,
-            pubkey: &self.pubkey,
-            prunes: &self.prunes,
-            destination: &self.destination,
-            wallclock: self.wallclock,
-        };
-        Cow::Owned(wincode::serialize(&data).expect("should serialize PruneDataWithPrefix"))
-    }
-
-    fn verify_data(&self, use_prefix: bool) -> bool {
-        let data = if !use_prefix {
-            self.signable_data_without_prefix()
-        } else {
-            self.signable_data_with_prefix()
-        };
-        self.get_signature()
-            .verify(self.pubkey().as_ref(), data.borrow())
-    }
-}
-
 impl Sanitize for Protocol {
     fn sanitize(&self) -> Result<(), SanitizeError> {
         match self {
@@ -261,8 +207,20 @@ impl Signable for PruneData {
     }
 
     fn signable_data(&self) -> Cow<'static, [u8]> {
-        // Continue to return signable data without a prefix until cluster has upgraded
-        self.signable_data_without_prefix()
+        #[derive(SchemaWrite)]
+        struct SignData<'a> {
+            pubkey: &'a Pubkey,
+            prunes: &'a [Pubkey],
+            destination: &'a Pubkey,
+            wallclock: u64,
+        }
+        let data = SignData {
+            pubkey: &self.pubkey,
+            prunes: &self.prunes,
+            destination: &self.destination,
+            wallclock: self.wallclock,
+        };
+        Cow::Owned(wincode::serialize(&data).expect("should serialize PruneData"))
     }
 
     fn get_signature(&self) -> Signature {
@@ -271,12 +229,6 @@ impl Signable for PruneData {
 
     fn set_signature(&mut self, signature: Signature) {
         self.signature = signature
-    }
-
-    // override Signable::verify default
-    fn verify(&self) -> bool {
-        // Try to verify PruneData with both prefixed and non-prefixed data
-        self.verify_data(false) || self.verify_data(true)
     }
 }
 
@@ -789,36 +741,32 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_prune_data_sign_and_verify_without_prefix() {
+    fn test_prune_data_sign_and_verify() {
         let mut rng = rand::rng();
         let keypair = Keypair::new();
-        let mut prune_data = new_rand_prune_data(&mut rng, &keypair, Some(3));
+        for num_nodes in [0, 3, MAX_PRUNE_DATA_NODES] {
+            let prune_data = new_rand_prune_data(&mut rng, &keypair, Some(num_nodes));
+            let data = wincode::serialize(&(
+                prune_data.pubkey,
+                &prune_data.prunes,
+                prune_data.destination,
+                prune_data.wallclock,
+            ))
+            .unwrap();
+            assert_eq!(prune_data.signature, keypair.sign_message(&data));
+            assert!(prune_data.verify());
 
-        prune_data.sign(&keypair);
-
-        let is_valid = prune_data.verify();
-        assert!(is_valid, "Signature should be valid without prefix");
+            let message = Protocol::PruneMessage(keypair.pubkey(), prune_data);
+            let bytes = wincode::serialize(&message).unwrap();
+            let message = deserialize_protocol(&bytes).unwrap();
+            assert_eq!(message.sanitize(), Ok(()));
+            assert!(message.verify(&SigVerifyCache::new()));
+        }
     }
 
-    #[test]
-    fn test_prune_data_sign_and_verify_with_prefix() {
-        let mut rng = rand::rng();
-        let keypair = Keypair::new();
-        let mut prune_data = new_rand_prune_data(&mut rng, &keypair, Some(3));
-
-        // Manually set the signature with prefixed data
-        let prefixed_data = prune_data.signable_data_with_prefix();
-        let signature_with_prefix = keypair.sign_message(prefixed_data.borrow());
-        prune_data.set_signature(signature_with_prefix);
-
-        let is_valid = prune_data.verify();
-        assert!(is_valid, "Signature should be valid with prefix");
-    }
-
-    // The signable bytes of PruneData are a field subset (plus, in one case, a
-    // prefix) rather than PruneData's own encoding, so no abi digest covers
-    // them. Any drift here silently breaks signature verification between
-    // versions, so pin the exact layout.
+    // The signable bytes of PruneData are a field subset rather than PruneData's
+    // own encoding, so no abi digest covers them. Any drift here silently breaks
+    // signature verification between versions, so pin the exact layout.
     #[test]
     fn test_prune_data_signable_bytes_are_fixed() {
         let prune_data = PruneData {
@@ -837,52 +785,37 @@ pub(crate) mod tests {
         expected.extend_from_slice(&[3u8; 32]); // prunes[1]
         expected.extend_from_slice(&[5u8; 32]); // destination
         expected.extend_from_slice(&0x0102_0304_0506_0708u64.to_le_bytes()); // wallclock
-        assert_eq!(
-            prune_data.signable_data_without_prefix().as_ref(),
-            expected.as_slice()
-        );
-
-        let mut expected_with_prefix = Vec::new();
-        expected_with_prefix.extend_from_slice(&(PRUNE_DATA_PREFIX.len() as u64).to_le_bytes());
-        expected_with_prefix.extend_from_slice(PRUNE_DATA_PREFIX);
-        expected_with_prefix.extend_from_slice(&expected);
-        assert_eq!(
-            prune_data.signable_data_with_prefix().as_ref(),
-            expected_with_prefix.as_slice()
-        );
+        assert_eq!(prune_data.signable_data().as_ref(), expected.as_slice());
     }
 
     #[test]
-    fn test_prune_data_verify_with_and_without_prefix() {
+    fn test_prune_data_rejects_tampering() {
         let mut rng = rand::rng();
         let keypair = Keypair::new();
-        let mut prune_data = new_rand_prune_data(&mut rng, &keypair, Some(3));
+        let prune_data = new_rand_prune_data(&mut rng, &keypair, Some(3));
+        assert!(prune_data.verify());
 
-        // Sign with non-prefixed data
-        prune_data.sign(&keypair);
-        let is_valid_non_prefixed = prune_data.verify();
-        assert!(
-            is_valid_non_prefixed,
-            "Signature should be valid without prefix"
-        );
-
-        // Save the original non-prefixed, serialized data for last check
-        let non_prefixed_data = prune_data.signable_data_without_prefix().into_owned();
-
-        // Manually set the signature with prefixed, serialized data
-        let prefixed_data = prune_data.signable_data_with_prefix();
-        let signature_with_prefix = keypair.sign_message(prefixed_data.borrow());
-        prune_data.set_signature(signature_with_prefix);
-
-        let is_valid_prefixed = prune_data.verify();
-        assert!(is_valid_prefixed, "Signature should be valid with prefix");
-
-        // Ensure prefixed and non-prefixed serialized data are different
-        let prefixed_data = prune_data.signable_data_with_prefix();
-        assert_ne!(
-            prefixed_data.as_ref(),
-            non_prefixed_data.as_slice(),
-            "Prefixed and non-prefixed serialized data should be different"
-        );
+        let mut invalid_pubkey = prune_data.clone();
+        invalid_pubkey.pubkey = Pubkey::new_unique();
+        let mut invalid_prunes = prune_data.clone();
+        invalid_prunes.prunes[0] = Pubkey::new_unique();
+        let mut invalid_destination = prune_data.clone();
+        invalid_destination.destination = Pubkey::new_unique();
+        let mut invalid_wallclock = prune_data.clone();
+        invalid_wallclock.wallclock += 1;
+        let mut invalid_signature = prune_data;
+        invalid_signature.signature = Signature::default();
+        let cache = SigVerifyCache::new();
+        for prune_data in [
+            invalid_pubkey,
+            invalid_prunes,
+            invalid_destination,
+            invalid_wallclock,
+            invalid_signature,
+        ] {
+            assert!(!prune_data.verify());
+            let message = Protocol::PruneMessage(prune_data.pubkey, prune_data);
+            assert!(!message.verify(&cache));
+        }
     }
 }
